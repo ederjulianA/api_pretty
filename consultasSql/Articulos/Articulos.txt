@@ -1,0 +1,145 @@
+1. Creación de la Vista Indexada para Existencias
+Esta vista materializa el cálculo de la existencia por artículo, utilizando WITH SCHEMABINDING y agregando la función COUNT_BIG(*) para cumplir los requisitos de una vista indexada:
+
+sql
+Copiar
+CREATE VIEW dbo.vwExistencias
+WITH SCHEMABINDING
+AS
+SELECT 
+    fk.art_sec,
+    SUM(
+         CASE 
+             WHEN fk.kar_nat = '+' THEN ISNULL(fk.kar_uni, 0)
+             WHEN fk.kar_nat = '-' THEN -ISNULL(fk.kar_uni, 0)
+             ELSE 0
+         END
+    ) AS existencia,
+    COUNT_BIG(*) AS count_big
+FROM dbo.facturakardes AS fk
+    INNER JOIN dbo.factura AS f 
+        ON fk.fac_sec = f.fac_sec
+    INNER JOIN dbo.tipo_comprobantes AS tc 
+        ON f.f_tip_cod = tc.tip_cod
+WHERE 
+    f.fac_est_fac = 'A'        -- Solo se consideran facturas Activas
+    AND tc.fue_cod <> 4        -- Excluir fuente 4
+GROUP BY fk.art_sec;
+GO
+Luego, se crea el índice único clustered para materializar la vista:
+
+sql
+Copiar
+CREATE UNIQUE CLUSTERED INDEX IDX_REACT_vwExistencias_ArtSec
+ON dbo.vwExistencias (art_sec);
+GO
+2. Índices para Optimizar la Consulta de Artículos
+a. En la tabla articulos:
+
+Estos índices ayudan a filtrar por código y nombre de artículo. Se incluye información adicional para que el índice sea covering.
+
+sql
+Copiar
+-- Índice sobre art_cod para búsquedas exactas
+CREATE NONCLUSTERED INDEX IDX_REACT_Articulos_ArtCod 
+ON dbo.articulos (art_cod);
+GO
+
+-- Índice sobre art_nom para búsquedas con LIKE
+CREATE NONCLUSTERED INDEX IDX_REACT_Articulos_ArtNom 
+ON dbo.articulos (art_nom)
+INCLUDE (art_cod, art_sec, inv_sub_gru_cod);
+GO
+b. En la tabla articulosdetalle:
+
+Este índice compuesto mejora las uniones que buscan los precios (filtrado por lista de precio).
+
+sql
+Copiar
+CREATE NONCLUSTERED INDEX IDX_REACT_ArticulosDetalle_ArtSec_LisPreCod 
+ON dbo.articulosdetalle (art_sec, lis_pre_cod)
+INCLUDE (art_bod_pre);
+GO
+c. En la tabla facturakardes:
+
+Este índice optimiza el cálculo del agregado para la existencia.
+
+sql
+Copiar
+CREATE NONCLUSTERED INDEX IDX_REACT_Facturakardes_ArtSec_KarNat 
+ON dbo.facturakardes (art_sec, kar_nat)
+INCLUDE (kar_uni);
+GO
+d. En la tabla tipo_comprobantes:
+
+Este índice ayuda a acceder rápidamente al consecutivo para facturación (además de otros usos en la unión).
+
+sql
+Copiar
+CREATE NONCLUSTERED INDEX IDX_REACT_TipoComprobantes_FueCod 
+ON dbo.tipo_comprobantes (fue_cod)
+INCLUDE (tip_con_sec);
+GO
+e. (Opcional) En la tabla inventario_subgrupo:
+
+Si aún no existe, este índice favorece el filtro y la unión por inv_gru_cod:
+
+sql
+Copiar
+CREATE NONCLUSTERED INDEX IDX_REACT_InventarioSubGrupo_inv_gru_cod 
+ON dbo.inventario_subgrupo (inv_gru_cod)
+INCLUDE (inv_sub_gru_cod, inv_sub_gru_nom);
+GO
+3. Consulta de Artículos (Versión Anterior al Tema del Filtro '11')
+Esta es la consulta que utiliza la vista indexada para obtener el cálculo de existencias y que incorpora los filtros y la paginación:
+
+sql
+Copiar
+DECLARE 
+    @codigo          VARCHAR(30)  = NULL,  -- Filtro por código de artículo
+    @nombre          VARCHAR(100) = NULL,  -- Filtro por nombre (se usa LIKE)
+    @inv_gru_cod     VARCHAR(16)  = NULL,  -- Filtro por código de grupo (categoría)
+    @inv_sub_gru_cod VARCHAR(16)  = NULL,  -- Filtro por código de subgrupo (subcategoría)
+    @tieneExistencia BIT          = NULL,  -- 1: sólo artículos con existencia > 0; 0: sin existencia; NULL: sin filtrar
+    @PageNumber      INT          = 1,     -- Número de página
+    @PageSize        INT          = 50;    -- Tamaño de página
+
+WITH ArticulosBase AS (
+    SELECT
+        a.art_sec,
+        a.art_cod,
+        a.art_nom,
+        ig.inv_gru_cod,
+        ig.inv_gru_nom AS categoria,
+        isg.inv_sub_gru_cod,
+        isg.inv_sub_gru_nom AS sub_categoria,
+        ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
+        ISNULL(ad2.art_bod_pre, 0) AS precio_mayor,
+        ISNULL(e.existencia, 0) AS existencia
+    FROM dbo.articulos a
+        INNER JOIN dbo.inventario_subgrupo isg
+            ON a.inv_sub_gru_cod = isg.inv_sub_gru_cod
+        INNER JOIN dbo.inventario_grupo ig
+            ON isg.inv_gru_cod = ig.inv_gru_cod
+        LEFT JOIN dbo.articulosdetalle ad1
+            ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
+        LEFT JOIN dbo.articulosdetalle ad2
+            ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+        LEFT JOIN dbo.vwExistencias e
+            ON a.art_sec = e.art_sec
+    WHERE 1 = 1
+      AND (@codigo IS NULL OR a.art_cod = @codigo)
+      AND (@nombre IS NULL OR a.art_nom LIKE '%' + @nombre + '%')
+      AND (@inv_gru_cod IS NULL OR ig.inv_gru_cod = @inv_gru_cod)
+      AND (@inv_sub_gru_cod IS NULL OR isg.inv_sub_gru_cod = @inv_sub_gru_cod)
+      AND (
+             @tieneExistencia IS NULL 
+             OR (@tieneExistencia = 1 AND ISNULL(e.existencia, 0) > 0)
+             OR (@tieneExistencia = 0 AND ISNULL(e.existencia, 0) = 0)
+          )
+)
+SELECT *
+FROM ArticulosBase
+ORDER BY art_nom  -- Ordenación según se requiera
+OFFSET (@PageNumber - 1) * @PageSize ROWS
+FETCH NEXT @PageSize ROWS ONLY;

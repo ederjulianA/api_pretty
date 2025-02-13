@@ -1,0 +1,812 @@
+USE [PSNOVIEMBRE2024]
+GO
+/****** Object:  Table [dbo].[ArtExi]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[ArtExi](
+	[ArtExiCod] [varchar](30) NOT NULL,
+	[ArtExiExi] [decimal](17, 2) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[ArtExiCod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[ArticuloHook]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[ArticuloHook](
+	[ArtHookCod] [nvarchar](30) NOT NULL,
+	[ArtHooName] [nvarchar](100) NOT NULL,
+	[ArtHooStok] [int] NOT NULL,
+	[ArtHookMayor] [decimal](18, 0) NOT NULL,
+	[ArtHookDetal] [decimal](18, 0) NOT NULL,
+	[ArtHookFchCrea] [datetime] NOT NULL,
+	[ArtHookFchHra] [datetime] NOT NULL,
+	[ArtHookFchMod] [datetime] NULL,
+	[ArtHookFchHraMod] [datetime] NULL,
+	[ArtHooStockSys] [int] NULL,
+	[ArtHookActualizado] [nvarchar](1) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[ArtHookCod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[articulos]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[articulos](
+	[art_sec] [varchar](30) NOT NULL,
+	[art_cod] [varchar](30) NOT NULL,
+	[art_nom] [varchar](100) NOT NULL,
+	[art_img] [varchar](200) NULL,
+	[inv_sub_gru_cod] [smallint] NOT NULL,
+	[pre_sec] [varchar](16) NOT NULL,
+	[art_img_cat] [varbinary](max) NULL,
+	[art_actualizado] [varchar](1) NULL,
+	[art_woo_id] [int] NULL,
+	[art_img_name] [varchar](100) NULL,
+	[art_img_ext] [varchar](100) NULL,
+	[art_url_img_servi] [varchar](1000) NULL,
+	[art_url_img_woo] [varchar](1000) NULL,
+	[art_url_img_azure] [varchar](1000) NULL,
+	[art_fch_act_woo] [datetime] NULL,
+	[art_fch_mod] [datetime] NULL,
+	[art_combo] [varchar](1) NULL,
+	[art_combo_val] [decimal](18, 0) NULL,
+	[art_desco] [varchar](1) NULL,
+	[art_sec_padre] [varchar](30) NULL,
+	[art_variable] [varchar](1) NULL,
+	[art_val_liq] [decimal](17, 2) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[art_sec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[articulosArmado]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[articulosArmado](
+	[art_sec] [varchar](30) NOT NULL,
+	[ComArtSec] [varchar](30) NOT NULL,
+	[ConKarUni] [int] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[art_sec] ASC,
+	[ComArtSec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[articulosdetalle]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[articulosdetalle](
+	[art_sec] [varchar](30) NOT NULL,
+	[bod_sec] [varchar](16) NOT NULL,
+	[lis_pre_cod] [smallint] NOT NULL,
+	[art_bod_exi] [decimal](17, 2) NULL,
+	[art_bod_pre] [decimal](17, 2) NULL,
+	[art_bod_pre_des] [decimal](17, 2) NULL,
+	[art_bod_fec_ini] [datetime] NULL,
+	[art_bod_fec_fin] [datetime] NULL,
+	[art_promo] [char](1) NULL,
+	[art_bod_cos_cat] [decimal](17, 2) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[art_sec] ASC,
+	[bod_sec] ASC,
+	[lis_pre_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[ArticulosWoo]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[ArticulosWoo](
+	[ArtWooCod] [varchar](30) NOT NULL,
+	[ArtWooExi] [decimal](17, 2) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[ArtWooCod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[bodegas]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[bodegas](
+	[bod_sec] [varchar](16) NOT NULL,
+	[bod_cod] [varchar](16) NOT NULL,
+	[bod_nom] [varchar](40) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[bod_sec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Carrito]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Carrito](
+	[car_token] [varchar](100) NOT NULL,
+	[car_crado] [datetime] NOT NULL,
+	[car_actualizado] [datetime] NOT NULL,
+	[car_bodega] [varchar](16) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[car_token] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Carritodetalle]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Carritodetalle](
+	[car_token] [varchar](100) NOT NULL,
+	[car_art_cod] [varchar](30) NOT NULL,
+	[car_art_qty] [smallint] NOT NULL,
+	[car_vlr_uni] [decimal](18, 0) NULL,
+	[car_vlr_total] [decimal](18, 0) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[car_token] ASC,
+	[car_art_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[CategoriasWoo]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[CategoriasWoo](
+	[CatWooSec] [smallint] IDENTITY(1,1) NOT NULL,
+	[CatWooId] [decimal](10, 0) NOT NULL,
+	[CatWooDesc] [varchar](40) NULL,
+	[CatWooParendId] [decimal](10, 0) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[CatWooSec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Ciudad]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Ciudad](
+	[ciu_cod] [varchar](5) NOT NULL,
+	[ciu_id] [varchar](5) NOT NULL,
+	[ciu_nom] [varchar](100) NOT NULL,
+	[dep_cod] [varchar](6) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[ciu_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[conceptos_anulacion]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[conceptos_anulacion](
+	[con_anu_sec] [decimal](12, 0) NOT NULL,
+	[tip_cod] [varchar](5) NOT NULL,
+	[con_anu_des] [varchar](60) NULL,
+	[con_anu_est] [char](1) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[con_anu_sec] ASC,
+	[tip_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Configuracion]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Configuracion](
+	[ConSec] [int] NOT NULL,
+	[ConUrlXampp] [varchar](250) NULL,
+	[ConUrlInv] [varchar](250) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[ConSec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Departamentos]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Departamentos](
+	[dep_cod] [varchar](6) NOT NULL,
+	[dep_id] [varchar](6) NOT NULL,
+	[dep_nom] [varchar](40) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[dep_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Empresa]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Empresa](
+	[Emp_cod] [varchar](16) NOT NULL,
+	[Emp_Dir] [varchar](100) NULL,
+	[Emp_tel] [varchar](100) NULL,
+	[Emp_logo] [varbinary](max) NULL,
+	[Emp_logo_GXI] [varchar](2048) NULL,
+	[emp_nit_sec] [varchar](16) NULL,
+	[Emp_nom] [varchar](100) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[Emp_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[factura]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[factura](
+	[fac_sec] [decimal](12, 0) NOT NULL,
+	[fac_fec] [datetime] NOT NULL,
+	[fac_tip_cod] [varchar](5) NOT NULL,
+	[nit_sec] [varchar](16) NULL,
+	[fac_nro] [varchar](15) NULL,
+	[fac_est_fac] [char](1) NULL,
+	[fac_con_pag] [smallint] NULL,
+	[fac_fec_ven] [datetime] NULL,
+	[fac_dia_gar] [smallint] NULL,
+	[fac_anu_sec] [decimal](12, 0) NULL,
+	[fac_anu_obs] [varchar](1024) NULL,
+	[fac_anu_fec] [datetime] NULL,
+	[fac_confirmada] [smallint] NULL,
+	[fac_obs] [varchar](1024) NULL,
+	[fac_obs2] [varchar](1024) NULL,
+	[fac_sec_dev] [decimal](12, 0) NULL,
+	[f_tip_cod] [varchar](5) NULL,
+	[fac_ctr_lin] [int] NULL,
+	[fac_ped_woo] [varchar](1) NULL,
+	[fac_nro_woo] [varchar](15) NULL,
+	[fac_total_woo] [decimal](17, 2) NULL,
+	[fac_status_woo] [varchar](40) NULL,
+	[fac_usu_cod_mod] [varchar](100) NULL,
+	[fac_fch_mod] [datetime] NULL,
+	[fac_fch_cre] [datetime] NULL,
+	[fac_usu_cod_cre] [varchar](100) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[fac_sec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[factura_pagoForpag]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[factura_pagoForpag](
+	[fac_sec] [decimal](12, 0) NOT NULL,
+	[fac_pag_sec] [int] NOT NULL,
+	[Tip_for_cod] [varchar](6) NOT NULL,
+	[fac_pag_fec] [datetime] NULL,
+	[fac_pag_val] [decimal](17, 2) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[fac_sec] ASC,
+	[fac_pag_sec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[factura_reciborecibos]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[factura_reciborecibos](
+	[fac_sec] [decimal](12, 0) NOT NULL,
+	[fac_rec_sec] [int] NOT NULL,
+	[fac_rec_fec] [datetime] NULL,
+	[fac_rec_val] [decimal](17, 2) NULL,
+	[fac_rec_obs] [varchar](1024) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[fac_sec] ASC,
+	[fac_rec_sec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[facturakardes]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[facturakardes](
+	[fac_sec] [decimal](12, 0) NOT NULL,
+	[kar_sec] [int] NOT NULL,
+	[art_sec] [varchar](30) NOT NULL,
+	[kar_bod_sec] [varchar](16) NOT NULL,
+	[kar_uni] [decimal](17, 2) NULL,
+	[kar_nat] [char](1) NULL,
+	[kar_pre] [decimal](17, 2) NULL,
+	[kar_pre_pub] [decimal](17, 2) NULL,
+	[kar_des_uno] [decimal](11, 5) NULL,
+	[kar_sub_tot] [decimal](17, 2) NULL,
+	[kar_total] [decimal](17, 2) NULL,
+	[kar_lis_pre_cod] [smallint] NULL,
+	[kar_fac_sec_ori] [decimal](12, 0) NULL,
+	[kar_kar_sec_ori] [int] NULL,
+	[kar_sec_tip] [varchar](2) NULL,
+	[kar_uni_sol] [decimal](17, 2) NULL,
+	[art_sec_papa] [varchar](30) NULL,
+	[kar_sec_papa] [int] NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[fac_sec] ASC,
+	[kar_sec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Formapago]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Formapago](
+	[Tip_for_cod] [varchar](6) NOT NULL,
+	[tip_for_nom] [varchar](50) NOT NULL,
+	[tip_for_pag] [varchar](3) NOT NULL,
+	[tip_for_est] [char](1) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[Tip_for_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Fotos]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Fotos](
+	[FotoSec] [decimal](12, 0) NOT NULL,
+	[FotoUrlTienda] [varchar](200) NULL,
+	[FotoNombreFile] [varchar](200) NULL,
+	[FotoExtension] [varchar](200) NULL,
+	[FotoCodigo] [varchar](200) NULL,
+	[FotoBlob] [varbinary](max) NULL,
+	[FotoImg_GXI] [varchar](2048) NULL,
+	[FotoImg] [varbinary](max) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[FotoSec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[fuentes]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[fuentes](
+	[fue_cod] [smallint] NOT NULL,
+	[fue_nom] [varchar](40) NOT NULL,
+	[fue_est] [char](1) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[fue_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[inventario_grupo]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[inventario_grupo](
+	[inv_gru_cod] [varchar](16) NOT NULL,
+	[inv_gru_id] [varchar](16) NOT NULL,
+	[inv_gru_nom] [varchar](50) NOT NULL,
+	[inv_gru_woo_id] [int] NULL,
+	[inv_gru_est] [char](1) NULL,
+	[inv_gru_orden] [smallint] NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[inv_gru_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[inventario_subgrupo]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[inventario_subgrupo](
+	[inv_sub_gru_cod] [smallint] NOT NULL,
+	[inv_gru_cod] [varchar](16) NOT NULL,
+	[inv_sub_gru_id] [varchar](16) NOT NULL,
+	[inv_sub_gru_nom] [varchar](40) NOT NULL,
+	[inv_sub_gru_woo_id] [int] NULL,
+	[inv_sub_gru_est] [char](1) NULL,
+	[inv_sub_gru_parend_woo] [int] NULL,
+	[inv_sub_gru_orden] [smallint] NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[inv_sub_gru_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[listas_precio]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[listas_precio](
+	[lis_pre_cod] [smallint] NOT NULL,
+	[lis_pre_nom] [varchar](40) NOT NULL,
+	[lis_pre_est] [char](1) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[lis_pre_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[LogEd]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[LogEd](
+	[LogSec] [decimal](18, 0) IDENTITY(1,1) NOT NULL,
+	[LogDesc] [nvarchar](max) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[LogSec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Logs]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Logs](
+	[LogsId] [decimal](18, 0) IDENTITY(1,1) NOT NULL,
+	[LogsResultado] [varchar](max) NOT NULL,
+	[LogsFch] [datetime] NOT NULL,
+	[LogsUrl] [varchar](1000) NOT NULL,
+	[LogsFacSec] [decimal](12, 0) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[LogsId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Menu]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Menu](
+	[MenuId] [varchar](500) NOT NULL,
+	[MenuTitle] [varchar](500) NOT NULL,
+	[MenuDescription] [varchar](500) NOT NULL,
+	[MenuUrl] [varchar](500) NOT NULL,
+	[MenuParentId] [varchar](500) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[MenuId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[nit]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[nit](
+	[nit_sec] [varchar](16) NOT NULL,
+	[nit_ide] [varchar](16) NOT NULL,
+	[nit_nom] [varchar](100) NOT NULL,
+	[nit_tel] [varchar](20) NULL,
+	[nit_email] [varchar](100) NULL,
+	[nit_ind_cli] [varchar](1) NULL,
+	[nit_ind_pro] [varchar](1) NULL,
+	[nit_fec_cre] [datetime] NULL,
+	[nit_dir] [varchar](100) NULL,
+	[nit_con_pag] [smallint] NULL,
+	[nit_bar] [varchar](100) NULL,
+	[nit_ciudad] [varchar](100) NULL,
+	[ciu_cod] [varchar](5) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[nit_sec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[parametros]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[parametros](
+	[par_cod] [varchar](20) NOT NULL,
+	[par_value] [varchar](max) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[par_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[presentaciones]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[presentaciones](
+	[pre_sec] [varchar](16) NOT NULL,
+	[pre_cod] [varchar](16) NOT NULL,
+	[pre_nom] [varchar](40) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[pre_sec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[pruebaBlob2]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[pruebaBlob2](
+	[pruebaId2] [smallint] IDENTITY(1,1) NOT NULL,
+	[pruebaBlob2] [varbinary](max) NOT NULL,
+	[pruebacodigo] [varchar](30) NULL,
+	[pruebaBlobType] [varchar](40) NOT NULL,
+	[pruebaBlobName] [varchar](40) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[pruebaId2] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[PruebaPrettyApi]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[PruebaPrettyApi](
+	[Prueba_api_id] [decimal](12, 0) IDENTITY(1,1) NOT NULL,
+	[Prueba_api_desc] [varchar](max) NOT NULL,
+	[Prueba_api_fec] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[Prueba_api_id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[secuencia]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[secuencia](
+	[sec_cod] [varchar](15) NOT NULL,
+	[sec_des] [varchar](40) NOT NULL,
+	[sec_num] [decimal](18, 0) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[sec_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[tipo_comprobantes]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[tipo_comprobantes](
+	[tip_cod] [varchar](5) NOT NULL,
+	[tip_nom] [varchar](100) NOT NULL,
+	[tip_lon] [smallint] NOT NULL,
+	[tip_cli] [smallint] NOT NULL,
+	[tip_est] [char](1) NOT NULL,
+	[fue_cod] [smallint] NOT NULL,
+	[tip_con_sec] [decimal](12, 0) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[tip_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Usuarios]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Usuarios](
+	[usu_cod] [varchar](100) NOT NULL,
+	[usu_nom] [varchar](40) NOT NULL,
+	[usu_email] [varchar](40) NOT NULL,
+	[usu_pass] [varchar](100) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[usu_cod] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[WooArticulos]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[WooArticulos](
+	[WooArtSec] [decimal](10, 0) NOT NULL,
+	[WooArtCod] [varchar](30) NOT NULL,
+	[WooArtNom] [varchar](60) NOT NULL,
+	[WooPrecio] [decimal](12, 0) NOT NULL,
+	[WooImagen] [varchar](1) NOT NULL,
+	[WooFechaCheck] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[WooArtSec] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[WWP_Parameter]    Script Date: 8/02/2025 3:11:58 p. m. ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[WWP_Parameter](
+	[WWPParameterKey] [nvarchar](300) NOT NULL,
+	[WWPParameterCategory] [nvarchar](200) NOT NULL,
+	[WWPParameterDescription] [nvarchar](200) NOT NULL,
+	[WWPParameterValue] [nvarchar](max) NOT NULL,
+	[WWPParameterDisableDelete] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[WWPParameterKey] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+ALTER TABLE [dbo].[articulos]  WITH CHECK ADD  CONSTRAINT [IARTICULOS1] FOREIGN KEY([inv_sub_gru_cod])
+REFERENCES [dbo].[inventario_subgrupo] ([inv_sub_gru_cod])
+GO
+ALTER TABLE [dbo].[articulos] CHECK CONSTRAINT [IARTICULOS1]
+GO
+ALTER TABLE [dbo].[articulos]  WITH CHECK ADD  CONSTRAINT [IARTICULOS2] FOREIGN KEY([pre_sec])
+REFERENCES [dbo].[presentaciones] ([pre_sec])
+GO
+ALTER TABLE [dbo].[articulos] CHECK CONSTRAINT [IARTICULOS2]
+GO
+ALTER TABLE [dbo].[articulosArmado]  WITH CHECK ADD  CONSTRAINT [IARTICULOSARMADO1] FOREIGN KEY([art_sec])
+REFERENCES [dbo].[articulos] ([art_sec])
+GO
+ALTER TABLE [dbo].[articulosArmado] CHECK CONSTRAINT [IARTICULOSARMADO1]
+GO
+ALTER TABLE [dbo].[articulosArmado]  WITH CHECK ADD  CONSTRAINT [IARTICULOSARMADO2] FOREIGN KEY([ComArtSec])
+REFERENCES [dbo].[articulos] ([art_sec])
+GO
+ALTER TABLE [dbo].[articulosArmado] CHECK CONSTRAINT [IARTICULOSARMADO2]
+GO
+ALTER TABLE [dbo].[articulosdetalle]  WITH CHECK ADD  CONSTRAINT [IARTICULOSDETALLE1] FOREIGN KEY([lis_pre_cod])
+REFERENCES [dbo].[listas_precio] ([lis_pre_cod])
+GO
+ALTER TABLE [dbo].[articulosdetalle] CHECK CONSTRAINT [IARTICULOSDETALLE1]
+GO
+ALTER TABLE [dbo].[articulosdetalle]  WITH CHECK ADD  CONSTRAINT [IARTICULOSDETALLE2] FOREIGN KEY([bod_sec])
+REFERENCES [dbo].[bodegas] ([bod_sec])
+GO
+ALTER TABLE [dbo].[articulosdetalle] CHECK CONSTRAINT [IARTICULOSDETALLE2]
+GO
+ALTER TABLE [dbo].[articulosdetalle]  WITH CHECK ADD  CONSTRAINT [IARTICULOSDETALLE3] FOREIGN KEY([art_sec])
+REFERENCES [dbo].[articulos] ([art_sec])
+GO
+ALTER TABLE [dbo].[articulosdetalle] CHECK CONSTRAINT [IARTICULOSDETALLE3]
+GO
+ALTER TABLE [dbo].[Carritodetalle]  WITH CHECK ADD  CONSTRAINT [ICARRITODETALLE1] FOREIGN KEY([car_token])
+REFERENCES [dbo].[Carrito] ([car_token])
+GO
+ALTER TABLE [dbo].[Carritodetalle] CHECK CONSTRAINT [ICARRITODETALLE1]
+GO
+ALTER TABLE [dbo].[Ciudad]  WITH CHECK ADD  CONSTRAINT [ICIUDAD1] FOREIGN KEY([dep_cod])
+REFERENCES [dbo].[Departamentos] ([dep_cod])
+GO
+ALTER TABLE [dbo].[Ciudad] CHECK CONSTRAINT [ICIUDAD1]
+GO
+ALTER TABLE [dbo].[conceptos_anulacion]  WITH CHECK ADD  CONSTRAINT [ICONCEPTOS_ANULACION1] FOREIGN KEY([tip_cod])
+REFERENCES [dbo].[tipo_comprobantes] ([tip_cod])
+GO
+ALTER TABLE [dbo].[conceptos_anulacion] CHECK CONSTRAINT [ICONCEPTOS_ANULACION1]
+GO
+ALTER TABLE [dbo].[Empresa]  WITH CHECK ADD  CONSTRAINT [IEMPRESA1] FOREIGN KEY([emp_nit_sec])
+REFERENCES [dbo].[nit] ([nit_sec])
+GO
+ALTER TABLE [dbo].[Empresa] CHECK CONSTRAINT [IEMPRESA1]
+GO
+ALTER TABLE [dbo].[factura]  WITH CHECK ADD  CONSTRAINT [IFACTURA1] FOREIGN KEY([nit_sec])
+REFERENCES [dbo].[nit] ([nit_sec])
+GO
+ALTER TABLE [dbo].[factura] CHECK CONSTRAINT [IFACTURA1]
+GO
+ALTER TABLE [dbo].[factura]  WITH CHECK ADD  CONSTRAINT [IFACTURA2] FOREIGN KEY([f_tip_cod])
+REFERENCES [dbo].[tipo_comprobantes] ([tip_cod])
+GO
+ALTER TABLE [dbo].[factura] CHECK CONSTRAINT [IFACTURA2]
+GO
+ALTER TABLE [dbo].[factura_pagoForpag]  WITH CHECK ADD  CONSTRAINT [IFACTURA_PAGOFORPAG1] FOREIGN KEY([Tip_for_cod])
+REFERENCES [dbo].[Formapago] ([Tip_for_cod])
+GO
+ALTER TABLE [dbo].[factura_pagoForpag] CHECK CONSTRAINT [IFACTURA_PAGOFORPAG1]
+GO
+ALTER TABLE [dbo].[factura_pagoForpag]  WITH CHECK ADD  CONSTRAINT [IFACTURA_PAGOFORPAG2] FOREIGN KEY([fac_sec])
+REFERENCES [dbo].[factura] ([fac_sec])
+GO
+ALTER TABLE [dbo].[factura_pagoForpag] CHECK CONSTRAINT [IFACTURA_PAGOFORPAG2]
+GO
+ALTER TABLE [dbo].[factura_reciborecibos]  WITH CHECK ADD  CONSTRAINT [IFACTURA_RECIBORECIBOS1] FOREIGN KEY([fac_sec])
+REFERENCES [dbo].[factura] ([fac_sec])
+GO
+ALTER TABLE [dbo].[factura_reciborecibos] CHECK CONSTRAINT [IFACTURA_RECIBORECIBOS1]
+GO
+ALTER TABLE [dbo].[facturakardes]  WITH CHECK ADD  CONSTRAINT [IFACTURAKARDES1] FOREIGN KEY([art_sec])
+REFERENCES [dbo].[articulos] ([art_sec])
+GO
+ALTER TABLE [dbo].[facturakardes] CHECK CONSTRAINT [IFACTURAKARDES1]
+GO
+ALTER TABLE [dbo].[facturakardes]  WITH CHECK ADD  CONSTRAINT [IFACTURAKARDES2] FOREIGN KEY([fac_sec])
+REFERENCES [dbo].[factura] ([fac_sec])
+GO
+ALTER TABLE [dbo].[facturakardes] CHECK CONSTRAINT [IFACTURAKARDES2]
+GO
+ALTER TABLE [dbo].[inventario_subgrupo]  WITH CHECK ADD  CONSTRAINT [IINVENTARIO_SUBGRUPO1] FOREIGN KEY([inv_gru_cod])
+REFERENCES [dbo].[inventario_grupo] ([inv_gru_cod])
+GO
+ALTER TABLE [dbo].[inventario_subgrupo] CHECK CONSTRAINT [IINVENTARIO_SUBGRUPO1]
+GO
+ALTER TABLE [dbo].[Menu]  WITH CHECK ADD  CONSTRAINT [IMENU1] FOREIGN KEY([MenuParentId])
+REFERENCES [dbo].[Menu] ([MenuId])
+GO
+ALTER TABLE [dbo].[Menu] CHECK CONSTRAINT [IMENU1]
+GO
+ALTER TABLE [dbo].[nit]  WITH CHECK ADD  CONSTRAINT [INIT1] FOREIGN KEY([ciu_cod])
+REFERENCES [dbo].[Ciudad] ([ciu_cod])
+GO
+ALTER TABLE [dbo].[nit] CHECK CONSTRAINT [INIT1]
+GO
+ALTER TABLE [dbo].[tipo_comprobantes]  WITH CHECK ADD  CONSTRAINT [ITIPO_COMPROBANTES1] FOREIGN KEY([fue_cod])
+REFERENCES [dbo].[fuentes] ([fue_cod])
+GO
+ALTER TABLE [dbo].[tipo_comprobantes] CHECK CONSTRAINT [ITIPO_COMPROBANTES1]
+GO
