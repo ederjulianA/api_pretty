@@ -11,6 +11,7 @@ const getOrder = async (fac_nro) => {
         fac_sec,
         fac_fec,
         fac_tip_cod,
+        fac_nro,
         f.nit_sec,
         n.nit_ide,
         n.nit_nom,
@@ -39,7 +40,7 @@ const getOrder = async (fac_nro) => {
     // Consulta para obtener el detalle del pedido utilizando fac_sec
     const detailResult = await pool.request()
       .input('fac_sec', sql.Decimal(12, 0), fac_sec)
-      .query('SELECT * FROM dbo.facturakardes WHERE fac_sec = @fac_sec ORDER BY kar_sec');
+      .query('SELECT k.kar_total, k.kar_sec,k.art_sec,a.art_cod,a.art_nom,k.kar_uni,k.kar_pre_pub FROM dbo.facturakardes k left join dbo.articulos a on a.art_sec = k.art_sec WHERE fac_sec = @fac_sec ORDER BY kar_sec');
 
     const details = detailResult.recordset;
 
