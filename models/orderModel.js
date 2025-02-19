@@ -1,7 +1,55 @@
 // models/orderModel.js
 const { sql, poolPromise } = require('../db');
 
-const createCompleteOrder = async ({ nit_sec, fac_tip_cod = 'VTA', detalles }) => {
+const getOrder = async (fac_nro) => {
+  try {
+    const pool = await poolPromise;
+
+    // Consulta para obtener el encabezado, con LEFT JOIN a nit y Ciudad
+    const headerQuery = `
+      SELECT 
+        fac_sec,
+        fac_fec,
+        fac_tip_cod,
+        f.nit_sec,
+        n.nit_ide,
+        n.nit_nom,
+        n.nit_tel,
+        n.nit_dir,
+        n.nit_email,
+        c.ciu_nom,
+        fac_est_fac,
+        fac_usu_cod_cre
+      FROM dbo.factura f  
+      LEFT JOIN dbo.nit n ON n.nit_sec = f.nit_sec
+      LEFT JOIN dbo.Ciudad c ON c.ciu_cod = n.ciu_cod
+      WHERE fac_nro = @fac_nro;
+    `;
+    const headerResult = await pool.request()
+      .input('fac_nro', sql.VarChar(15), fac_nro)
+      .query(headerQuery);
+    
+    if (headerResult.recordset.length === 0) {
+      throw new Error('Pedido no encontrado.');
+    }
+
+    const header = headerResult.recordset[0];
+    const fac_sec = header.fac_sec;
+
+    // Consulta para obtener el detalle del pedido utilizando fac_sec
+    const detailResult = await pool.request()
+      .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+      .query('SELECT * FROM dbo.facturakardes WHERE fac_sec = @fac_sec ORDER BY kar_sec');
+
+    const details = detailResult.recordset;
+
+    return { header, details };
+  } catch (error) {
+    throw error;
+  }
+};
+
+const createCompleteOrder = async ({ nit_sec,fac_usu_cod_cre, fac_tip_cod = 'VTA', detalles }) => {
   let transaction;
   try {
     const pool = await poolPromise;
@@ -51,15 +99,16 @@ const createCompleteOrder = async ({ nit_sec, fac_tip_cod = 'VTA', detalles }) =
     // 4. Insertar el encabezado en la tabla factura
     const insertHeaderQuery = `
       INSERT INTO dbo.factura 
-        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre)
+        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre,fac_usu_cod_cre)
       VALUES
-        (@NewFacSec, GETDATE(), @fac_tip_cod ,@fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE());
+        (@NewFacSec, CONVERT(date, GETDATE()), @fac_tip_cod ,@fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(),@fac_usu_cod_cre);
     `;
     await request
       .input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
       .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
       .input('nit_sec', sql.VarChar(16), nit_sec)
       .input('FinalFacNro', sql.VarChar(20), FinalFacNro)
+      .input('fac_usu_cod_cre',sql.VarChar(100),fac_usu_cod_cre)
       .query(insertHeaderQuery);
 
     // 5. Insertar cada detalle en la tabla facturakardes  
@@ -115,4 +164,4 @@ const createCompleteOrder = async ({ nit_sec, fac_tip_cod = 'VTA', detalles }) =
   }
 };
 
-module.exports = { createCompleteOrder };
+module.exports = { createCompleteOrder,getOrder };
