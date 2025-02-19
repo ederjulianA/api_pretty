@@ -1,7 +1,8 @@
-const cors = require('cors'); // Importa el paquete cors
+
 
 // index.js
 const express = require('express');
+const cors = require('cors'); // Importa el paquete cors
 const app = express();
 require('dotenv').config();
 
