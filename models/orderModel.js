@@ -40,7 +40,7 @@ const getOrder = async (fac_nro) => {
     // Consulta para obtener el detalle del pedido utilizando fac_sec
     const detailResult = await pool.request()
       .input('fac_sec', sql.Decimal(12, 0), fac_sec)
-      .query('SELECT k.kar_total, k.kar_sec,k.art_sec,a.art_cod,a.art_nom,k.kar_uni,k.kar_pre_pub FROM dbo.facturakardes k left join dbo.articulos a on a.art_sec = k.art_sec WHERE fac_sec = @fac_sec ORDER BY kar_sec');
+      .query('SELECT k.kar_total,k.kar_des_uno, k.kar_sec,k.art_sec,a.art_cod,a.art_nom,k.kar_uni,k.kar_pre_pub FROM dbo.facturakardes k left join dbo.articulos a on a.art_sec = k.art_sec WHERE fac_sec = @fac_sec ORDER BY kar_sec');
 
     const details = detailResult.recordset;
 
@@ -50,7 +50,7 @@ const getOrder = async (fac_nro) => {
   }
 };
 
-const createCompleteOrder = async ({ nit_sec,fac_usu_cod_cre, fac_tip_cod = 'VTA', detalles }) => {
+const createCompleteOrder = async ({ nit_sec,fac_usu_cod_cre, fac_tip_cod = 'VTA', detalles, descuento }) => {
   let transaction;
   try {
     const pool = await poolPromise;
@@ -134,15 +134,19 @@ const createCompleteOrder = async ({ nit_sec,fac_usu_cod_cre, fac_tip_cod = 'VTA
         insertRequest.input('art_sec', sql.VarChar(30), detalle.art_sec);
         insertRequest.input('kar_uni', sql.Decimal(17, 2), detalle.kar_uni);
         insertRequest.input('kar_pre_pub', sql.Decimal(17, 2), detalle.kar_pre_pub);
+        insertRequest.input('kar_des_uno', sql.Decimal(11, 5), descuento);
       
-        const kar_total = Number(detalle.kar_uni) * Number(detalle.kar_pre_pub);
+        let kar_total = Number(detalle.kar_uni) * Number(detalle.kar_pre_pub);
+        if (descuento > 0 ){
+          kar_total = kar_total * (1 - (descuento/100))
+        }
         insertRequest.input('kar_total', sql.Decimal(17, 2), kar_total);
       
         const insertDetailQuery = `
           INSERT INTO dbo.facturakardes
-            (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod)
+            (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod,kar_des_uno)
           VALUES
-            (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, 'c', @kar_pre_pub, @kar_total, 2)
+            (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, 'c', @kar_pre_pub, @kar_total, 2,@kar_des_uno)
         `;
         await insertRequest.query(insertDetailQuery);
       }
