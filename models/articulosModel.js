@@ -1,6 +1,39 @@
 // models/articulosModel.js
 const { sql, poolPromise } = require('../db');
 
+
+const validateArticulo = async ({ art_cod, art_woo_id }) => {
+  try {
+    const pool = await poolPromise;
+    const request = pool.request();
+
+    // Si no se proporciona ninguno, se lanza un error.
+    if (!art_cod && !art_woo_id) {
+      throw new Error("Se debe proporcionar al menos art_cod o art_woo_id.");
+    }
+
+    // Configuramos los parámetros. Si alguno no se proporciona, lo dejamos en null.
+    request.input('art_cod', sql.VarChar(50), art_cod || null);
+    request.input('art_woo_id', sql.VarChar(50), art_woo_id || null);
+
+    // Consulta: se busca cualquier registro donde se cumpla:
+    // (@art_cod IS NOT NULL AND art_cod = @art_cod) OR (@art_woo_id IS NOT NULL AND art_woo_id = @art_woo_id)
+    const query = `
+      SELECT COUNT(*) AS count 
+      FROM dbo.articulos 
+      WHERE 
+        ((@art_cod IS NOT NULL AND art_cod = @art_cod)
+         OR (@art_woo_id IS NOT NULL AND art_woo_id = @art_woo_id))
+    `;
+    const result = await request.query(query);
+    const count = result.recordset[0].count;
+    return count > 0;
+  } catch (error) {
+    throw error;
+  }
+};
+
+
 const getArticulos = async ({ codigo, nombre, inv_gru_cod, inv_sub_gru_cod, tieneExistencia, PageNumber, PageSize }) => {
   try {
     const pool = await poolPromise;
@@ -10,6 +43,7 @@ WITH ArticulosBase AS (
     SELECT
         a.art_sec,
         a.art_cod,
+        a.art_woo_id,
         a.art_nom,
         a.art_url_img_servi,
         ig.inv_gru_cod,
@@ -66,4 +100,77 @@ OPTION (RECOMPILE);
   }
 };
 
-module.exports = { getArticulos };
+const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor }) => {
+  let transaction;
+  try {
+    const pool = await poolPromise;
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    
+    // Usamos un request vinculado a la transacción
+    const request = new sql.Request(transaction);
+    
+    // 1. Obtener el nuevo consecutivo para art_sec desde la tabla secuencia
+    const seqQuery = `
+      SELECT sec_num + 1 AS NewArtSec
+      FROM dbo.secuencia WITH (UPDLOCK, HOLDLOCK)
+      WHERE sec_cod = 'ARTICULOS'
+    `;
+    const seqResult = await request.query(seqQuery);
+    if (!seqResult.recordset || seqResult.recordset.length === 0) {
+      throw new Error("No se encontró la secuencia para 'ARTICULOS'.");
+    }
+    const NewArtSec = seqResult.recordset[0].NewArtSec;
+    
+    // 2. Actualizar la secuencia para 'ARTICULOS'
+    await request
+      .input('sec_cod', sql.VarChar(50), 'ARTICULOS')
+      .query("UPDATE dbo.secuencia SET sec_num = sec_num + 1 WHERE sec_cod = @sec_cod");
+    
+    // 3. Insertar en la tabla articulos
+    const insertArticuloQuery = `
+      INSERT INTO dbo.articulos (art_sec, art_cod, art_nom, inv_sub_gru_cod, art_woo_id,pre_sec)
+      VALUES (@NewArtSec, @art_cod, @art_nom, @subcategoria, @art_woo_id,'1')
+    `;
+    await request
+      .input('NewArtSec', sql.Decimal(18, 0), NewArtSec)
+      .input('art_cod', sql.VarChar(50), art_cod)
+      .input('art_nom', sql.VarChar(250), art_nom)
+      .input('categoria', sql.VarChar(50), categoria)
+      .input('subcategoria', sql.VarChar(50), subcategoria)
+      .input('art_woo_id', sql.VarChar(50), art_woo_id)
+      .query(insertArticuloQuery);
+    
+    // 4. Insertar primer registro en articulosdetalle (Precio detall)
+    const insertDetalle1Query = `
+      INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
+      VALUES (@NewArtSec, '1', 1, @precio_detal)
+    `;
+    await request
+      .input('precio_detal', sql.Decimal(17, 2), precio_detal)
+      .query(insertDetalle1Query);
+    
+    // 5. Insertar segundo registro en articulosdetalle (Precio mayor)
+    const insertDetalle2Query = `
+      INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
+      VALUES (@NewArtSec, '1', 2, @precio_mayor)
+    `;
+    await request
+      .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
+      .query(insertDetalle2Query);
+    
+    await transaction.commit();
+    return { art_sec: NewArtSec, message: "Artículo creado exitosamente." };
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error("Error en rollback:", rollbackError);
+      }
+    }
+    throw error;
+  }
+};
+
+module.exports = { getArticulos, validateArticulo, createArticulo };
