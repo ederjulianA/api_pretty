@@ -1,6 +1,30 @@
 // controllers/articulosController.js
 const articulosModel = require('../models/articulosModel');
-const { validateArticulo , createArticulo } = require('../models/articulosModel');
+const { validateArticulo , createArticulo,getArticulo ,updateArticuloEndpoint } = require('../models/articulosModel');
+
+
+const updateArticuloEndpoint = async (req, res) => {
+  try {
+    const { id_articulo } = req.params;
+    const { art_cod, art_nom, inv_gru_cod, inv_sub_gru_cod, art_woo_id, precio_detal, precio_mayor } = req.body;
+
+    if (!id_articulo || !art_cod || !art_nom || !inv_gru_cod || !inv_sub_gru_cod || !art_woo_id || precio_detal == null || precio_mayor == null) {
+      return res.status(400).json({
+        success: false,
+        error: "Todos los campos son requeridos: art_cod, art_nom, inv_gru_cod, inv_sub_gru_cod, art_woo_id, precio_detal y precio_mayor."
+      });
+    }
+
+    const result = await updateArticulo({
+      id_articulo,
+      art_cod,
+      art_nom,
+      inv_gru_cod,
+      inv_sub_gru_cod,
+      art_woo_id,
+      precio_detal,
+      precio_mayor
+    });
 
 const createArticuloEndpoint = async (req, res) => {
   try {
