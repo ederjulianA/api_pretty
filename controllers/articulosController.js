@@ -1,17 +1,17 @@
 // controllers/articulosController.js
 const articulosModel = require('../models/articulosModel');
-const { validateArticulo , createArticulo,getArticulo ,updateArticuloEndpoint } = require('../models/articulosModel');
+const { validateArticulo , createArticulo,getArticulo ,updateArticulo  } = require('../models/articulosModel');
 
 
 const updateArticuloEndpoint = async (req, res) => {
   try {
     const { id_articulo } = req.params;
-    const { art_cod, art_nom, inv_gru_cod, inv_sub_gru_cod, art_woo_id, precio_detal, precio_mayor } = req.body;
+    const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor } = req.body;
 
-    if (!id_articulo || !art_cod || !art_nom || !inv_gru_cod || !inv_sub_gru_cod || !art_woo_id || precio_detal == null || precio_mayor == null) {
+    if (!id_articulo || !art_cod || !art_nom || !categoria || !subcategoria || !art_woo_id || precio_detal == null || precio_mayor == null) {
       return res.status(400).json({
         success: false,
-        error: "Todos los campos son requeridos: art_cod, art_nom, inv_gru_cod, inv_sub_gru_cod, art_woo_id, precio_detal y precio_mayor."
+        error: "Todos los campos son requeridos: art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal y precio_mayor."
       });
     }
 
@@ -19,13 +19,19 @@ const updateArticuloEndpoint = async (req, res) => {
       id_articulo,
       art_cod,
       art_nom,
-      inv_gru_cod,
-      inv_sub_gru_cod,
+      categoria,
+      subcategoria,
       art_woo_id,
       precio_detal,
       precio_mayor
     });
 
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error("Error al actualizar artículo:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
 const createArticuloEndpoint = async (req, res) => {
   try {
     const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor } = req.body;
@@ -88,4 +94,18 @@ const getArticulos = async (req, res) => {
   }
 };
 
-module.exports = { getArticulos, validateArticuloEndpoint, createArticuloEndpoint   };
+const getArticuloEndpoint = async (req, res) => {
+  try {
+    const { id_articulo } = req.params;
+    if (!id_articulo) {
+      return res.status(400).json({ success: false, error: "El parámetro 'id_articulo' es requerido." });
+    }
+    const articulo = await getArticulo(id_articulo);
+    return res.json({ success: true, articulo });
+  } catch (error) {
+    console.error("Error al recuperar el artículo:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+module.exports = { getArticulos, validateArticuloEndpoint, createArticuloEndpoint ,getArticuloEndpoint, updateArticuloEndpoint  };

@@ -15,7 +15,7 @@ const parametrosRoutes = require('./routes/parametrosRoutes');
 const ciudadesRoutes = require('./routes/ciudadesRoutes');
 const inventarioSubgrupoRoutes = require('./routes/inventarioSubgrupoRoutes');
 const crearArticuloRoutes = require('./routes/articulosRoutes');
-
+const editarArticuloRoutes = require('./routes/articulosRoutes');
 app.use(express.json());
 app.use(cors());
 
@@ -28,6 +28,8 @@ app.use('/api/parametros',parametrosRoutes);
 app.use('/api/ciudades', ciudadesRoutes);
 app.use('/api/subcategorias', inventarioSubgrupoRoutes);
 app.use('/api/crearArticulo', crearArticuloRoutes);
+app.use('/api/editarArticulo', editarArticuloRoutes);
+
 
 app.get('/' , (req,res)=>{
   res.send("API Working")

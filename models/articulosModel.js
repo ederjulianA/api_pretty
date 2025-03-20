@@ -1,6 +1,6 @@
 // models/articulosModel.js
 const { sql, poolPromise } = require('../db');
-
+const WooCommerceRestApi = require("@woocommerce/woocommerce-rest-api").default;
 
 const validateArticulo = async ({ art_cod, art_woo_id }) => {
   try {
@@ -32,7 +32,29 @@ const validateArticulo = async ({ art_cod, art_woo_id }) => {
     throw error;
   }
 };
-
+const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor) => {
+  try {
+    const api = new WooCommerceRestApi({
+      url: process.env.WC_URL,
+      consumerKey: process.env.WC_CONSUMER_KEY,
+      consumerSecret: process.env.WC_CONSUMER_SECRET,
+      version: "wc/v3"
+    });
+    const data = {
+      name: art_nom,
+      sku: art_cod,
+      price: precio_detal.toString(), // Enviar como cadena
+      meta_data: [
+        { key: '_precio_mayorista', value: precio_mayor }
+      ]
+    };
+    const response = await api.put(`products/${art_woo_id}`, data);
+    
+  } catch (error) {
+    
+    // Aquí podrías implementar lógica de reintento o notificar al administrador
+  }
+};
 
 const getArticulos = async ({ codigo, nombre, inv_gru_cod, inv_sub_gru_cod, tieneExistencia, PageNumber, PageSize }) => {
   try {
@@ -65,7 +87,7 @@ WITH ArticulosBase AS (
         LEFT JOIN dbo.vwExistencias e
             ON a.art_sec = e.art_sec
     WHERE 1 = 1
-      AND (@codigo IS NULL OR a.art_cod = @codigo)
+      AND (@codigo IS NULL OR a.art_cod LIKE '%' +@codigo)
       AND (@nombre IS NULL OR a.art_nom LIKE '%' + @nombre + '%')
       -- Aplicamos el filtro en la unión, pero también aquí para mayor claridad:
       AND (@inv_gru_cod IS NULL OR ig.inv_gru_cod = @inv_gru_cod)
@@ -173,4 +195,106 @@ const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, art_w
   }
 };
 
-module.exports = { getArticulos, validateArticulo, createArticulo };
+
+const getArticulo = async (art_sec) => {
+  try {
+    const pool = await poolPromise;
+    const query = `
+      SELECT 
+        a.art_sec,
+        a.art_cod,
+        a.art_nom,
+        g.inv_gru_cod,
+        s.inv_sub_gru_cod,
+        a.art_woo_id,
+        ad1.art_bod_pre AS precio_detal,
+        ad2.art_bod_pre AS precio_mayor
+      FROM dbo.articulos a
+	  LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
+	  left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
+      LEFT JOIN dbo.articulosdetalle ad1 
+        ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
+      LEFT JOIN dbo.articulosdetalle ad2 
+        ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+      WHERE a.art_sec = @art_sec
+    `;
+    const result = await pool.request()
+      .input('art_sec', sql.Decimal(18, 0), art_sec)
+      .query(query);
+
+    if (result.recordset.length === 0) {
+      throw new Error("Artículo no encontrado.");
+    }
+    return result.recordset[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor }) => {
+  let transaction;
+  try {
+    const pool = await poolPromise;
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    const request = new sql.Request(transaction);
+
+    // Actualizar la tabla articulos
+    const updateArticuloQuery = `
+      UPDATE dbo.articulos
+      SET art_cod = @art_cod,
+          art_nom = @art_nom,
+          
+          inv_sub_gru_cod = @subcategoria,
+          art_woo_id = @art_woo_id
+      WHERE art_sec = @id_articulo
+    `;
+    await request
+      .input('art_cod', sql.VarChar(50), art_cod)
+      .input('art_nom', sql.VarChar(250), art_nom)
+      .input('subcategoria', sql.Int(4), subcategoria)
+      .input('art_woo_id', sql.Int(4), art_woo_id)
+      .input('id_articulo', sql.Decimal(18, 0), id_articulo)
+      .query(updateArticuloQuery);
+
+    // Actualizar el precio detall en articulosdetalle (lista 1)
+    const updateDetalle1Query = `
+      UPDATE dbo.articulosdetalle
+      SET art_bod_pre = @precio_detal
+      WHERE art_sec = @id_articulo AND lis_pre_cod = 1
+    `;
+    await request
+      .input('precio_detal', sql.Decimal(17, 2), precio_detal)
+      .query(updateDetalle1Query);
+
+    // Actualizar el precio mayor en articulosdetalle (lista 2)
+    const updateDetalle2Query = `
+      UPDATE dbo.articulosdetalle
+      SET art_bod_pre = @precio_mayor
+      WHERE art_sec = @id_articulo AND lis_pre_cod = 2
+    `;
+    await request
+      .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
+      .query(updateDetalle2Query);
+
+    await transaction.commit();
+
+        // Actualización asíncrona en WooCommerce (no se espera para enviar la respuesta)
+        setImmediate(() => {
+          updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor);
+        });
+    return { message: "Artículo actualizado exitosamente." };
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error("Error en rollback:", rollbackError);
+      }
+    }
+    throw error;
+  }
+};
+
+module.exports = { getArticulos, validateArticulo, createArticulo,getArticulo, updateArticulo };
