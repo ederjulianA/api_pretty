@@ -88,7 +88,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 };
 
 
-const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize }) => {
+const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod }) => {
   try {
     const pool = await poolPromise;
     const request = pool.request();
@@ -102,6 +102,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
     request.input('fac_est_fac', sql.Char(1), fac_est_fac || null);
     request.input('PageNumber', sql.Int, PageNumber);
     request.input('PageSize', sql.Int, PageSize);
+    request.input('fue_cod', sql.Int, fue_cod);
 
     const query = `
 ;WITH PedidoResumen AS (
@@ -137,12 +138,11 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
     INNER JOIN dbo.tipo_comprobantes tc
         ON f.f_tip_cod = tc.tip_cod
     WHERE f.fac_fec BETWEEN @FechaDesde AND @FechaHasta
-      AND tc.fue_cod = 4
+      AND tc.fue_cod = @fue_cod
       AND (@nit_ide IS NULL OR n.nit_ide = @nit_ide)
       AND (@nit_nom IS NULL OR n.nit_nom LIKE '%' + @nit_nom + '%')
       AND (@fac_nro IS NULL OR f.fac_nro = @fac_nro)
-      AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)
-    GROUP BY 
+      AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)    GROUP BY 
         f.fac_sec, f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro,f.fac_nro_woo, f.fac_est_fac
 )
 SELECT

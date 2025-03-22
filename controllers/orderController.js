@@ -72,7 +72,8 @@ const getOrdenesEndpoint = async (req, res) => {
       fac_nro,
       fac_est_fac,
       PageNumber,
-      PageSize
+      PageSize,
+      fue_cod
     } = req.query;
 
     // Validar que se provean FechaDesde y FechaHasta
@@ -91,6 +92,7 @@ const getOrdenesEndpoint = async (req, res) => {
       nit_nom: nit_nom || null,
       fac_nro: fac_nro || null,
       fac_est_fac: fac_est_fac || null,
+      fue_cod: fue_cod || null,
       PageNumber: pageNumber,
       PageSize: pageSize
     });
