@@ -1,7 +1,7 @@
 // jobs/updateWooOrderStatusAndStock.js
 import { poolPromise, sql } from "../db.js";
 import wcPkg from "@woocommerce/woocommerce-rest-api";
-const WooCommerceRestApi = wcPkg.default;
+const WooCommerceRestApi = wcPkg.default || wcPkg;
 
 // Configura la API de WooCommerce (asegúrate de tener estas variables en tu .env)
 const wcApi = new WooCommerceRestApi({
