@@ -2,7 +2,9 @@ import { syncWooOrders } from "../jobs/syncWooOrders.js";
 
 const syncOrdersEndpoint = async (req, res) => {
   try {
-    const messages = await syncWooOrders();
+    // Extraer parámetros: status, after y before
+    const { status, after, before } = req.query;
+    const messages = await syncWooOrders(status, after, before);
     return res.json({ success: true, messages });
   } catch (error) {
     console.error("Error en la sincronización de pedidos:", error);

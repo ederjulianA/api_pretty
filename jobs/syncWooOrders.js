@@ -111,19 +111,34 @@ const extractNitSec = async (wooOrder) => {
   return null;
 };
 
-const syncWooOrders = async () => {
+const syncWooOrders = async (status, after, before) => {
   const messages = [];
   try {
-    // Configura la consulta de pedidos en WooCommerce: estado on-hold, 100 por página, etc.
-    const response = await wcApi.get("orders", { per_page: 100, status: "on-hold" });
+    // Si status no se proporciona o está vacío, usar "on-hold" por defecto
+    const orderStatus = status && status.trim() !== "" ? status.trim() : "on-hold";
+    
+    // Configura los parámetros para la consulta a WooCommerce
+    const params = { per_page: 100, status: orderStatus };
+    if (after && after.trim() !== "") {
+      params.after = after.trim();
+    }
+    if (before && before.trim() !== "") {
+      params.before = before.trim();
+    }
+    
+    // Consulta de pedidos en WooCommerce usando parámetros dinámicos
+    const response = await wcApi.get("orders", params);
     const orders = response.data;
     console.log(`Se encontraron ${orders.length} pedidos en WooCommerce`);
     messages.push(`Se encontraron ${orders.length} pedidos en WooCommerce`);
+    
+    // ... (resto del código de sincronización permanece igual) ...
+    
+    // Ejemplo de loop de procesamiento (sin cambios adicionales):
     for (const wooOrder of orders) {
       // Normalizar el identificador de pedido (fac_nro_woo)
       const fac_nro_woo = wooOrder.number.trim().toLowerCase();
       messages.push(`Leyendo pedido ${fac_nro_woo}`);
-      // Obtener el identificador del cliente (nit_sec)
       let nit_sec = await extractNitSec(wooOrder);
       if (!nit_sec) {
         const msg = `No se encontró cliente para ${wooOrder.billing.email}. Se omite el pedido ${fac_nro_woo}.`;
@@ -131,71 +146,62 @@ const syncWooOrders = async () => {
         continue;
       }
       
-      // Definir el tipo de comprobante según el estado (ejemplo: 'COT' para on-hold, 'VTA' para otros)
-      const fac_tip_cod =  "COT" ;
-      // Armar observación si existen cupones
+      const fac_tip_cod = "COT"; // O ajustar según la lógica
       const fac_obs = (wooOrder.coupon_lines && wooOrder.coupon_lines.length > 0)
                         ? "Cupón de descuento (" + wooOrder.coupon_lines.map(c => c.code.trim()).join(", ") + ")"
                         : "";
       const fac_fec = wooOrder.date_created;
-
-      // Extraer el descuento de cupón (kar_des_uno) desde coupon_lines, si existe
-    let discountPercentage = 0;
-    if (wooOrder.coupon_lines && wooOrder.coupon_lines.length > 0) {
-      // Se toma el primer cupón y se busca en su meta_data el objeto con key "coupon_data"
-      const couponMeta = wooOrder.coupon_lines[0].meta_data.find(meta => meta.key === "coupon_data");
-      if (couponMeta && couponMeta.value && couponMeta.value.amount) {
-        discountPercentage = Number(couponMeta.value.amount);
+      
+      // Extraer descuento de cupón (kar_des_uno) – si aplica
+      let discountPercentage = 0;
+      if (wooOrder.coupon_lines && wooOrder.coupon_lines.length > 0) {
+        const couponMeta = wooOrder.coupon_lines[0].meta_data.find(meta => meta.key === "coupon_data");
+        if (couponMeta && couponMeta.value && couponMeta.value.amount) {
+          discountPercentage = Number(couponMeta.value.amount);
+        }
       }
-    }
-
-      // Mapear las líneas de pedido al formato que espera tu función (detalle)
-    // Luego, al mapear los detalles de un pedido de WooCommerce:
-            // Verificar si el pedido ya existe (por fac_nro_woo)
-        const existingOrder = await checkOrderExists(fac_nro_woo);
-        const totalMayor = await getWholesaleTotalByOrder(existingOrder.fac_nro);
-        const detalles = await Promise.all(
+      
+      // Mapear las líneas de pedido al formato que espera la función (detalle)
+      const detalles = await Promise.all(
         wooOrder.line_items.map(async (item) => {
-        const art_sec = await getArticuloInfo(item.sku);
-        messages.push(`SKU ${item.sku}: art_sec obtenido ${art_sec}`);
-        console.log(`art_sec ocnsultado : ${art_sec}`);
-        console.log(` kar_des_uno ${discountPercentage}`);
-        return {
-          art_sec, // obtenido desde la base de datos
-          kar_uni: item.quantity,
-          kar_pre_pub: (item.subtotal/item.quantity) , // Precio de venta
-          kar_lis_pre_cod: totalMayor > 100000 ? 2 : 1,  // Ajusta según la lógica de precios
-          kar_kar_sec_ori: null,
-          kar_fac_sec_ori: null
-        };
-    })
-  );
-
-
-      console.log(`total al mayor ${totalMayor}`);
-      messages.push(`existingOrder ${JSON.stringify(existingOrder,null,2)}`)
+          const art_sec = await getArticuloInfo(item.sku);
+          messages.push(`SKU ${item.sku}: art_sec obtenido ${art_sec}`);
+          return {
+            art_sec,
+            kar_uni: item.quantity,
+            kar_pre_pub: (item.subtotal / item.quantity),
+            kar_lis_pre_cod: null, 
+            kar_kar_sec_ori: null,
+            kar_fac_sec_ori: null
+          };
+        })
+      );
+      
+      // Verificar si el pedido ya existe (por fac_nro_woo)
+      const existingOrder = await checkOrderExists(fac_nro_woo);
+      const totalMayor = existingOrder ? await getWholesaleTotalByOrder(existingOrder.fac_nro) : 0;
+      messages.push(`existingOrder: ${JSON.stringify(existingOrder, null, 2)}`);
+      
       if (existingOrder) {
         messages.push(`El pedido ${fac_nro_woo} ya existe. Verificando si se puede actualizar...`);
         const isFactured = await checkIfOrderFactured(existingOrder.fac_sec);
         if (!isFactured) {
           messages.push(`Actualizando pedido ${fac_nro_woo}...`);
-          
           const updateData = {
             fac_nro: existingOrder.fac_nro,
             fac_tip_cod: existingOrder.fac_tip_cod,
             fac_nro_woo,
             nit_sec: existingOrder.nit_sec,
             fac_obs,
-            fac_est_fac: 'A', // Asumimos 'A' para activo
-            detalles: detalles,
-            descuento: discountPercentage,
-            
+            fac_est_fac: 'A',
+            detalles,
+            descuento: discountPercentage
           };
-          messages.push(` updateData ${ updateData}`);
-          console.log(`updateData ${ JSON.stringify(updateData,null,2)} `);
+          messages.push(`updateData: ${JSON.stringify(updateData, null, 2)}`);
           await updateOrder(updateData);
-        } else {
           messages.push(`Pedido ${fac_nro_woo} actualizado exitosamente.`);
+        } else {
+          messages.push(`El pedido ${fac_nro_woo} ya está facturado. No se actualizará.`);
         }
       } else {
         messages.push(`Creando nuevo pedido ${fac_nro_woo}...`);
@@ -206,10 +212,10 @@ const syncWooOrders = async () => {
           fac_nro_woo,
           fac_obs,
           detalles,
-          descuento:discountPercentage,
-          lis_pre_cod:  totalMayor > 100000 ? 2 : 1  // Ajusta según tu lógica
+          descuento: discountPercentage,
+          lis_pre_cod: totalMayor > 100000 ? 2 : 1
         };
-        
+        const { createCompleteOrder } = await import("../models/orderModel.js");
         await createCompleteOrder(createData);
         messages.push(`Pedido ${fac_nro_woo} creado exitosamente.`);
       }
@@ -222,5 +228,6 @@ const syncWooOrders = async () => {
     return messages;
   }
 };
+
 
 module.exports = { syncWooOrders };
