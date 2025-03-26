@@ -1,9 +1,10 @@
 // jobs/syncWooOrders.js
 const WooCommerceRestApi = require("@woocommerce/woocommerce-rest-api").default;
 const { createCompleteOrder, updateOrder } = require("../models/orderModel");
+const { createNit } = require('../models/nitModel');
 const { poolPromise, sql } = require("../db");
 
-
+ 
 // Configuración de la API de WooCommerce usando variables de entorno
 const wcApi = new WooCommerceRestApi({
   url: process.env.WC_URL, // Ejemplo: 'https://noviembre.prettymakeupcol.com'
@@ -23,6 +24,14 @@ const getWholesalePrice = async (art_sec) => {
       WHERE art_sec = @art_sec AND lis_pre_cod = 2
     `);
   return result.recordset.length > 0 ? Number(result.recordset[0].art_bod_pre) : 0;
+};
+
+const getCiuCod = async (ciu_nom) => {
+  const pool = await poolPromise;
+  const result = await pool.request()
+    .input("ciu_nom", sql.VarChar(100), ciu_nom)
+    .query("SELECT ciu_cod FROM dbo.ciudad WHERE LTRIM(RTRIM(LOWER(ciu_nom))) = LTRIM(RTRIM(LOWER(@ciu_nom)))");
+  return result.recordset.length > 0 ? result.recordset[0].ciu_cod : '68001';
 };
 
 // Función que dado un fac_nro, obtiene el total de la compra al mayor
@@ -140,10 +149,47 @@ const syncWooOrders = async (status, after, before) => {
       const fac_nro_woo = wooOrder.number.trim().toLowerCase();
       messages.push(`Leyendo pedido ${fac_nro_woo}`);
       let nit_sec = await extractNitSec(wooOrder);
+      // Extraer el valor de cc_o_nit desde la propiedad meta_data del pedido
+      let nitIde = "";
+      if (wooOrder.meta_data && Array.isArray(wooOrder.meta_data)) {
+        const metaNit = wooOrder.meta_data.find(meta => meta.key === "cc_o_nit");
+        if (metaNit && metaNit.value) {
+          nitIde = metaNit.value;
+        }
+      }
+
+      let ciu_nom = wooOrder.billing.city;
+      const ciu_cod = await getCiuCod(ciu_nom);
+
+      console.log(`Valor de cc_o_nit: ${nitIde}`);
+
       if (!nit_sec) {
-        const msg = `No se encontró cliente para ${wooOrder.billing.email}. Se omite el pedido ${fac_nro_woo}.`;
-        messages.push(msg);
-        continue;
+        ///nit_ide, nit_nom, nit_tel, nit_email, nit_dir, ciu_cod Crear nuevo cliente con los datos de WooCommerce
+        const newCustomer = {
+          nit_ide:   nitIde,
+          nit_nom:   `${wooOrder.billing.first_name} ${wooOrder.billing.last_name}`.trim(),
+          nit_tel:   wooOrder.billing.phone || '',
+          nit_dir:   wooOrder.billing.address_1,
+          nit_email: wooOrder.billing.email,
+          ciu_cod:   ciu_cod || ''
+         
+        };
+
+        try {
+          const ObjetoNit_sec = await createNit(newCustomer);
+          nit_sec = ObjetoNit_sec.nit_sec;
+          messages.push(`Nuevo cliente creado con nit_sec: ${nit_sec}`);
+        } catch (error) {
+          const msg = `Error creando cliente para ${wooOrder.billing.email}. Se omite el pedido ${fac_nro_woo}. Error: ${error.message}`;
+          messages.push(msg);
+          continue;
+        }
+
+        if (!nit_sec) {
+          const msg = `No se pudo crear el cliente para ${wooOrder.billing.email}. Se omite el pedido ${fac_nro_woo}.`;
+          messages.push(msg);
+          continue;
+        }
       }
       
       const fac_tip_cod = "COT"; // O ajustar según la lógica
