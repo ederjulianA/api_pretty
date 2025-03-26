@@ -1,9 +1,10 @@
 // models/orderModel.js
-const { sql, poolPromise } = require('../db');
+
+import { sql, poolPromise} from "../db.js";
+import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
 
 
-
-const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento }) => {
+const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs }) => {
   let transaction;
   try {
     const pool = await poolPromise;
@@ -26,7 +27,9 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       UPDATE dbo.factura
       SET fac_tip_cod = @fac_tip_cod,
           nit_sec = @nit_sec,
-          fac_est_fac = @fac_est_fac
+          fac_est_fac = @fac_est_fac,
+          fac_nro_woo = @fac_nro_woo,
+          fac_obs     = @fac_obs
       WHERE fac_sec = @fac_sec
     `;
     await updateHeaderRequest
@@ -34,6 +37,8 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       .input('nit_sec', sql.VarChar(16), nit_sec)
       .input('fac_est_fac', sql.Char(1), fac_est_fac)
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+      .input('fac_nro_woo', sql.VarChar(15), fac_nro_woo)
+      .input('fac_obs', sql.VarChar, fac_obs)
       .query(updateHeaderQuery);
 
     // 4. Eliminar los detalles existentes para este pedido con un nuevo Request
@@ -88,7 +93,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 };
 
 
-const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod }) => {
+const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod, fac_nro_woo }) => {
   try {
     const pool = await poolPromise;
     const request = pool.request();
@@ -99,6 +104,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
     request.input('nit_ide', sql.VarChar(16), nit_ide || null);
     request.input('nit_nom', sql.VarChar(100), nit_nom || null);
     request.input('fac_nro', sql.VarChar(15), fac_nro || null);
+    request.input('fac_nro_woo', sql.VarChar(15), fac_nro_woo || null);
     request.input('fac_est_fac', sql.Char(1), fac_est_fac || null);
     request.input('PageNumber', sql.Int, PageNumber);
     request.input('PageSize', sql.Int, PageSize);
@@ -142,6 +148,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
       AND (@nit_ide IS NULL OR n.nit_ide = @nit_ide)
       AND (@nit_nom IS NULL OR n.nit_nom LIKE '%' + @nit_nom + '%')
       AND (@fac_nro IS NULL OR f.fac_nro = @fac_nro)
+       AND (@fac_nro_woo IS NULL OR f.fac_nro_woo = @fac_nro_woo)
       AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)    GROUP BY 
         f.fac_sec, f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro,f.fac_nro_woo, f.fac_est_fac
 )
@@ -182,6 +189,7 @@ const getOrder = async (fac_nro) => {
         n.nit_ide,
         n.nit_nom,
         f.fac_nro,
+        f.fac_nro_woo,
         f.fac_est_fac,
         c.ciu_nom
       FROM dbo.factura f  
@@ -233,7 +241,7 @@ const getOrder = async (fac_nro) => {
   }
 };
 
-const createCompleteOrder = async ({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod }) => {
+const createCompleteOrder = async ({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs }) => {
   let transaction;
   try {
     const pool = await poolPromise;
@@ -284,14 +292,16 @@ const createCompleteOrder = async ({ nit_sec, fac_usu_cod_cre, fac_tip_cod, deta
     // 4. Insertar el encabezado en la tabla factura
     const insertHeaderQuery = `
       INSERT INTO dbo.factura 
-        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre)
+        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs)
       VALUES
-        (@NewFacSec, CONVERT(date, GETDATE()), @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre);
+        (@NewFacSec, CONVERT(date, GETDATE()), @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo,@fac_obs);
     `;
     await request.input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
                  .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
                  .input('nit_sec', sql.VarChar(16), nit_sec)
                  .input('FinalFacNro', sql.VarChar(20), FinalFacNro)
+                 .input('fac_nro_woo', sql.VarChar(16), fac_nro_woo)
+                 .input('fac_obs', sql.VarChar, fac_obs)
                  .input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre)
                  .query(insertHeaderQuery);
 
@@ -336,6 +346,17 @@ const createCompleteOrder = async ({ nit_sec, fac_usu_cod_cre, fac_tip_cod, deta
     }
 
     await transaction.commit();
+
+     // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
+     if (fac_tip_cod === 'VTA') {
+      // Llamamos de forma asíncrona a la función que actualiza el estado del pedido y stock en WooCommerce
+      setImmediate(() => {
+        updateWooOrderStatusAndStock(fac_nro_woo, detalles)
+          .then((msgs) => console.log("WooCommerce update messages:", msgs))
+          .catch((err) => console.error("Error updating WooCommerce:", err));
+      });
+    }
+
     return { fac_sec: NewFacSec, fac_nro: FinalFacNro };
   } catch (error) {
     if (transaction) {
@@ -350,4 +371,4 @@ const createCompleteOrder = async ({ nit_sec, fac_usu_cod_cre, fac_tip_cod, deta
 };
 
 
-module.exports = { createCompleteOrder,getOrder, getOrdenes, updateOrder };
+export  { createCompleteOrder,getOrder, getOrdenes, updateOrder };

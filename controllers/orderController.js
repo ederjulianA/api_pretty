@@ -6,7 +6,7 @@ const { getOrdenes, updateOrder } = require('../models/orderModel');
 const updateOrderEndpoint = async (req, res) => {
   try {
     const { fac_nro } = req.params;
-    const { fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento } = req.body;
+    const { fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs } = req.body;
 
     if (!fac_nro || !fac_tip_cod || !nit_sec || !fac_est_fac || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
       return res.status(400).json({
@@ -26,14 +26,14 @@ const updateOrderEndpoint = async (req, res) => {
 
 const createCompleteOrder = async (req, res) => {
   try {
-    const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles,descuento, lis_pre_cod } = req.body;
+    const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles,descuento, lis_pre_cod, fac_nro_woo, fac_obs } = req.body;
 
     // Validar que se envíe el nit del cliente y al menos un detalle
     if (!nit_sec || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
       return res.status(400).json({ error: "Debe enviar 'nit_sec' y un arreglo no vacío de 'detalles'." });
     }
 
-    const result = await orderModel.createCompleteOrder({ nit_sec,fac_usu_cod_cre, fac_tip_cod, detalles, descuento,lis_pre_cod });
+    const result = await orderModel.createCompleteOrder({ nit_sec,fac_usu_cod_cre, fac_tip_cod, detalles, descuento,lis_pre_cod, fac_nro_woo, fac_obs });
     res.status(201).json({
       success: true,
       fac_sec: result.fac_sec,
@@ -70,6 +70,7 @@ const getOrdenesEndpoint = async (req, res) => {
       nit_ide,
       nit_nom,
       fac_nro,
+      fac_nro_woo,
       fac_est_fac,
       PageNumber,
       PageSize,
@@ -91,6 +92,7 @@ const getOrdenesEndpoint = async (req, res) => {
       nit_ide: nit_ide || null,
       nit_nom: nit_nom || null,
       fac_nro: fac_nro || null,
+      fac_nro_woo: fac_nro_woo || null,
       fac_est_fac: fac_est_fac || null,
       fue_cod: fue_cod || null,
       PageNumber: pageNumber,

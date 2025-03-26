@@ -87,7 +87,7 @@ WITH ArticulosBase AS (
         LEFT JOIN dbo.vwExistencias e
             ON a.art_sec = e.art_sec
     WHERE 1 = 1
-      AND (@codigo IS NULL OR a.art_cod LIKE '%' +@codigo)
+      AND (@codigo IS NULL OR a.art_cod LIKE @codigo+'%')
       AND (@nombre IS NULL OR a.art_nom LIKE '%' + @nombre + '%')
       -- Aplicamos el filtro en la unión, pero también aquí para mayor claridad:
       AND (@inv_gru_cod IS NULL OR ig.inv_gru_cod = @inv_gru_cod)
