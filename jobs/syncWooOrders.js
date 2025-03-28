@@ -127,38 +127,43 @@ const extractNitSec = async (wooOrder) => {
 
 const syncWooOrders = async (status, after, before) => {
   const messages = [];
+  const startTime = Date.now();
   try {
+    console.log(`[${new Date().toISOString()}] Iniciando sincronización de pedidos`);
     const orderStatus = status && status.trim() !== "" ? status.trim() : "on-hold";
     
     const params = { per_page: 100, status: orderStatus };
-    if (after && after.trim() !== "") {
-      params.after = after.trim();
-    }
-    if (before && before.trim() !== "") {
-      params.before = before.trim();
-    }
+    if (after && after.trim() !== "") params.after = after.trim();
+    if (before && before.trim() !== "") params.before = before.trim();
     
+    // Medición tiempo respuesta WooCommerce
+    const wooStartTime = Date.now();
     const response = await wcApi.get("orders", params);
     const orders = response.data;
+    console.log(`[${new Date().toISOString()}] WooCommerce API response time: ${Date.now() - wooStartTime}ms - Orders found: ${orders.length}`);
     messages.push(`Se encontraron ${orders.length} pedidos en WooCommerce`);
     
+    // Procesar cada orden
     for (const wooOrder of orders) {
+      const orderStartTime = Date.now();
       const fac_nro_woo = wooOrder.number.trim().toLowerCase();
-      messages.push(`Procesando pedido ${fac_nro_woo}`);
+      console.log(`\n[${new Date().toISOString()}] Iniciando procesamiento de pedido ${fac_nro_woo}`);
+      
+      // Medición tiempo búsqueda/creación cliente
+      const clientStartTime = Date.now();
       let nit_sec = await extractNitSec(wooOrder);
-
       let nitIde = "";
       if (wooOrder.meta_data && Array.isArray(wooOrder.meta_data)) {
         const metaNit = wooOrder.meta_data.find(meta => meta.key === "cc_o_nit");
-        if (metaNit && metaNit.value) {
-          nitIde = metaNit.value;
-        }
+        if (metaNit && metaNit.value) nitIde = metaNit.value;
       }
       nit_sec = await getNitSec(nitIde);
-      let ciu_nom = wooOrder.billing.city;
-      const ciu_cod = await getCiuCod(ciu_nom);
+      const ciu_cod = await getCiuCod(wooOrder.billing.city);
+      console.log(`[${new Date().toISOString()}] Tiempo búsqueda cliente: ${Date.now() - clientStartTime}ms`);
 
+      // Medición tiempo creación cliente si es necesario
       if (!nit_sec) {
+        const createClientStartTime = Date.now();
         const newCustomer = {
           nit_ide: nitIde,
           nit_nom: `${wooOrder.billing.first_name} ${wooOrder.billing.last_name}`.trim(),
@@ -171,85 +176,82 @@ const syncWooOrders = async (status, after, before) => {
         try {
           const ObjetoNit_sec = await createNit(newCustomer);
           nit_sec = ObjetoNit_sec.nit_sec;
+          console.log(`[${new Date().toISOString()}] Tiempo creación cliente: ${Date.now() - createClientStartTime}ms`);
         } catch (error) {
+          console.error(`[${new Date().toISOString()}] Error creación cliente: ${error.message}`);
           messages.push(`Error creando cliente para ${wooOrder.billing.email}. Se omite el pedido ${fac_nro_woo}`);
           continue;
         }
+      }
 
-        if (!nit_sec) {
-          messages.push(`No se pudo crear el cliente para ${wooOrder.billing.email}. Se omite el pedido ${fac_nro_woo}`);
-          continue;
-        }
-      }
-      
-      const fac_tip_cod = "COT";
-      const fac_obs = (wooOrder.coupon_lines && wooOrder.coupon_lines.length > 0)
-        ? "Cupón de descuento (" + wooOrder.coupon_lines.map(c => c.code.trim()).join(", ") + ")"
-        : "";
-      const fac_fec = wooOrder.date_created;
-      
-      let discountPercentage = 0;
-      if (wooOrder.coupon_lines && wooOrder.coupon_lines.length > 0) {
-        const couponMeta = wooOrder.coupon_lines[0].meta_data.find(meta => meta.key === "coupon_data");
-        if (couponMeta && couponMeta.value && couponMeta.value.amount) {
-          discountPercentage = Number(couponMeta.value.amount);
-        }
-      }
-      
+      // Medición tiempo procesamiento detalles
+      const detailsStartTime = Date.now();
       const detalles = await Promise.all(
-        wooOrder.line_items.map(async (item) => ({
-          art_sec: await getArticuloInfo(item.sku),
-          kar_uni: item.quantity,
-          kar_pre_pub: (item.subtotal / item.quantity),
-          kar_lis_pre_cod: null, 
-          kar_kar_sec_ori: null,
-          kar_fac_sec_ori: null
-        }))
+        wooOrder.line_items.map(async (item) => {
+          const artStartTime = Date.now();
+          const art_sec = await getArticuloInfo(item.sku);
+          console.log(`[${new Date().toISOString()}] Tiempo búsqueda artículo ${item.sku}: ${Date.now() - artStartTime}ms`);
+          return {
+            art_sec,
+            kar_uni: item.quantity,
+            kar_pre_pub: (item.subtotal / item.quantity),
+            kar_lis_pre_cod: null,
+            kar_kar_sec_ori: null,
+            kar_fac_sec_ori: null
+          };
+        })
       );
-      
+      console.log(`[${new Date().toISOString()}] Tiempo total procesamiento detalles: ${Date.now() - detailsStartTime}ms`);
+
+      // Medición tiempo verificación orden existente
+      const checkOrderStartTime = Date.now();
       const existingOrder = await checkOrderExists(fac_nro_woo);
       const totalMayor = existingOrder ? await getWholesaleTotalByOrder(existingOrder.fac_nro) : 0;
-      
+      console.log(`[${new Date().toISOString()}] Tiempo verificación orden existente: ${Date.now() - checkOrderStartTime}ms`);
+
+      // Medición tiempo actualización/creación orden
+      const saveOrderStartTime = Date.now();
       if (existingOrder) {
         const isFactured = await checkIfOrderFactured(existingOrder.fac_sec);
         if (!isFactured) {
-          const updateData = {
+          await updateOrder({
             fac_nro: existingOrder.fac_nro,
             fac_tip_cod: existingOrder.fac_tip_cod,
             fac_nro_woo,
             nit_sec: existingOrder.nit_sec,
-            fac_obs,
-            fac_fec: fac_fec,
+            fac_obs: wooOrder.coupon_lines?.length ? `Cupón: ${wooOrder.coupon_lines.map(c => c.code).join(", ")}` : "",
+            fac_fec: wooOrder.date_created,
             fac_est_fac: 'A',
             detalles,
-            descuento: discountPercentage
-          };
-          await updateOrder(updateData);
-          messages.push(`Pedido ${fac_nro_woo} actualizado exitosamente`);
-        } else {
-          messages.push(`El pedido ${fac_nro_woo} ya está facturado`);
+            descuento: wooOrder.coupon_lines?.[0]?.meta_data?.find(m => m.key === "coupon_data")?.value?.amount || 0
+          });
+          console.log(`[${new Date().toISOString()}] Tiempo actualización orden: ${Date.now() - saveOrderStartTime}ms`);
         }
       } else {
-        const createData = {
+        await createCompleteOrder({
           nit_sec,
-          fac_usu_cod_cre: wooOrder.customer_id ? String(wooOrder.customer_id) : '',
-          fac_tip_cod,
+          fac_usu_cod_cre: wooOrder.customer_id?.toString() || '',
+          fac_tip_cod: "COT",
           fac_nro_woo,
-          fac_obs,
+          fac_obs: wooOrder.coupon_lines?.length ? `Cupón: ${wooOrder.coupon_lines.map(c => c.code).join(", ")}` : "",
           detalles,
-          descuento: discountPercentage,
-          fac_fec: fac_fec,
+          descuento: wooOrder.coupon_lines?.[0]?.meta_data?.find(m => m.key === "coupon_data")?.value?.amount || 0,
+          fac_fec: wooOrder.date_created,
           lis_pre_cod: totalMayor > 100000 ? 2 : 1
-        };
-        const { createCompleteOrder } = await import("../models/orderModel.js");
-        await createCompleteOrder(createData);
-        messages.push(`Pedido ${fac_nro_woo} creado exitosamente`);
+        });
+        console.log(`[${new Date().toISOString()}] Tiempo creación orden: ${Date.now() - saveOrderStartTime}ms`);
       }
+
+      console.log(`[${new Date().toISOString()}] Tiempo total procesamiento pedido ${fac_nro_woo}: ${Date.now() - orderStartTime}ms\n`);
     }
 
-    messages.push("Sincronización de pedidos completada");
+    const totalTime = Date.now() - startTime;
+    console.log(`[${new Date().toISOString()}] Sincronización completada. Tiempo total: ${totalTime}ms`);
+    messages.push(`Sincronización completada en ${totalTime}ms`);
     return messages;
   } catch (error) {
+    const totalTime = Date.now() - startTime;
+    console.error(`[${new Date().toISOString()}] Error en sincronización después de ${totalTime}ms:`, error);
     messages.push(`Error en sincronización: ${error.message}`);
     return messages;
   }
