@@ -4,7 +4,7 @@ import { sql, poolPromise} from "../db.js";
 import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
 
 
-const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs }) => {
+const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_fec }) => {
   let transaction;
   try {
     const pool = await poolPromise;
@@ -22,24 +22,32 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     await transaction.begin();
 
     // 3. Actualizar el encabezado en la tabla factura con un nuevo Request
-    const updateHeaderRequest = new sql.Request(transaction);
     const updateHeaderQuery = `
       UPDATE dbo.factura
       SET fac_tip_cod = @fac_tip_cod,
           nit_sec = @nit_sec,
           fac_est_fac = @fac_est_fac,
           fac_nro_woo = @fac_nro_woo,
-          fac_obs     = @fac_obs
+          fac_obs = @fac_obs
+          ${fac_fec ? ', fac_fec = @fac_fec' : ''}
       WHERE fac_sec = @fac_sec
     `;
-    await updateHeaderRequest
+    
+    const updateHeaderRequest = new sql.Request(transaction);
+    updateHeaderRequest
       .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
       .input('nit_sec', sql.VarChar(16), nit_sec)
       .input('fac_est_fac', sql.Char(1), fac_est_fac)
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
       .input('fac_nro_woo', sql.VarChar(15), fac_nro_woo)
-      .input('fac_obs', sql.VarChar, fac_obs)
-      .query(updateHeaderQuery);
+      .input('fac_obs', sql.VarChar, fac_obs);
+
+    // Solo agregar el parámetro de fecha si se proporciona
+    if (fac_fec) {
+      updateHeaderRequest.input('fac_fec', sql.Date, fac_fec);
+    }
+
+    await updateHeaderRequest.query(updateHeaderQuery);
 
     // 4. Eliminar los detalles existentes para este pedido con un nuevo Request
     const deleteDetailsRequest = new sql.Request(transaction);
@@ -242,7 +250,17 @@ const getOrder = async (fac_nro) => {
   }
 };
 
-const createCompleteOrder = async ({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs }) => {
+const createCompleteOrder = async ({ 
+  nit_sec, 
+  fac_usu_cod_cre, 
+  fac_tip_cod, 
+  detalles, 
+  descuento, 
+  lis_pre_cod, 
+  fac_nro_woo, 
+  fac_obs,
+  fac_fec // Nuevo parámetro opcional
+}) => {
   let transaction;
   try {
     const pool = await poolPromise;
@@ -295,7 +313,7 @@ const createCompleteOrder = async ({ nit_sec, fac_usu_cod_cre, fac_tip_cod, deta
       INSERT INTO dbo.factura 
         (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs)
       VALUES
-        (@NewFacSec, CONVERT(date, GETDATE()), @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo,@fac_obs);
+        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs);
     `;
     await request.input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
                  .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
@@ -304,6 +322,7 @@ const createCompleteOrder = async ({ nit_sec, fac_usu_cod_cre, fac_tip_cod, deta
                  .input('fac_nro_woo', sql.VarChar(16), fac_nro_woo)
                  .input('fac_obs', sql.VarChar, fac_obs)
                  .input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre)
+                 .input('fac_fec', sql.Date, fac_fec || new Date()) // Usa la fecha proporcionada o la fecha actual
                  .query(insertHeaderQuery);
 
     // 5. Insertar cada detalle en la tabla facturakardes
