@@ -143,7 +143,8 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
         ON f.fac_sec = fd.fac_sec
     INNER JOIN dbo.tipo_comprobantes tc
         ON f.f_tip_cod = tc.tip_cod
-    WHERE f.fac_fec BETWEEN @FechaDesde AND @FechaHasta
+    WHERE f.fac_fec >= @FechaDesde
+      AND f.fac_fec <= @FechaHasta
       AND tc.fue_cod = @fue_cod
       AND (@nit_ide IS NULL OR n.nit_ide = @nit_ide)
       AND (@nit_nom IS NULL OR n.nit_nom LIKE '%' + @nit_nom + '%')
