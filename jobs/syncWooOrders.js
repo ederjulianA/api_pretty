@@ -26,6 +26,14 @@ const getWholesalePrice = async (art_sec) => {
   return result.recordset.length > 0 ? Number(result.recordset[0].art_bod_pre) : 0;
 };
 
+const getNitSec = async (nit_ide) => {
+  const pool = await poolPromise;
+  const result = await pool.request()
+    .input("nit_ide", sql.VarChar(100), nit_ide)
+    .query("SELECT nit_sec FROM dbo.nit WHERE nit_ide = @nit_ide");
+  return result.recordset.length > 0 ? result.recordset[0].nit_sec : null;
+};
+
 const getCiuCod = async (ciu_nom) => {
   const pool = await poolPromise;
   const result = await pool.request()
@@ -146,7 +154,7 @@ const syncWooOrders = async (status, after, before) => {
           nitIde = metaNit.value;
         }
       }
-
+      nit_sec = await getNitSec(nitIde);
       let ciu_nom = wooOrder.billing.city;
       const ciu_cod = await getCiuCod(ciu_nom);
 
