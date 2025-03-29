@@ -245,7 +245,6 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       UPDATE dbo.articulos
       SET art_cod = @art_cod,
           art_nom = @art_nom,
-          
           inv_sub_gru_cod = @subcategoria,
           art_woo_id = @art_woo_id
       WHERE art_sec = @id_articulo
@@ -268,22 +267,43 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       .input('precio_detal', sql.Decimal(17, 2), precio_detal)
       .query(updateDetalle1Query);
 
-    // Actualizar el precio mayor en articulosdetalle (lista 2)
-    const updateDetalle2Query = `
-      UPDATE dbo.articulosdetalle
-      SET art_bod_pre = @precio_mayor
+    // Verificar si existe el registro de precio mayor
+    const checkPrecioMayorQuery = `
+      SELECT COUNT(*) as count 
+      FROM dbo.articulosdetalle 
       WHERE art_sec = @id_articulo AND lis_pre_cod = 2
     `;
-    await request
-      .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
-      .query(updateDetalle2Query);
+    const precioMayorResult = await request.query(checkPrecioMayorQuery);
+    const precioMayorExists = precioMayorResult.recordset[0].count > 0;
+
+    if (precioMayorExists) {
+      // Si existe, actualizar
+      const updateDetalle2Query = `
+        UPDATE dbo.articulosdetalle
+        SET art_bod_pre = @precio_mayor
+        WHERE art_sec = @id_articulo AND lis_pre_cod = 2
+      `;
+      await request
+        .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
+        .query(updateDetalle2Query);
+    } else {
+      // Si no existe, insertar
+      const insertDetalle2Query = `
+        INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
+        VALUES (@id_articulo, '1', 2, @precio_mayor)
+      `;
+      await request
+        .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
+        .query(insertDetalle2Query);
+    }
 
     await transaction.commit();
 
-        // Actualización asíncrona en WooCommerce (no se espera para enviar la respuesta)
-        setImmediate(() => {
-          updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor);
-        });
+    // Actualización asíncrona en WooCommerce
+    setImmediate(() => {
+      updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor);
+    });
+
     return { message: "Artículo actualizado exitosamente." };
   } catch (error) {
     if (transaction) {
