@@ -22,6 +22,7 @@ import ordenesRoutes from "./routes/orderRoutes.js";
 import syncOrdersRoutes from "./routes/syncOrdersRoutes.js";
 import confirmOrderRoutes from "./routes/confirmOrderRoutes.js";
 
+import salesRoutes from "./routes/salesRoutes.js";
 app.use(express.json());
 app.use(cors());
 
@@ -38,7 +39,7 @@ app.use("/api/editarArticulo", editarArticuloRoutes);
 app.use("/api/ordenes", ordenesRoutes);
 app.use("/api/syncOrders", syncOrdersRoutes);
 app.use("/api/confirmOrder", confirmOrderRoutes);
-
+app.use("/api/sales", salesRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });
