@@ -78,11 +78,13 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
         .input('kar_lis_pre_cod', sql.Int, detail.kar_lis_pre_cod)
         .input('kar_des_uno', sql.Decimal(11, 5), descuento)
         .input('kar_total', sql.Decimal(17, 2), kar_total)
+        .input('kar_kar_sec_ori', sql.Int, detail.kar_kar_sec_ori)
+        .input('kar_fac_sec_ori', sql.Decimal(18, 0), detail.kar_fac_sec_ori)
         .query(`
           INSERT INTO dbo.facturakardes
-            (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod,kar_des_uno)
+            (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori)
           VALUES
-            (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @kar_lis_pre_cod,@kar_des_uno)
+            (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @kar_lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori)
         `);
     }
 
