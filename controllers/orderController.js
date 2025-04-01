@@ -16,7 +16,7 @@ const updateOrderEndpoint = async (req, res) => {
     }
 
     // Se espera que cada ítem de details tenga: art_sec, kar_uni, precio_de_venta y kar_lis_pre_cod
-    const result = await updateOrder({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento });
+    const result = await updateOrder({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo,fac_obs });
     return res.json({ success: true, ...result });
   } catch (error) {
     console.error("Error al actualizar el pedido:", error);
