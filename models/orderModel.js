@@ -4,6 +4,8 @@ import { sql, poolPromise} from "../db.js";
 import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
 
 
+
+
 const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_fec }) => {
   let transaction;
   try {
@@ -14,7 +16,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       .query('SELECT fac_sec FROM dbo.factura WHERE fac_nro = @fac_nro');
     if (headerRes.recordset.length === 0) {
       throw new Error("Pedido no encontrado.");
-    }
+    }   
     const fac_sec = headerRes.recordset[0].fac_sec;
 
     // 2. Iniciar la transacción
@@ -45,7 +47,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     // Solo agregar el parámetro de fecha si se proporciona
     if (fac_fec) {
       updateHeaderRequest.input('fac_fec', sql.Date, fac_fec);
-    }
+    }  
 
     await updateHeaderRequest.query(updateHeaderQuery);
 
@@ -407,4 +409,4 @@ const createCompleteOrder = async ({
 };
 
 
-export  { createCompleteOrder,getOrder, getOrdenes, updateOrder };
+export  { createCompleteOrder,getOrder, getOrdenes, updateOrder  };
