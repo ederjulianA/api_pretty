@@ -1,6 +1,6 @@
 // controllers/articulosController.js
 const articulosModel = require('../models/articulosModel');
-const { validateArticulo , createArticulo,getArticulo ,updateArticulo  } = require('../models/articulosModel');
+const { validateArticulo , createArticulo,getArticulo ,updateArticulo,getArticuloByArtCod  } = require('../models/articulosModel');
 
 
 const updateArticuloEndpoint = async (req, res) => {
@@ -94,6 +94,20 @@ const getArticulos = async (req, res) => {
   }
 };
 
+const getArticuloByArtCodEndPoint = async (req, res) => {
+  try {
+    const { art_cod } = req.params;
+    if(!art_cod){
+      return res.status(400).json({ success: false, error: "El parámetro 'art_cod' es requerido." });
+    }
+    const articulo = await articulosModel.getArticuloByArtCod(art_cod);
+    return res.json({ success: true, articulo });
+  } catch (error) {
+    console.error("Error al recuperar el artículo:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 const getArticuloEndpoint = async (req, res) => {
   try {
     const { id_articulo } = req.params;
@@ -108,4 +122,4 @@ const getArticuloEndpoint = async (req, res) => {
   }
 };
 
-module.exports = { getArticulos, validateArticuloEndpoint, createArticuloEndpoint ,getArticuloEndpoint, updateArticuloEndpoint  };
+module.exports = { getArticulos, validateArticuloEndpoint, createArticuloEndpoint ,getArticuloEndpoint, updateArticuloEndpoint, getArticuloByArtCodEndPoint };

@@ -18,10 +18,11 @@ import inventarioSubgrupoRoutes from "./routes/inventarioSubgrupoRoutes.js";
 // En este ejemplo se usan desde "articulosRoutes.js" pero podrías ajustarlo según tu estructura.
 import crearArticuloRoutes from "./routes/articulosRoutes.js";
 import editarArticuloRoutes from "./routes/articulosRoutes.js";
+import consultarArticuloByArtCodRoutes from "./routes/articulosRoutes.js";
 import ordenesRoutes from "./routes/orderRoutes.js";
 import syncOrdersRoutes from "./routes/syncOrdersRoutes.js";
 import confirmOrderRoutes from "./routes/confirmOrderRoutes.js";
-
+//import inventoryAdjustmentRoutes from "./routes/inventoryAdjustmentRoutes.js";
 import salesRoutes from "./routes/salesRoutes.js";
 app.use(express.json());
 app.use(cors());
@@ -40,6 +41,8 @@ app.use("/api/ordenes", ordenesRoutes);
 app.use("/api/syncOrders", syncOrdersRoutes);
 app.use("/api/confirmOrder", confirmOrderRoutes);
 app.use("/api/sales", salesRoutes);
+app.use("/api/consultarArticuloByArtCod", consultarArticuloByArtCodRoutes);
+//app.use("/api/inventoryAdjustment", inventoryAdjustmentRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });

@@ -195,7 +195,28 @@ const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, art_w
   }
 };
 
+const getArticuloByArtCod = async (art_cod) => {
+  try {
+    const pool = await poolPromise;
+    const query = `
+      SELECT a.art_sec, a.art_cod, a.art_nom, e.existencia FROM dbo.articulos a
+      left join dbo.vwExistencias e on e.art_sec = a.art_sec
+      WHERE a.art_cod = @art_cod 
+    `;
+    const result = await pool.request()
+      .input('art_cod', sql.VarChar(50), art_cod)
+      .query(query);
 
+      if (result.recordset.length === 0) {
+        throw new Error("Artículo no encontrado.");
+      }
+    console.log(result.recordset[0]);
+    return result.recordset[0];
+
+  } catch (error) {
+    throw error;
+  }
+};
 const getArticulo = async (art_sec) => {
   try {
     const pool = await poolPromise;
@@ -209,14 +230,14 @@ const getArticulo = async (art_sec) => {
         a.art_woo_id,
         ad1.art_bod_pre AS precio_detal,
         ad2.art_bod_pre AS precio_mayor
-      FROM dbo.articulos a
-	  LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
-	  left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
-      LEFT JOIN dbo.articulosdetalle ad1 
+        FROM dbo.articulos a
+	      LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
+	      left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
+        LEFT JOIN dbo.articulosdetalle ad1 
         ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
-      LEFT JOIN dbo.articulosdetalle ad2 
+        LEFT JOIN dbo.articulosdetalle ad2 
         ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
-      WHERE a.art_sec = @art_sec
+        WHERE a.art_sec = @art_sec
     `;
     const result = await pool.request()
       .input('art_sec', sql.Decimal(18, 0), art_sec)
@@ -317,4 +338,4 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
   }
 };
 
-module.exports = { getArticulos, validateArticulo, createArticulo,getArticulo, updateArticulo };
+module.exports = { getArticulos, validateArticulo, createArticulo,getArticulo, updateArticulo, getArticuloByArtCod };
