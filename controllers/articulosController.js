@@ -1,6 +1,7 @@
 // controllers/articulosController.js
 const articulosModel = require('../models/articulosModel');
 const { validateArticulo , createArticulo,getArticulo ,updateArticulo,getArticuloByArtCod  } = require('../models/articulosModel');
+ 
 
 
 const updateArticuloEndpoint = async (req, res) => {

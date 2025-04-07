@@ -37,40 +37,49 @@ const getArticleWooId = async (art_sec) => {
 const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails) => {
   let messages = [];
   try {
-    // Actualizar el estado del pedido a "processing" en WooCommerce
-    // Se asume que fac_nro_woo es el identificador del pedido en WooCommerce (o puedes mapearlo según tu sistema)
-    const orderUpdateData = { status: "processing" };
-    const orderResponse = await wcApi.put(`orders/${fac_nro_woo}`, orderUpdateData);
-    messages.push(`Pedido ${fac_nro_woo} actualizado a 'processing' en WooCommerce.`);
-    console.log("Order update response:", orderResponse.data);
+    // Solo actualizar el estado del pedido si fac_nro_woo existe
+    if (fac_nro_woo) {
+      try {
+        const orderUpdateData = { status: "processing" };
+        const orderResponse = await wcApi.put(`orders/${fac_nro_woo}`, orderUpdateData);
+        messages.push(`Pedido ${fac_nro_woo} actualizado a 'processing' en WooCommerce.`);
+        console.log("Order update response:", orderResponse.data);
+      } catch (orderError) {
+        console.error(`Error actualizando pedido ${fac_nro_woo}:`, orderError.message);
+        messages.push(`Error actualizando pedido ${fac_nro_woo}: ${orderError.message}`);
+        // No lanzamos el error aquí para permitir que continúe con la actualización del stock
+      }
+    }
 
-    // Actualizar el stock de cada artículo del pedido
+    // Actualizar el stock de cada artículo
     for (const item of orderDetails) {
-
-      // Se asume que cada item tiene art_sec y art_woo_id (el id del producto en WooCommerce)
       const art_sec = item.art_sec;
       const artWooId = await getArticleWooId(art_sec);
+      
       if (!artWooId) {
         messages.push(`No se encontró art_woo_id para art_sec: ${art_sec}.`);
         continue;
       }
-      const newStock = await getArticleStock(art_sec);
-      const productUpdateData = { stock_quantity: newStock };
+
       try {
+        const newStock = await getArticleStock(art_sec);
+        const productUpdateData = { stock_quantity: newStock };
+        
         const productResponse = await wcApi.put(`products/${artWooId}`, productUpdateData);
         messages.push(`Producto ${artWooId} actualizado con nuevo stock: ${newStock}.`);
         console.log(`Product ${artWooId} update response:`, productResponse.data);
-      } catch (error) {
-        messages.push(`Error actualizando producto ${artWooId}: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
-        console.error(`Error updating product ${artWooId}:`, error.response ? error.response.data : error.message);
+      } catch (productError) {
+        messages.push(`Error actualizando producto ${artWooId}: ${productError.message}`);
+        console.error(`Error updating product ${artWooId}:`, productError.message);
+        // Continuamos con el siguiente producto en caso de error
       }
     }
 
     return messages;
   } catch (error) {
-    messages.push(`Error actualizando pedido en WooCommerce: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
-    console.error("Error updating WooCommerce order and stock:", error.response ? error.response.data : error.message);
-    throw error;
+    console.error("Error general en updateWooOrderStatusAndStock:", error.message);
+    messages.push(`Error general: ${error.message}`);
+    return messages; // Retornamos los mensajes en lugar de lanzar el error
   }
 };
 
