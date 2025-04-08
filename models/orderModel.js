@@ -96,7 +96,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     if (fac_tip_cod === 'VTA') {
       // Llamamos de forma asíncrona a la función que actualiza el estado del pedido y stock en WooCommerce
       setImmediate(() => {
-        updateWooOrderStatusAndStock(fac_nro_woo, detalles)
+        updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec)
           .then((msgs) => console.log("WooCommerce update messages:", msgs))
           .catch((err) => console.error("Error updating WooCommerce:", err));
       });
@@ -389,7 +389,7 @@ const createCompleteOrder = async ({
      if (fac_tip_cod === 'VTA') {
       // Llamamos de forma asíncrona a la función que actualiza el estado del pedido y stock en WooCommerce
       setImmediate(() => {
-        updateWooOrderStatusAndStock(fac_nro_woo, detalles)
+        updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec)
           .then((msgs) => console.log("WooCommerce update messages:", msgs))
           .catch((err) => console.error("Error updating WooCommerce:", err));
       });

@@ -108,7 +108,7 @@ const createInventoryAdjustment = async ({
   
       // Actualizar el stock en WooCommerce
       setImmediate(() => {
-        updateWooOrderStatusAndStock(null, detalles)
+        updateWooOrderStatusAndStock(null, detalles, fac_fec)
           .then((msgs) => console.log("WooCommerce stock update messages:", msgs))
           .catch((err) => console.error("Error updating WooCommerce stock:", err));
       });
@@ -130,4 +130,188 @@ const createInventoryAdjustment = async ({
     }
   };
 
-export { createInventoryAdjustment }; 
+const updateInventoryAdjustment = async ({ 
+  fac_nro,  // Número del ajuste a actualizar
+  nit_sec, 
+  detalles,
+  fac_fec,
+  fac_obs
+}) => {
+  let transaction;
+  try {
+    const pool = await poolPromise;
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    const request = new sql.Request(transaction);
+
+    // 1. Obtener el fac_sec correspondiente al fac_nro
+    const headerRes = await request
+      .input('fac_nro', sql.VarChar(15), fac_nro)
+      .query('SELECT fac_sec, fac_tip_cod FROM dbo.factura WHERE fac_nro = @fac_nro');
+
+    if (headerRes.recordset.length === 0) {
+      throw new Error("Ajuste no encontrado.");
+    }
+
+    const fac_sec = headerRes.recordset[0].fac_sec;
+    const fac_tip_cod = headerRes.recordset[0].fac_tip_cod;
+
+    // Verificar que sea un ajuste
+    if (fac_tip_cod !== 'AJT') {
+      throw new Error("El documento no es un ajuste de inventario.");
+    }
+
+    // 2. Actualizar el encabezado
+    const updateHeaderQuery = `
+      UPDATE dbo.factura
+      SET nit_sec = @nit_sec,
+          fac_obs = @fac_obs,
+          fac_fec = @fac_fec
+      WHERE fac_sec = @fac_sec
+    `;
+    
+    await request
+      .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+      .input('nit_sec', sql.VarChar(16), nit_sec)
+      .input('fac_obs', sql.VarChar, fac_obs)
+      .input('fac_fec', sql.Date, new Date(fac_fec.split('T')[0]))
+      .query(updateHeaderQuery);
+
+    // 3. Eliminar los detalles existentes
+    await new sql.Request(transaction)
+      .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+      .query('DELETE FROM dbo.facturakardes WHERE fac_sec = @fac_sec');
+
+    // 4. Insertar los nuevos detalles
+    for (const detalle of detalles) {
+      if (!detalle.kar_nat || !['+', '-'].includes(detalle.kar_nat)) {
+        throw new Error(`Naturaleza de ajuste inválida para el artículo ${detalle.art_sec}. Debe ser '+' o '-'`);
+      }
+
+      const detailRequest = new sql.Request(transaction);
+      detailRequest.input('fac_sec', sql.Decimal(18, 0), fac_sec);
+      const karSecQuery = `
+        SELECT ISNULL(MAX(kar_sec), 0) + 1 AS NewKarSec 
+        FROM dbo.facturakardes 
+        WHERE fac_sec = @fac_sec
+      `;
+      const karSecResult = await detailRequest.query(karSecQuery);
+      const NewKarSec = karSecResult.recordset[0].NewKarSec;
+
+      const insertRequest = new sql.Request(transaction);
+      insertRequest.input('fac_sec', sql.Decimal(18, 0), fac_sec)
+        .input('NewKarSec', sql.Int, NewKarSec)
+        .input('art_sec', sql.VarChar(30), detalle.art_sec)
+        .input('kar_nat', sql.VarChar(1), detalle.kar_nat)
+        .input('kar_uni', sql.Decimal(17, 2), detalle.kar_uni)
+        .input('kar_pre_pub', sql.Decimal(17, 2), detalle.kar_pre_pub || 0);
+      
+      const insertDetailQuery = `
+        INSERT INTO dbo.facturakardes
+          (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total)
+        VALUES
+          (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_uni * @kar_pre_pub)
+      `;
+      await insertRequest.query(insertDetailQuery);
+    }
+
+    await transaction.commit();
+
+    // Actualizar el stock en WooCommerce
+    setImmediate(() => {
+      updateWooOrderStatusAndStock(null, detalles, fac_fec)
+        .then((msgs) => console.log("WooCommerce stock update messages:", msgs))
+        .catch((err) => console.error("Error updating WooCommerce stock:", err));
+    });
+
+    return { 
+      fac_sec,
+      fac_nro,
+      message: "Ajuste de inventario actualizado exitosamente" 
+    };
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error("Error en rollback:", rollbackError);
+      }
+    }
+    throw error;
+  }
+};
+
+const getAdjustment = async (fac_nro) => {
+  try {
+    const pool = await poolPromise;
+    
+    // Consulta del encabezado
+    const headerQuery = `
+      SELECT 
+        f.fac_sec,
+        f.fac_fec,
+        f.fac_tip_cod,
+        f.nit_sec,
+        n.nit_ide,
+        n.nit_nom,
+        n.nit_dir,
+        n.nit_tel,
+        n.nit_email,
+        f.fac_nro,
+        f.fac_est_fac,
+        f.fac_obs,
+        f.fac_usu_cod_cre,
+        f.fac_fch_cre
+      FROM dbo.factura f
+      LEFT JOIN dbo.nit n ON n.nit_sec = f.nit_sec
+      WHERE f.fac_nro = @fac_nro AND f.fac_tip_cod = 'AJT'
+    `;
+
+    const headerResult = await pool.request()
+      .input('fac_nro', sql.VarChar(15), fac_nro)
+      .query(headerQuery);
+    
+    if (headerResult.recordset.length === 0) {
+      throw new Error("Ajuste de inventario no encontrado.");
+    }
+    
+    const header = headerResult.recordset[0];
+    const fac_sec = header.fac_sec;
+    
+    // Consulta de los detalles
+    const detailQuery = `
+      SELECT 
+        fd.kar_sec,
+        fd.art_sec,
+        a.art_cod,
+        a.art_nom,
+        fd.kar_nat,
+        fd.kar_uni,
+        fd.kar_pre_pub,
+        fd.kar_total,
+        vw.existencia as stock_actual
+      FROM dbo.facturakardes fd
+      INNER JOIN dbo.articulos a ON fd.art_sec = a.art_sec
+      LEFT JOIN dbo.vwExistencias vw ON a.art_sec = vw.art_sec
+      WHERE fd.fac_sec = @fac_sec
+      ORDER BY fd.kar_sec
+    `;
+    
+    const detailResult = await pool.request()
+      .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+      .query(detailQuery);
+    
+    const details = detailResult.recordset;
+    
+    return { 
+      header, 
+      details,
+      message: "Ajuste de inventario recuperado exitosamente" 
+    };
+  } catch (error) {
+    throw error;
+  }
+};
+
+export { createInventoryAdjustment, updateInventoryAdjustment, getAdjustment }; 

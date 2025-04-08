@@ -24,6 +24,7 @@ import syncOrdersRoutes from "./routes/syncOrdersRoutes.js";
 import confirmOrderRoutes from "./routes/confirmOrderRoutes.js";
 import inventoryRoutes from './routes/inventoryRoutes.js';
 import salesRoutes from "./routes/salesRoutes.js";
+import proveedorRoutes from './routes/proveedorRoutes.js';
 app.use(express.json());
 app.use(cors());
 
@@ -43,6 +44,7 @@ app.use("/api/confirmOrder", confirmOrderRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/consultarArticuloByArtCod", consultarArticuloByArtCodRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api', proveedorRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });
