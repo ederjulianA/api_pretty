@@ -2,6 +2,14 @@
 const { sql, poolPromise } = require('../db');
 const WooCommerceRestApi = require("@woocommerce/woocommerce-rest-api").default;
 
+// Configura la API de WooCommerce (asegúrate de tener estas variables en tu .env)
+const wcApi = new WooCommerceRestApi({
+  url: process.env.WC_URL, 
+  consumerKey: process.env.WC_CONSUMER_KEY,
+  consumerSecret: process.env.WC_CONSUMER_SECRET,
+  version: "wc/v3"
+});
+
 const validateArticulo = async ({ art_cod, art_woo_id }) => {
   try {
     const pool = await poolPromise;
@@ -74,7 +82,9 @@ WITH ArticulosBase AS (
         isg.inv_sub_gru_nom AS sub_categoria,
         ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
         ISNULL(ad2.art_bod_pre, 0) AS precio_mayor,
-        ISNULL(e.existencia, 0) AS existencia
+        ISNULL(e.existencia, 0) AS existencia,
+        a.art_woo_sync_status,
+        a.art_woo_sync_message
     FROM dbo.articulos a
         INNER JOIN dbo.inventario_subgrupo isg
             ON a.inv_sub_gru_cod = isg.inv_sub_gru_cod
@@ -122,17 +132,18 @@ OPTION (RECOMPILE);
   }
 };
 
-const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor }) => {
+const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor }) => {
   let transaction;
+  let NewArtSec;
+
   try {
     const pool = await poolPromise;
     transaction = new sql.Transaction(pool);
     await transaction.begin();
     
-    // Usamos un request vinculado a la transacción
     const request = new sql.Request(transaction);
     
-    // 1. Obtener el nuevo consecutivo para art_sec desde la tabla secuencia
+    // 1. Obtener consecutivo
     const seqQuery = `
       SELECT sec_num + 1 AS NewArtSec
       FROM dbo.secuencia WITH (UPDLOCK, HOLDLOCK)
@@ -142,28 +153,26 @@ const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, art_w
     if (!seqResult.recordset || seqResult.recordset.length === 0) {
       throw new Error("No se encontró la secuencia para 'ARTICULOS'.");
     }
-    const NewArtSec = seqResult.recordset[0].NewArtSec;
+    NewArtSec = seqResult.recordset[0].NewArtSec; 
     
-    // 2. Actualizar la secuencia para 'ARTICULOS'
+    // 2. Actualizar secuencia
     await request
       .input('sec_cod', sql.VarChar(50), 'ARTICULOS')
       .query("UPDATE dbo.secuencia SET sec_num = sec_num + 1 WHERE sec_cod = @sec_cod");
     
-    // 3. Insertar en la tabla articulos
+    // 3. Insertar artículo local (sin status/message aún)
     const insertArticuloQuery = `
-      INSERT INTO dbo.articulos (art_sec, art_cod, art_nom, inv_sub_gru_cod, art_woo_id,pre_sec)
-      VALUES (@NewArtSec, @art_cod, @art_nom, @subcategoria, @art_woo_id,'1')
+      INSERT INTO dbo.articulos (art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec) 
+      VALUES (@NewArtSec, @art_cod, @art_nom, @subcategoria, '1') 
     `;
     await request
       .input('NewArtSec', sql.Decimal(18, 0), NewArtSec)
       .input('art_cod', sql.VarChar(50), art_cod)
       .input('art_nom', sql.VarChar(250), art_nom)
-      .input('categoria', sql.VarChar(50), categoria)
-      .input('subcategoria', sql.VarChar(50), subcategoria)
-      .input('art_woo_id', sql.VarChar(50), art_woo_id)
+      .input('subcategoria', sql.VarChar(50), subcategoria) // Asumiendo que subcategoria es el código
       .query(insertArticuloQuery);
     
-    // 4. Insertar primer registro en articulosdetalle (Precio detall)
+    // 4. Insertar precio detal
     const insertDetalle1Query = `
       INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
       VALUES (@NewArtSec, '1', 1, @precio_detal)
@@ -172,7 +181,7 @@ const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, art_w
       .input('precio_detal', sql.Decimal(17, 2), precio_detal)
       .query(insertDetalle1Query);
     
-    // 5. Insertar segundo registro en articulosdetalle (Precio mayor)
+    // 5. Insertar precio mayor
     const insertDetalle2Query = `
       INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
       VALUES (@NewArtSec, '1', 2, @precio_mayor)
@@ -181,16 +190,139 @@ const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, art_w
       .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
       .query(insertDetalle2Query);
     
-    await transaction.commit();
-    return { art_sec: NewArtSec, message: "Artículo creado exitosamente." };
+    await transaction.commit(); // Commit local exitoso
+
+    // --- Inicio: Lógica de WooCommerce Asíncrona con Estado ---
+    setImmediate(async () => {
+      let currentWooStatus = 'pending'; // Estado inicial para este intento
+      let currentWooMessage = null;
+
+      try {
+        const pool = await poolPromise; // Pool post-commit
+
+        // 6. Actualizar estado a 'pending' en BD
+        const statusPendingRequest = pool.request();
+        await statusPendingRequest
+          .input('art_sec', sql.Decimal(18, 0), NewArtSec)
+          .input('status', sql.VarChar(10), 'pending')
+          .query(`UPDATE dbo.articulos 
+                  SET art_woo_sync_status = @status, art_woo_sync_message = NULL 
+                  WHERE art_sec = @art_sec`);
+        console.log(`[Articulo ${NewArtSec}] Estado de Sync actualizado a 'pending'.`);
+
+        // 7. Obtener IDs de categoría WC
+        const catRequest = pool.request(); // Usar un request nuevo, no el de la transacción
+        catRequest.input('categoria', sql.VarChar(50), categoria);
+        catRequest.input('subcategoria', sql.VarChar(50), subcategoria);
+        const catQueryResult = await catRequest.query(`
+          SELECT inv_sub_gru_parend_woo, inv_sub_gru_woo_id 
+          FROM dbo.inventario_subgrupo 
+          WHERE inv_gru_cod = @categoria AND inv_sub_gru_cod = @subcategoria
+        `);
+
+        const categories = [];
+        if (catQueryResult.recordset.length > 0) {
+          const { inv_sub_gru_parend_woo, inv_sub_gru_woo_id } = catQueryResult.recordset[0];
+          if (inv_sub_gru_parend_woo) {
+            categories.push({ id: parseInt(inv_sub_gru_parend_woo, 10) });
+          }
+          if (inv_sub_gru_woo_id) {
+            categories.push({ id: parseInt(inv_sub_gru_woo_id, 10) });
+          }
+        } else {
+           console.warn(`No se encontraron IDs de WooCommerce para categoría ${categoria} y subcategoría ${subcategoria}. El producto se creará sin categorías.`);
+        }
+
+        // 8. Preparar datos para WooCommerce
+        const wooProductData = {
+          sku: art_cod,
+          name: art_nom,
+          regular_price: String(precio_detal), // Precio como string
+          categories: categories,
+          manage_stock: true, // <<< Asegura que WC gestione el inventario
+          // Puedes establecer un stock inicial si lo deseas, por ejemplo:
+          // stock_quantity: 0, 
+          meta_data: [
+            {
+              key: "_precio_mayorista",
+              value: String(precio_mayor) // Valor como string
+            }
+          ],
+          // Otros campos opcionales: status: 'publish' (para publicarlo directamente)
+          // status: 'publish', 
+        };
+
+        // 9. Crear producto en WooCommerce
+        console.log(`[Articulo ${NewArtSec}] Enviando datos a WooCommerce:`, JSON.stringify(wooProductData, null, 2));
+        const response = await wcApi.post("products", wooProductData);
+        const wooProductId = response.data.id; // Obtener el ID del producto creado
+        console.log(`[Articulo ${NewArtSec}] Producto creado en WooCommerce con ID: ${wooProductId}`);
+        currentWooStatus = 'success'; // Marcar como éxito
+
+        // 10. Actualizar art_woo_id y estado 'success' en BD local
+        if (wooProductId) {
+          const updateSuccessRequest = pool.request();
+          await updateSuccessRequest
+            .input('art_woo_id', sql.VarChar(50), String(wooProductId))
+            .input('status', sql.VarChar(10), 'success')
+            .input('art_sec', sql.Decimal(18, 0), NewArtSec)
+            .query(`UPDATE dbo.articulos 
+                    SET art_woo_id = @art_woo_id, 
+                        art_woo_sync_status = @status, 
+                        art_woo_sync_message = NULL 
+                    WHERE art_sec = @art_sec`);
+          console.log(`[Articulo ${NewArtSec}] art_woo_id y estado 'success' actualizados en BD.`);
+        } else {
+          // Caso raro: WooCommerce no devolvió ID pero no lanzó error
+          currentWooStatus = 'error';
+          currentWooMessage = 'WooCommerce no devolvió un ID de producto tras la creación.';
+          console.error(`[Articulo ${NewArtSec}] ${currentWooMessage}`);
+          // Se actualizará el estado a error en el bloque finally
+        }
+
+      } catch (wooError) {
+        currentWooStatus = 'error'; // Marcar como error
+        // Intentar obtener el mensaje de error específico de la respuesta de WC
+        currentWooMessage = wooError.response?.data?.message || wooError.message || 'Error desconocido durante la sincronización con WooCommerce.';
+        console.error(`[Articulo ${NewArtSec}] Error durante la integración con WooCommerce: ${currentWooMessage}`);
+        // El estado y mensaje se actualizarán en el bloque finally
+      } finally {
+        // 11. Asegurar la actualización final del estado (éxito o error)
+        if (currentWooStatus === 'error') {
+          try {
+            const pool = await poolPromise;
+            const updateErrorRequest = pool.request();
+            await updateErrorRequest
+              .input('status', sql.VarChar(10), currentWooStatus)
+              .input('message', sql.VarChar(sql.MAX), currentWooMessage.substring(0, 4000)) // Limitar longitud por si acaso
+              .input('art_sec', sql.Decimal(18, 0), NewArtSec)
+              .query(`UPDATE dbo.articulos 
+                      SET art_woo_sync_status = @status, art_woo_sync_message = @message 
+                      WHERE art_sec = @art_sec`);
+            console.log(`[Articulo ${NewArtSec}] Estado de Sync actualizado a '${currentWooStatus}'.`);
+          } catch (updateDbError) {
+            console.error(`[Articulo ${NewArtSec}] Fallo CRÍTICO al intentar actualizar estado de error en BD: ${updateDbError.message}`);
+            // Aquí podrías loguear a un sistema de monitoreo externo
+          }
+        }
+        // Si el estado es 'success', ya se actualizó en el bloque try.
+        // Si el estado es 'pending', significa que algo falló antes de intentar la sync (poco probable aquí), se quedaría en 'pending'.
+      }
+    });
+    // --- Fin: Lógica de WooCommerce ---
+
+    return { art_sec: NewArtSec, message: "Artículo creado localmente. Sincronización con WooCommerce iniciada." };
+
   } catch (error) {
-    if (transaction) {
+    if (transaction && transaction._aborted === false && transaction._committed === false) { // Verificar si la transacción está activa
       try {
         await transaction.rollback();
+        console.log("Rollback realizado.");
       } catch (rollbackError) {
         console.error("Error en rollback:", rollbackError);
       }
     }
+    console.error("Error en createArticulo (transacción principal):", error);
     throw error;
   }
 };
@@ -199,7 +331,14 @@ const getArticuloByArtCod = async (art_cod) => {
   try {
     const pool = await poolPromise;
     const query = `
-      SELECT a.art_sec, a.art_cod, a.art_nom, e.existencia FROM dbo.articulos a
+      SELECT 
+        a.art_sec, 
+        a.art_cod, 
+        a.art_nom, 
+        e.existencia,
+        a.art_woo_sync_status,
+        a.art_woo_sync_message
+      FROM dbo.articulos a
       left join dbo.vwExistencias e on e.art_sec = a.art_sec
       WHERE a.art_cod = @art_cod 
     `;
@@ -229,7 +368,9 @@ const getArticulo = async (art_sec) => {
         s.inv_sub_gru_cod,
         a.art_woo_id,
         ad1.art_bod_pre AS precio_detal,
-        ad2.art_bod_pre AS precio_mayor
+        ad2.art_bod_pre AS precio_mayor,
+        a.art_woo_sync_status,
+        a.art_woo_sync_message
         FROM dbo.articulos a
 	      LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
 	      left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
@@ -338,4 +479,4 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
   }
 };
 
-module.exports = { getArticulos, validateArticulo, createArticulo,getArticulo, updateArticulo, getArticuloByArtCod };
+module.exports = { getArticulos, validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod };
