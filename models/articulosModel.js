@@ -40,7 +40,7 @@ const validateArticulo = async ({ art_cod, art_woo_id }) => {
     throw error;
   }
 };
-const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor) => {
+const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor , imagenes = []) => {
   try {
     const api = new WooCommerceRestApi({
       url: process.env.WC_URL,
@@ -56,8 +56,43 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
         { key: '_precio_mayorista', value: precio_mayor }
       ]
     };
-    const response = await api.put(`products/${art_woo_id}`, data);
+
+        // Agregar imágenes si están disponibles
+        if (imagenes && imagenes.length > 0) {
+          const wooImages = imagenes.map((imagen, index) => {
+            if (typeof imagen === 'string' && (imagen.startsWith('http://') || imagen.startsWith('https://'))) {
+              return { src: imagen, position: index };
+            } else if (typeof imagen === 'object' && imagen.src) {
+              return {
+                src: imagen.src,
+                alt: imagen.alt || `${art_nom} - Imagen ${index + 1}`,
+                position: index
+              };
+            } else {
+              console.warn(`Formato de imagen no reconocido en posición ${index} para actualización:`, imagen);
+              return null;
+            }
+          }).filter(img => img !== null);
     
+          if (wooImages.length > 0) {
+            data.images = wooImages;
+            console.log(`Actualizando ${wooImages.length} imágenes para el producto ${art_woo_id}`);
+          }
+        }
+
+    const response = await api.put(`products/${art_woo_id}`, data);
+        // Si hay imágenes en la respuesta y necesitamos actualizar la URL local
+    if (response.data.images && response.data.images.length > 0) {
+      const imagenPrincipalUrl = response.data.images[0].src;
+      const pool = await poolPromise;
+      await pool.request()
+        .input('art_woo_id', sql.VarChar(50), String(art_woo_id))
+        .input('art_url_img_servi', sql.VarChar(500), imagenPrincipalUrl)
+        .query(`UPDATE dbo.articulos 
+                SET art_url_img_servi = @art_url_img_servi
+                WHERE art_woo_id = @art_woo_id`);
+      console.log(`URL de imagen principal actualizada para producto con ID ${art_woo_id}`);
+    }
   } catch (error) {
     
     // Aquí podrías implementar lógica de reintento o notificar al administrador
@@ -132,7 +167,7 @@ OPTION (RECOMPILE);
   }
 };
 
-const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor }) => {
+const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor, imagenes = []   }) => {
   let transaction;
   let NewArtSec;
 
@@ -252,6 +287,35 @@ const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, preci
           // status: 'publish', 
         };
 
+             // Agregar imágenes si están disponibles
+             if (imagenes && imagenes.length > 0) {
+              // Preparar el formato de imágenes para WooCommerce
+              const wooImages = imagenes.map((imagen, index) => {
+                // Si la imagen es una URL completa
+                if (typeof imagen === 'string' && (imagen.startsWith('http://') || imagen.startsWith('https://'))) {
+                  return { src: imagen, position: index };
+                }
+                // Si la imagen es un objeto con propiedades específicas (por ejemplo, { src: 'url', alt: 'texto' })
+                else if (typeof imagen === 'object' && imagen.src) {
+                  return {
+                    src: imagen.src,
+                    alt: imagen.alt || `${art_nom} - Imagen ${index + 1}`,
+                    position: index
+                  };
+                }
+                // Si la imagen es otro formato, registrar advertencia y saltarla
+                else {
+                  console.warn(`[Articulo ${NewArtSec}] Formato de imagen no reconocido en posición ${index}:`, imagen);
+                  return null;
+                }
+              }).filter(img => img !== null); // Eliminar entradas nulas
+    
+              if (wooImages.length > 0) {
+                wooProductData.images = wooImages;
+                console.log(`[Articulo ${NewArtSec}] Agregando ${wooImages.length} imágenes al producto`);
+              }
+            }
+
         // 9. Crear producto en WooCommerce
         console.log(`[Articulo ${NewArtSec}] Enviando datos a WooCommerce:`, JSON.stringify(wooProductData, null, 2));
         const response = await wcApi.post("products", wooProductData);
@@ -266,12 +330,14 @@ const createArticulo = async ({ art_cod, art_nom, categoria, subcategoria, preci
             .input('art_woo_id', sql.VarChar(50), String(wooProductId))
             .input('status', sql.VarChar(10), 'success')
             .input('art_sec', sql.Decimal(18, 0), NewArtSec)
+            .input('art_url_img_servi', sql.VarChar(500), imagenPrincipalUrl) // Guardar URL de imagen principal
             .query(`UPDATE dbo.articulos 
                     SET art_woo_id = @art_woo_id, 
                         art_woo_sync_status = @status, 
-                        art_woo_sync_message = NULL 
+                        art_woo_sync_message = NULL,
+                        art_url_img_servi = @art_url_img_servi
                     WHERE art_sec = @art_sec`);
-          console.log(`[Articulo ${NewArtSec}] art_woo_id y estado 'success' actualizados en BD.`);
+          console.log(`[Articulo ${NewArtSec}] art_woo_id, estado 'success' y URL de imagen actualizados en BD.`);
         } else {
           // Caso raro: WooCommerce no devolvió ID pero no lanzó error
           currentWooStatus = 'error';
