@@ -35,19 +35,14 @@ const updateArticuloEndpoint = async (req, res) => {
 };
 const createArticuloEndpoint = async (req, res) => {
   try {
-    const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, imagenes } = req.body;
+    const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor } = req.body;
     
     // Validar que se envíen todos los campos requeridos
     if (!art_cod || !art_nom || !categoria || !subcategoria || !art_woo_id || precio_detal == null || precio_mayor == null) {
-      return res.status(400).json({ success: false, error: "eddd Todos los campos son requeridos: art_cod, art_nom, inv_gru_cod, inv_sub_gru_cod, art_woo_id, precio_detal y precio_mayor." });
+      return res.status(400).json({ success: false, error: "Todos los campos son requeridos: art_cod, art_nom, inv_gru_cod, inv_sub_gru_cod, art_woo_id, precio_detal y precio_mayor." });
     }
-
-       // Validación de imágenes (opcional)
-       if (imagenes && !Array.isArray(imagenes)) {
-        return res.status(400).json({ error: 'El campo "imagenes" debe ser un array' });
-      }
     
-    const result = await createArticulo({ art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor,imagenes });
+    const result = await createArticulo({ art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
     console.error("Error al crear artículo:", error);
