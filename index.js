@@ -2,6 +2,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import fileUpload from "express-fileupload";
 dotenv.config();
 
 const app = express();
@@ -25,8 +26,15 @@ import confirmOrderRoutes from "./routes/confirmOrderRoutes.js";
 import inventoryRoutes from './routes/inventoryRoutes.js';
 import salesRoutes from "./routes/salesRoutes.js";
 import proveedorRoutes from './routes/proveedorRoutes.js';
+
 app.use(express.json());
 app.use(cors());
+app.use(fileUpload({
+  createParentPath: true,
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB max file(s) size
+  },
+}));
 
 app.use("/api/categorias", inventarioGrupoRoutes);
 app.use("/api/articulos", articulosRoutes);
