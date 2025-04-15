@@ -33,6 +33,7 @@ const updateArticuloEndpoint = async (req, res) => {
 };
 
 const createArticuloEndpoint = async (req, res) => {
+  //COMENTARIO PARA ACTUALIZAR DEPLOY
   try {
     const { art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor } = req.body;
 
