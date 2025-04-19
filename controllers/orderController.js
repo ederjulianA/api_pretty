@@ -1,6 +1,6 @@
 // controllers/orderController.js
 const orderModel = require('../models/orderModel');
-const { getOrdenes, updateOrder } = require('../models/orderModel');
+const { getOrdenes, updateOrder, anularDocumento } = require('../models/orderModel');
 
 
 const updateOrderEndpoint = async (req, res) => {
@@ -16,7 +16,7 @@ const updateOrderEndpoint = async (req, res) => {
     }
 
     // Se espera que cada ítem de details tenga: art_sec, kar_uni, precio_de_venta y kar_lis_pre_cod
-    const result = await updateOrder({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo,fac_obs });
+    const result = await updateOrder({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs });
     return res.json({ success: true, ...result });
   } catch (error) {
     console.error("Error al actualizar el pedido:", error);
@@ -26,14 +26,14 @@ const updateOrderEndpoint = async (req, res) => {
 
 const createCompleteOrder = async (req, res) => {
   try {
-    const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles,descuento, lis_pre_cod, fac_nro_woo, fac_obs } = req.body;
+    const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs } = req.body;
 
     // Validar que se envíe el nit del cliente y al menos un detalle
     if (!nit_sec || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
       return res.status(400).json({ error: "Debe enviar 'nit_sec' y un arreglo no vacío de 'detalles'." });
     }
 
-    const result = await orderModel.createCompleteOrder({ nit_sec,fac_usu_cod_cre, fac_tip_cod, detalles, descuento,lis_pre_cod, fac_nro_woo, fac_obs });
+    const result = await orderModel.createCompleteOrder({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs });
     res.status(201).json({
       success: true,
       fac_sec: result.fac_sec,
@@ -42,7 +42,7 @@ const createCompleteOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("Error al crear la orden completa:", error);
-    res.status(500).json({success:false, error: error.message });
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
@@ -106,4 +106,45 @@ const getOrdenesEndpoint = async (req, res) => {
   }
 };
 
-module.exports = { createCompleteOrder,getOrder , getOrdenesEndpoint, updateOrderEndpoint };
+const anularDocumentoEndpoint = async (req, res) => {
+  try {
+    const { fac_nro, fac_tip_cod, fac_obs } = req.body;
+
+    // Validar campos requeridos
+    if (!fac_nro || !fac_tip_cod || !fac_obs) {
+      return res.status(400).json({
+        success: false,
+        error: "Todos los campos son requeridos: fac_nro, fac_tip_cod, fac_obs"
+      });
+    }
+
+    // Validar que fac_tip_cod sea válido
+    const tiposValidos = ['VTA', 'AJT', 'PED', 'COT']; // Agregar otros tipos válidos si existen
+    if (!tiposValidos.includes(fac_tip_cod)) {
+      return res.status(400).json({
+        success: false,
+        error: "Tipo de documento no válido"
+      });
+    }
+
+    const result = await anularDocumento({
+      fac_nro,
+      fac_tip_cod,
+      fac_obs
+    });
+
+    return res.json({
+      success: true,
+      ...result
+    });
+
+  } catch (error) {
+    console.error(`Error en anularDocumentoEndpoint: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+module.exports = { createCompleteOrder, getOrder, getOrdenesEndpoint, updateOrderEndpoint, anularDocumentoEndpoint };

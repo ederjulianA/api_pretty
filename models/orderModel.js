@@ -1,6 +1,6 @@
 // models/orderModel.js
 
-import { sql, poolPromise} from "../db.js";
+import { sql, poolPromise } from "../db.js";
 import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
 
 
@@ -16,7 +16,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       .query('SELECT fac_sec FROM dbo.factura WHERE fac_nro = @fac_nro');
     if (headerRes.recordset.length === 0) {
       throw new Error("Pedido no encontrado.");
-    }   
+    }
     const fac_sec = headerRes.recordset[0].fac_sec;
 
     // 2. Iniciar la transacción
@@ -34,7 +34,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
           ${fac_fec ? ', fac_fec = @fac_fec' : ''}
       WHERE fac_sec = @fac_sec
     `;
-    
+
     const updateHeaderRequest = new sql.Request(transaction);
     updateHeaderRequest
       .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
@@ -47,7 +47,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     // Solo agregar el parámetro de fecha si se proporciona
     if (fac_fec) {
       updateHeaderRequest.input('fac_fec', sql.Date, fac_fec);
-    }  
+    }
 
     await updateHeaderRequest.query(updateHeaderQuery);
 
@@ -67,8 +67,8 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       // Crear una nueva instancia de Request para cada insert
       const insertDetailRequest = new sql.Request(transaction);
       let kar_total = Number(detail.kar_uni) * Number(detail.kar_pre_pub);
-      if (descuento > 0 ){
-        kar_total = kar_total * (1 - (descuento/100))
+      if (descuento > 0) {
+        kar_total = kar_total * (1 - (descuento / 100))
       }
       await insertDetailRequest
         .input('fac_sec', sql.Decimal(18, 0), fac_sec)
@@ -94,11 +94,10 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 
     // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
     if (fac_tip_cod === 'VTA') {
-      // Llamamos de forma asíncrona a la función que actualiza el estado del pedido y stock en WooCommerce
+      // Remover los logs y manejar errores silenciosamente
       setImmediate(() => {
         updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec)
-          .then((msgs) => console.log("WooCommerce update messages:", msgs))
-          .catch((err) => console.error("Error updating WooCommerce:", err));
+          .catch(err => console.error("Error updating WooCommerce:", err));
       });
     }
 
@@ -143,6 +142,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
         n.nit_nom,
         f.fac_nro,
         f.fac_est_fac,
+        f.fac_tip_cod,
         SUM(fd.kar_total) AS total_pedido,
         (
           SELECT STRING_AGG(t.fac_nro, '-')
@@ -174,13 +174,14 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
       AND (@fac_nro IS NULL OR f.fac_nro = @fac_nro)
        AND (@fac_nro_woo IS NULL OR f.fac_nro_woo = @fac_nro_woo)
       AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)    GROUP BY 
-        f.fac_sec, f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro,f.fac_nro_woo, f.fac_est_fac
+        f.fac_sec, f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro,f.fac_nro_woo, f.fac_est_fac, f.fac_tip_cod
 )
 SELECT
     fac_fec,
     nit_ide,
     nit_nom,
     fac_nro,
+    fac_tip_cod,
     fac_nro_woo,
     fac_est_fac,
     total_pedido,
@@ -202,7 +203,7 @@ FETCH NEXT @PageSize ROWS ONLY;
 const getOrder = async (fac_nro) => {
   try {
     const pool = await poolPromise;
-    
+
     // Consulta del encabezado (header)
     const headerQuery = `
       SELECT 
@@ -227,14 +228,14 @@ const getOrder = async (fac_nro) => {
     const headerResult = await pool.request()
       .input('fac_nro', sql.VarChar(15), fac_nro)
       .query(headerQuery);
-    
+
     if (headerResult.recordset.length === 0) {
       throw new Error("Pedido no encontrado.");
     }
-    
+
     const header = headerResult.recordset[0];
     const fac_sec = header.fac_sec;
-    
+
     // Consulta de los detalles, uniendo facturakardes, articulosdetalle y la vista vwExistencias
     const detailQuery = `
       SELECT 
@@ -255,27 +256,27 @@ const getOrder = async (fac_nro) => {
       WHERE fd.fac_sec = @fac_sec
       ORDER BY fd.kar_sec;
     `;
-    
+
     const detailResult = await pool.request()
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
       .query(detailQuery);
-    
+
     const details = detailResult.recordset;
-    
+
     return { header, details };
   } catch (error) {
     throw error;
   }
 };
 
-const createCompleteOrder = async ({ 
-  nit_sec, 
-  fac_usu_cod_cre, 
-  fac_tip_cod, 
-  detalles, 
-  descuento, 
-  lis_pre_cod, 
-  fac_nro_woo, 
+const createCompleteOrder = async ({
+  nit_sec,
+  fac_usu_cod_cre,
+  fac_tip_cod,
+  detalles,
+  descuento,
+  lis_pre_cod,
+  fac_nro_woo,
   fac_obs,
   fac_fec // Nuevo parámetro opcional
 }) => {
@@ -302,7 +303,7 @@ const createCompleteOrder = async ({
 
     // Actualizar la secuencia para FACTURA
     await request.input('sec_cod', sql.VarChar(50), 'FACTURA')
-                 .query("UPDATE dbo.secuencia SET sec_num = sec_num + 1 WHERE sec_cod = @sec_cod");
+      .query("UPDATE dbo.secuencia SET sec_num = sec_num + 1 WHERE sec_cod = @sec_cod");
 
     // 2. Obtener el nuevo consecutivo para fac_nro desde la tabla tipo_comprobantes, usando el parámetro fac_tip_cod
     const tipRequest = new sql.Request(transaction);
@@ -334,14 +335,14 @@ const createCompleteOrder = async ({
         (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs);
     `;
     await request.input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
-                 .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
-                 .input('nit_sec', sql.VarChar(16), nit_sec)
-                 .input('FinalFacNro', sql.VarChar(20), FinalFacNro)
-                 .input('fac_nro_woo', sql.VarChar(16), fac_nro_woo)
-                 .input('fac_obs', sql.VarChar, fac_obs)
-                 .input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre)
-                 .input('fac_fec', sql.Date, fac_fec || new Date()) // Usa la fecha proporcionada o la fecha actual
-                 .query(insertHeaderQuery);
+      .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
+      .input('nit_sec', sql.VarChar(16), nit_sec)
+      .input('FinalFacNro', sql.VarChar(20), FinalFacNro)
+      .input('fac_nro_woo', sql.VarChar(16), fac_nro_woo)
+      .input('fac_obs', sql.VarChar, fac_obs)
+      .input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre)
+      .input('fac_fec', sql.Date, fac_fec || new Date()) // Usa la fecha proporcionada o la fecha actual
+      .query(insertHeaderQuery);
 
     // 5. Insertar cada detalle en la tabla facturakardes
     for (const detalle of detalles) {
@@ -373,7 +374,7 @@ const createCompleteOrder = async ({
         kar_total = kar_total * (1 - (descuento / 100));
       }
       insertRequest.input('kar_total', sql.Decimal(17, 2), kar_total);
-      
+
       const insertDetailQuery = `
         INSERT INTO dbo.facturakardes
           (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori)
@@ -385,13 +386,12 @@ const createCompleteOrder = async ({
 
     await transaction.commit();
 
-     // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
-     if (fac_tip_cod === 'VTA') {
+    // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
+    if (fac_tip_cod === 'VTA') {
       // Llamamos de forma asíncrona a la función que actualiza el estado del pedido y stock en WooCommerce
       setImmediate(() => {
         updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec)
-          .then((msgs) => console.log("WooCommerce update messages:", msgs))
-          .catch((err) => console.error("Error updating WooCommerce:", err));
+          .catch(err => console.error("Error updating WooCommerce:", err));
       });
     }
 
@@ -408,6 +408,90 @@ const createCompleteOrder = async ({
   }
 };
 
+const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
+  let transaction;
+  try {
+    const pool = await poolPromise;
+    const headerRes = await pool.request()
+      .input('fac_nro', sql.VarChar(15), fac_nro)
+      .query(`
+        SELECT fac_sec, fac_nro_woo, fac_fec 
+        FROM dbo.factura 
+        WHERE fac_nro = @fac_nro
+      `);
 
+    if (headerRes.recordset.length === 0) {
+      throw new Error("Documento no encontrado.");
+    }
 
-export  { createCompleteOrder,getOrder, getOrdenes, updateOrder  };
+    const { fac_sec, fac_nro_woo, fac_fec } = headerRes.recordset[0];
+
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    const updateHeaderQuery = `
+      UPDATE dbo.factura
+      SET fac_est_fac = 'I',
+          fac_obs = @fac_obs
+      WHERE fac_sec = @fac_sec
+    `;
+
+    const updateHeaderRequest = new sql.Request(transaction);
+    await updateHeaderRequest
+      .input('fac_obs', sql.VarChar, fac_obs)
+      .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+      .query(updateHeaderQuery);
+
+    let detalles = [];
+    if (fac_tip_cod === 'VTA' || fac_tip_cod === 'AJT') {
+      const detallesRequest = new sql.Request(transaction);
+      const detallesResult = await detallesRequest
+        .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+        .query(`
+          SELECT 
+            fd.art_sec,
+            fd.kar_uni,
+            fd.kar_nat,
+            fd.kar_pre_pub,
+            fd.kar_lis_pre_cod,
+            fd.kar_des_uno,
+            fd.kar_total,
+            fd.kar_kar_sec_ori,
+            fd.kar_fac_sec_ori
+          FROM dbo.facturakardes fd
+          WHERE fd.fac_sec = @fac_sec
+        `);
+
+      detalles = detallesResult.recordset;
+    }
+
+    await transaction.commit();
+
+    if (detalles.length > 0) {
+      try {
+        await updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec);
+      } catch (wooError) {
+        console.error('Error al actualizar WooCommerce:', wooError.message);
+      }
+    }
+
+    return {
+      message: "Documento anulado exitosamente.",
+      fac_nro,
+      fac_est_fac: 'I',
+      tipo: fac_tip_cod
+    };
+
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error("Error en rollback:", rollbackError.message);
+      }
+    }
+    throw error;
+  }
+};
+
+export { createCompleteOrder, getOrder, getOrdenes, updateOrder, anularDocumento };
