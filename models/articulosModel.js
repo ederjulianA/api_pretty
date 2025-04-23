@@ -134,6 +134,14 @@ OPTION (RECOMPILE);
 const createArticulo = async (articuloData) => {
   let transaction;
   let art_sec;
+  const errors = {
+    cloudinary: null,
+    wooCommerce: null,
+    database: null
+  };
+  let art_woo_id = null;
+  let imageUrls = [];
+
   try {
     const pool = await poolPromise;
     transaction = new sql.Transaction(pool);
@@ -175,7 +183,6 @@ const createArticulo = async (articuloData) => {
       .query(insertQuery);
 
     // 3. Subir imágenes a Cloudinary si se proporcionaron
-    let imageUrls = [];
     if (articuloData.images && articuloData.images.length > 0) {
       try {
         const uploadPromises = articuloData.images.map(async (image, index) => {
@@ -201,8 +208,12 @@ const createArticulo = async (articuloData) => {
             .query(updateImageQuery);
         }
       } catch (error) {
+        errors.cloudinary = {
+          message: 'Error al subir imágenes a Cloudinary',
+          details: error.message,
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        };
         console.error('Error al subir imágenes a Cloudinary:', error);
-        // No lanzamos el error para continuar con la creación del artículo
       }
     }
 
@@ -273,7 +284,7 @@ const createArticulo = async (articuloData) => {
       console.log('Categorías WooCommerce:', JSON.stringify(categories, null, 2));
 
       const wooProduct = await wcApi.post('products', wooData);
-      const art_woo_id = wooProduct.data.id;
+      art_woo_id = wooProduct.data.id;
       console.log('Producto creado en WooCommerce:', art_woo_id);
 
       // Actualizar el artículo con el ID de WooCommerce
@@ -287,7 +298,22 @@ const createArticulo = async (articuloData) => {
         .input('artSecWoo', sql.Decimal(18, 0), art_sec)
         .query(updateWooIdQuery);
 
-      return {
+    } catch (wooError) {
+      errors.wooCommerce = {
+        message: 'Error al sincronizar con WooCommerce',
+        details: wooError.message,
+        response: wooError.response?.data,
+        status: wooError.response?.status,
+        statusText: wooError.response?.statusText,
+        stack: process.env.NODE_ENV === 'development' ? wooError.stack : undefined
+      };
+      console.error('Error al sincronizar con WooCommerce:', errors.wooCommerce);
+    }
+
+    // Construir la respuesta final
+    const response = {
+      success: true,
+      data: {
         art_sec,
         art_cod: articuloData.art_cod,
         art_nom: articuloData.art_nom,
@@ -297,29 +323,21 @@ const createArticulo = async (articuloData) => {
         precio_mayor: articuloData.precio_mayor,
         art_woo_id,
         images: imageUrls
-      };
-    } catch (wooError) {
-      console.error('Error al sincronizar con WooCommerce:', {
-        message: wooError.message,
-        response: wooError.response?.data,
-        status: wooError.response?.status,
-        statusText: wooError.response?.statusText,
-        headers: wooError.response?.headers
-      });
+      },
+      errors: Object.entries(errors).reduce((acc, [key, value]) => {
+        if (value) acc[key] = value;
+        return acc;
+      }, {})
+    };
 
-      // Aún así retornamos el artículo creado localmente
-      return {
-        art_sec,
-        art_cod: articuloData.art_cod,
-        art_nom: articuloData.art_nom,
-        categoria: articuloData.categoria,
-        subcategoria: articuloData.subcategoria,
-        precio_detal: articuloData.precio_detal,
-        precio_mayor: articuloData.precio_mayor,
-        images: imageUrls,
-        woo_sync_error: wooError.message
-      };
+    // Si hay errores, marcar success como false
+    if (Object.keys(response.errors).length > 0) {
+      response.success = false;
+      response.message = 'El artículo se creó con algunos errores';
     }
+
+    return response;
+
   } catch (error) {
     if (transaction) {
       try {
@@ -328,7 +346,16 @@ const createArticulo = async (articuloData) => {
         console.error("Error en rollback:", rollbackError);
       }
     }
-    throw error;
+    errors.database = {
+      message: 'Error en la base de datos',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    };
+    throw {
+      success: false,
+      message: 'Error al crear el artículo',
+      errors
+    };
   }
 };
 
