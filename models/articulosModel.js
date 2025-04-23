@@ -458,4 +458,68 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
   }
 };
 
-module.exports = { getArticulos, validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod };
+const getNextArticuloCodigo = async () => {
+  try {
+    const pool = await poolPromise;
+
+    // 1. Obtener el último código numérico de artículo
+    const query = `
+      SELECT TOP 1 art_cod
+      FROM dbo.articulos
+      WHERE art_cod LIKE '[0-9]%'  -- Solo códigos que empiecen con números
+      AND art_cod NOT LIKE '%[^0-9]%'  -- Solo códigos que sean completamente numéricos
+      ORDER BY CAST(art_cod AS INT) DESC
+    `;
+
+    const result = await pool.request().query(query);
+
+    let nextCodigo;
+    if (result.recordset.length === 0) {
+      // Si no hay códigos numéricos, empezar desde 1
+      nextCodigo = '1';
+    } else {
+      // Obtener el último código y sumar 1
+      const ultimoCodigo = result.recordset[0].art_cod;
+      nextCodigo = (parseInt(ultimoCodigo) + 1).toString();
+    }
+
+    // Verificar que el código generado no exista
+    let codigoDisponible = false;
+    let intentos = 0;
+    let codigoFinal = nextCodigo;
+
+    while (!codigoDisponible && intentos < 1000) { // Límite de 1000 intentos para evitar bucles infinitos
+      const checkQuery = `
+        SELECT COUNT(*) as count
+        FROM dbo.articulos
+        WHERE art_cod = @codigo
+      `;
+
+      const checkResult = await pool.request()
+        .input('codigo', sql.VarChar(50), codigoFinal)
+        .query(checkQuery);
+
+      if (checkResult.recordset[0].count === 0) {
+        codigoDisponible = true;
+      } else {
+        // Si el código existe, intentar con el siguiente número
+        codigoFinal = (parseInt(codigoFinal) + 1).toString();
+        intentos++;
+      }
+    }
+
+    if (!codigoDisponible) {
+      throw new Error('No se pudo generar un código de artículo disponible');
+    }
+
+    return {
+      art_cod: codigoFinal,
+      message: "Código de artículo disponible generado exitosamente"
+    };
+
+  } catch (error) {
+    throw error;
+  }
+};
+
+module.exports = { getArticulos, validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod, getNextArticuloCodigo };

@@ -33,9 +33,37 @@ const updateArticuloEndpoint = async (req, res) => {
 };
 
 const createArticuloEndpoint = async (req, res) => {
-  //COMENTARIO PARA ACTUALIZAR DEPLOY
   try {
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('Request files:', JSON.stringify(req.files, null, 2));
+
     const { art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor } = req.body;
+
+    // Validar que se envíen todos los campos requeridos
+    if (!art_cod || !art_nom || !categoria || !subcategoria || precio_detal == null || precio_mayor == null) {
+      const missingFields = [];
+      if (!art_cod) missingFields.push('art_cod');
+      if (!art_nom) missingFields.push('art_nom');
+      if (!categoria) missingFields.push('categoria');
+      if (!subcategoria) missingFields.push('subcategoria');
+      if (precio_detal == null) missingFields.push('precio_detal');
+      if (precio_mayor == null) missingFields.push('precio_mayor');
+
+      console.error('Campos faltantes:', missingFields);
+      return res.status(400).json({
+        success: false,
+        error: "Campos requeridos faltantes",
+        missingFields,
+        receivedData: {
+          art_cod,
+          art_nom,
+          categoria,
+          subcategoria,
+          precio_detal,
+          precio_mayor
+        }
+      });
+    }
 
     // Obtener las imágenes de la petición
     const image1 = req.files?.image1;
@@ -45,11 +73,7 @@ const createArticuloEndpoint = async (req, res) => {
 
     // Filtrar las imágenes que realmente se enviaron
     const images = [image1, image2, image3, image4].filter(item => item !== undefined);
-
-    // Validar que se envíen todos los campos requeridos
-    if (!art_cod || !art_nom || !categoria || !subcategoria || precio_detal == null || precio_mayor == null) {
-      return res.status(400).json({ success: false, error: "Todos los campos son requeridos: art_cod, art_nom, categoria, subcategoria, precio_detal y precio_mayor." });
-    }
+    console.log('Imágenes recibidas:', images.length);
 
     const result = await createArticulo({
       art_cod,
@@ -63,8 +87,16 @@ const createArticuloEndpoint = async (req, res) => {
 
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
-    console.error(`Error en createArticuloEndpoint: ${error.message}`);
-    return res.status(500).json({ success: false, error: error.message });
+    console.error('Error detallado en createArticuloEndpoint:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 
@@ -140,11 +172,30 @@ const getArticuloEndpoint = async (req, res) => {
   }
 };
 
+const getNextArticuloCodigoEndpoint = async (req, res) => {
+  try {
+    const result = await articulosModel.getNextArticuloCodigo();
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: "Error al generar código de artículo"
+    });
+  }
+};
+
 module.exports = {
   getArticulos,
   validateArticuloEndpoint,
   createArticuloEndpoint,
   getArticuloEndpoint,
   updateArticuloEndpoint,
-  getArticuloByArtCodEndPoint
+  getArticuloByArtCodEndPoint,
+  getNextArticuloCodigoEndpoint
 };
