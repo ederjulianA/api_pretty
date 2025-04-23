@@ -255,7 +255,6 @@ const createArticulo = async (articuloData) => {
       type: 'simple',
       sku: articuloData.art_cod,
       regular_price: articuloData.precio_detal.toString(),
-
       manage_stock: true,
       stock_quantity: 0,
       meta_data: [
@@ -268,8 +267,23 @@ const createArticulo = async (articuloData) => {
       images: imageUrls.map(url => ({ src: url }))
     };
 
-    const wooProduct = await wcApi.post('products', wooData);
-    const art_woo_id = wooProduct.data.id;
+    console.log('Datos enviados a WooCommerce:', JSON.stringify(wooData, null, 2));
+    console.log('Categorías WooCommerce:', JSON.stringify(categories, null, 2));
+
+    try {
+      const wooProduct = await wcApi.post('products', wooData);
+      const art_woo_id = wooProduct.data.id;
+      console.log('Producto creado en WooCommerce:', art_woo_id);
+    } catch (wooError) {
+      console.error('Error detallado de WooCommerce:', {
+        message: wooError.message,
+        response: wooError.response?.data,
+        status: wooError.response?.status,
+        statusText: wooError.response?.statusText,
+        headers: wooError.response?.headers
+      });
+      throw new Error(`Error al crear producto en WooCommerce: ${wooError.message}. Detalles: ${JSON.stringify(wooError.response?.data)}`);
+    }
 
     // 7. Actualizar el artículo con el ID de WooCommerce
     const updateWooIdQuery = `
