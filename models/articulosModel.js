@@ -133,6 +133,7 @@ OPTION (RECOMPILE);
 
 const createArticulo = async (articuloData) => {
   let transaction;
+  let art_sec;
   try {
     const pool = await poolPromise;
     transaction = new sql.Transaction(pool);
@@ -147,7 +148,7 @@ const createArticulo = async (articuloData) => {
       WHERE sec_cod = 'ARTICULOS'
     `;
     const secResult = await request.query(getNextSecQuery);
-    const art_sec = secResult.recordset[0].NewArtSec;
+    art_sec = secResult.recordset[0].NewArtSec;
 
     // 1.1 Actualizar el número de secuencia
     const updateSecQuery = `
@@ -178,20 +179,16 @@ const createArticulo = async (articuloData) => {
     if (articuloData.images && articuloData.images.length > 0) {
       try {
         const uploadPromises = articuloData.images.map(async (image, index) => {
-          // Convertir el archivo a base64
           const base64Image = `data:${image.mimetype};base64,${image.data.toString('base64')}`;
-
           const result = await cloudinary.uploader.upload(base64Image, {
             folder: 'articulos',
             public_id: `${articuloData.art_cod}_${index + 1}`
           });
-
           return result.secure_url;
         });
 
         imageUrls = await Promise.all(uploadPromises);
 
-        // Actualizar la base de datos con las URLs de las imágenes
         if (imageUrls.length > 0) {
           const updateImageQuery = `
             UPDATE dbo.articulos 
@@ -204,7 +201,8 @@ const createArticulo = async (articuloData) => {
             .query(updateImageQuery);
         }
       } catch (error) {
-        throw new Error('Error al subir las imágenes a Cloudinary');
+        console.error('Error al subir imágenes a Cloudinary:', error);
+        // No lanzamos el error para continuar con la creación del artículo
       }
     }
 
@@ -228,87 +226,100 @@ const createArticulo = async (articuloData) => {
       .input('precio_mayor', sql.Decimal(17, 2), articuloData.precio_mayor)
       .query(insertDetalle2Query);
 
-    // Obtener IDs de categorías de WooCommerce
-    const catRequest = pool.request(); // Usar un request nuevo, no el de la transacción
-    catRequest.input('categoria', sql.VarChar(50), articuloData.categoria);
-    catRequest.input('subcategoria', sql.VarChar(50), articuloData.subcategoria);
-    const catQueryResult = await catRequest.query(`
-      SELECT inv_sub_gru_parend_woo, inv_sub_gru_woo_id 
-      FROM dbo.inventario_subgrupo 
-      WHERE inv_gru_cod = @categoria AND inv_sub_gru_cod = @subcategoria
-    `);
+    // Commit de la transacción local
+    await transaction.commit();
 
-    const categories = [];
-    if (catQueryResult.recordset.length > 0) {
-      const { inv_sub_gru_parend_woo, inv_sub_gru_woo_id } = catQueryResult.recordset[0];
-      if (inv_sub_gru_parend_woo) {
-        categories.push({ id: parseInt(inv_sub_gru_parend_woo, 10) });
-      }
-      if (inv_sub_gru_woo_id) {
-        categories.push({ id: parseInt(inv_sub_gru_woo_id, 10) });
-      }
-    }
-
-    // 6. Crear en WooCommerce
-    const wooData = {
-      name: articuloData.art_nom,
-      type: 'simple',
-      sku: articuloData.art_cod,
-      regular_price: articuloData.precio_detal.toString(),
-      manage_stock: true,
-      stock_quantity: 0,
-      meta_data: [
-        {
-          key: "_precio_mayorista",
-          value: articuloData.precio_mayor.toString() // Valor como string
-        }
-      ],
-      categories: categories,
-      images: imageUrls.map(url => ({ src: url }))
-    };
-
-    console.log('Datos enviados a WooCommerce:', JSON.stringify(wooData, null, 2));
-    console.log('Categorías WooCommerce:', JSON.stringify(categories, null, 2));
-
+    // 6. Intentar sincronización con WooCommerce
     try {
+      // Obtener IDs de categorías de WooCommerce
+      const catRequest = pool.request();
+      catRequest.input('categoria', sql.VarChar(50), articuloData.categoria);
+      catRequest.input('subcategoria', sql.VarChar(50), articuloData.subcategoria);
+      const catQueryResult = await catRequest.query(`
+        SELECT inv_sub_gru_parend_woo, inv_sub_gru_woo_id 
+        FROM dbo.inventario_subgrupo 
+        WHERE inv_gru_cod = @categoria AND inv_sub_gru_cod = @subcategoria
+      `);
+
+      const categories = [];
+      if (catQueryResult.recordset.length > 0) {
+        const { inv_sub_gru_parend_woo, inv_sub_gru_woo_id } = catQueryResult.recordset[0];
+        if (inv_sub_gru_parend_woo) {
+          categories.push({ id: parseInt(inv_sub_gru_parend_woo, 10) });
+        }
+        if (inv_sub_gru_woo_id) {
+          categories.push({ id: parseInt(inv_sub_gru_woo_id, 10) });
+        }
+      }
+
+      const wooData = {
+        name: articuloData.art_nom,
+        type: 'simple',
+        sku: articuloData.art_cod,
+        regular_price: articuloData.precio_detal.toString(),
+        manage_stock: true,
+        stock_quantity: 0,
+        meta_data: [
+          {
+            key: "_precio_mayorista",
+            value: articuloData.precio_mayor.toString()
+          }
+        ],
+        categories: categories,
+        images: imageUrls.map(url => ({ src: url }))
+      };
+
+      console.log('Datos enviados a WooCommerce:', JSON.stringify(wooData, null, 2));
+      console.log('Categorías WooCommerce:', JSON.stringify(categories, null, 2));
+
       const wooProduct = await wcApi.post('products', wooData);
       const art_woo_id = wooProduct.data.id;
       console.log('Producto creado en WooCommerce:', art_woo_id);
+
+      // Actualizar el artículo con el ID de WooCommerce
+      const updateWooIdQuery = `
+        UPDATE dbo.articulos 
+        SET art_woo_id = @art_woo_id 
+        WHERE art_sec = @artSecWoo
+      `;
+      await pool.request()
+        .input('art_woo_id', sql.Int, art_woo_id)
+        .input('artSecWoo', sql.Decimal(18, 0), art_sec)
+        .query(updateWooIdQuery);
+
+      return {
+        art_sec,
+        art_cod: articuloData.art_cod,
+        art_nom: articuloData.art_nom,
+        categoria: articuloData.categoria,
+        subcategoria: articuloData.subcategoria,
+        precio_detal: articuloData.precio_detal,
+        precio_mayor: articuloData.precio_mayor,
+        art_woo_id,
+        images: imageUrls
+      };
     } catch (wooError) {
-      console.error('Error detallado de WooCommerce:', {
+      console.error('Error al sincronizar con WooCommerce:', {
         message: wooError.message,
         response: wooError.response?.data,
         status: wooError.response?.status,
         statusText: wooError.response?.statusText,
         headers: wooError.response?.headers
       });
-      throw new Error(`Error al crear producto en WooCommerce: ${wooError.message}. Detalles: ${JSON.stringify(wooError.response?.data)}`);
+
+      // Aún así retornamos el artículo creado localmente
+      return {
+        art_sec,
+        art_cod: articuloData.art_cod,
+        art_nom: articuloData.art_nom,
+        categoria: articuloData.categoria,
+        subcategoria: articuloData.subcategoria,
+        precio_detal: articuloData.precio_detal,
+        precio_mayor: articuloData.precio_mayor,
+        images: imageUrls,
+        woo_sync_error: wooError.message
+      };
     }
-
-    // 7. Actualizar el artículo con el ID de WooCommerce
-    const updateWooIdQuery = `
-      UPDATE dbo.articulos 
-      SET art_woo_id = @art_woo_id 
-      WHERE art_sec = @artSecWoo
-    `;
-    await request
-      .input('art_woo_id', sql.Int, art_woo_id)
-      .input('artSecWoo', sql.Decimal(18, 0), art_sec)
-      .query(updateWooIdQuery);
-
-    await transaction.commit();
-
-    return {
-      art_sec,
-      art_cod: articuloData.art_cod,
-      art_nom: articuloData.art_nom,
-      categoria: articuloData.categoria,
-      subcategoria: articuloData.subcategoria,
-      precio_detal: articuloData.precio_detal,
-      precio_mayor: articuloData.precio_mayor,
-      art_woo_id,
-      images: imageUrls
-    };
   } catch (error) {
     if (transaction) {
       try {
