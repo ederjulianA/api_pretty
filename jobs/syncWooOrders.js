@@ -4,7 +4,7 @@ const { createCompleteOrder, updateOrder } = require("../models/orderModel");
 const { createNit } = require('../models/nitModel');
 const { poolPromise, sql } = require("../db");
 
- 
+
 // Configuración de la API de WooCommerce usando variables de entorno
 const wcApi = new WooCommerceRestApi({
   url: process.env.WC_URL, // Ejemplo: 'https://noviembre.prettymakeupcol.com'
@@ -83,22 +83,22 @@ const checkOrderExists = async (fac_nro_woo) => {
 };
 
 const getArticuloInfo = async (art_cod) => {
-    const pool = await poolPromise;
-    const result = await pool.request()
-      .input("art_cod", sql.VarChar(16), art_cod)
-      .query(
-        `SELECT art_sec
+  const pool = await poolPromise;
+  const result = await pool.request()
+    .input("art_cod", sql.VarChar(16), art_cod)
+    .query(
+      `SELECT art_sec
         FROM dbo.articulos 
         WHERE LTRIM(RTRIM(LOWER(art_cod))) = LTRIM(RTRIM(LOWER(@art_cod)))`
-      );
-      return result.recordset.length > 0 ? result.recordset[0].art_sec : null;
+    );
+  return result.recordset.length > 0 ? result.recordset[0].art_sec : null;
 }
 
 // Función auxiliar: determina si un pedido ya está facturado
 const checkIfOrderFactured = async (fac_sec) => {
   const pool = await poolPromise;
   const result = await pool.request()
-    .input("fac_sec", sql.Decimal(18,0), fac_sec)
+    .input("fac_sec", sql.Decimal(18, 0), fac_sec)
     .query(
       `SELECT COUNT(*) AS count 
       FROM dbo.facturakardes k
@@ -131,24 +131,24 @@ const syncWooOrders = async (status, after, before) => {
   try {
     console.log(`[${new Date().toISOString()}] Iniciando sincronización de pedidos`);
     const orderStatus = status && status.trim() !== "" ? status.trim() : "on-hold";
-    
+
     const params = { per_page: 100, status: orderStatus };
     if (after && after.trim() !== "") params.after = after.trim();
     if (before && before.trim() !== "") params.before = before.trim();
-    
+
     // Medición tiempo respuesta WooCommerce
     const wooStartTime = Date.now();
     const response = await wcApi.get("orders", params);
     const orders = response.data;
     console.log(`[${new Date().toISOString()}] WooCommerce API response time: ${Date.now() - wooStartTime}ms - Orders found: ${orders.length}`);
     messages.push(`Se encontraron ${orders.length} pedidos en WooCommerce`);
-    
+
     // Procesar cada orden
     for (const wooOrder of orders) {
       const orderStartTime = Date.now();
       const fac_nro_woo = wooOrder.number.trim().toLowerCase();
       console.log(`\n[${new Date().toISOString()}] Iniciando procesamiento de pedido ${fac_nro_woo}`);
-      
+
       // Medición tiempo búsqueda/creación cliente
       const clientStartTime = Date.now();
       let nit_sec = await extractNitSec(wooOrder);
