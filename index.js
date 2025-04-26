@@ -27,6 +27,7 @@ import inventoryRoutes from './routes/inventoryRoutes.js';
 import salesRoutes from "./routes/salesRoutes.js";
 import proveedorRoutes from './routes/proveedorRoutes.js';
 import testSyncRoutes from './routes/testSyncRoutes.js';
+import kardexRoutes from './routes/kardexRoutes.js';
 
 app.use(express.json());
 app.use(cors());
@@ -55,6 +56,7 @@ app.use("/api/consultarArticuloByArtCod", consultarArticuloByArtCodRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api', proveedorRoutes);
 app.use('/api/test', testSyncRoutes);
+app.use('/api/kardex', kardexRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });
