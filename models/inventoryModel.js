@@ -107,11 +107,13 @@ const createInventoryAdjustment = async ({
     await transaction.commit();
 
     // Actualizar el stock en WooCommerce
-    setImmediate(() => {
-      updateWooOrderStatusAndStock(null, detalles, fac_fec, FinalFacNro)
-        .then((msgs) => console.log("WooCommerce stock update messages:", msgs))
-        .catch((err) => console.error("Error updating WooCommerce stock:", err));
-    });
+    try {
+      const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, FinalFacNro);
+      console.log("WooCommerce stock update result:", wooResult);
+    } catch (wooError) {
+      console.error("Error updating WooCommerce stock:", wooError);
+      // No lanzamos el error para no afectar la transacción principal
+    }
 
     return {
       fac_sec: NewFacSec,
@@ -219,11 +221,13 @@ const updateInventoryAdjustment = async ({
     await transaction.commit();
 
     // Actualizar el stock en WooCommerce
-    setImmediate(() => {
-      updateWooOrderStatusAndStock(null, detalles, fac_fec, fac_nro)
-        .then((msgs) => console.log("WooCommerce stock update messages:", msgs))
-        .catch((err) => console.error("Error updating WooCommerce stock:", err));
-    });
+    try {
+      const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, fac_nro);
+      console.log("WooCommerce stock update result:", wooResult);
+    } catch (wooError) {
+      console.error("Error updating WooCommerce stock:", wooError);
+      // No lanzamos el error para no afectar la transacción principal
+    }
 
     return {
       fac_sec,
