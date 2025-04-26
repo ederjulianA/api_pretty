@@ -6,14 +6,49 @@ const router = express.Router();
 
 // Endpoint para probar la sincronización de inventario
 router.post('/test-sync', async (req, res) => {
+    const logs = [];
+    const startTime = new Date();
+
     try {
+        logs.push({
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            message: 'Iniciando prueba de sincronización',
+            data: req.body
+        });
+
         // Validar que fac_nro esté presente
         if (!req.body.fac_nro) {
+            const error = "El número de documento (fac_nro) es obligatorio";
+            logs.push({
+                timestamp: new Date().toISOString(),
+                level: 'ERROR',
+                message: error
+            });
             return res.status(400).json({
                 success: false,
-                message: "El número de documento (fac_nro) es obligatorio"
+                message: error,
+                logs
             });
         }
+
+        // Validar variables de entorno
+        const envVars = {
+            WC_URL: process.env.WC_URL,
+            WC_CONSUMER_KEY: Boolean(process.env.WC_CONSUMER_KEY),
+            WC_CONSUMER_SECRET: Boolean(process.env.WC_CONSUMER_SECRET)
+        };
+
+        logs.push({
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            message: 'Variables de entorno',
+            data: {
+                WC_URL: envVars.WC_URL,
+                hasConsumerKey: envVars.WC_CONSUMER_KEY,
+                hasConsumerSecret: envVars.WC_CONSUMER_SECRET
+            }
+        });
 
         const testData = {
             fac_nro_woo: req.body.fac_nro_woo || null,
@@ -28,8 +63,15 @@ router.post('/test-sync', async (req, res) => {
                 }
             ],
             fac_fec: req.body.fac_fec || new Date(),
-            fac_nro: req.body.fac_nro // Ahora es obligatorio
+            fac_nro: req.body.fac_nro
         };
+
+        logs.push({
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            message: 'Datos de prueba preparados',
+            data: testData
+        });
 
         const result = await updateWooOrderStatusAndStock(
             testData.fac_nro_woo,
@@ -38,17 +80,62 @@ router.post('/test-sync', async (req, res) => {
             testData.fac_nro
         );
 
+        const endTime = new Date();
+        const duration = (endTime - startTime) / 1000;
+
+        logs.push({
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            message: 'Sincronización completada',
+            data: {
+                duration: `${duration} segundos`,
+                result
+            }
+        });
+
         res.json({
             success: true,
             message: "Prueba de sincronización completada",
-            data: result
+            data: result,
+            logs,
+            debug: {
+                environment: process.env.NODE_ENV,
+                timestamp: new Date().toISOString(),
+                duration: `${duration} segundos`,
+                envVars
+            }
         });
     } catch (error) {
+        const errorTime = new Date();
+        const duration = (errorTime - startTime) / 1000;
+
+        logs.push({
+            timestamp: new Date().toISOString(),
+            level: 'ERROR',
+            message: 'Error en la sincronización',
+            error: {
+                message: error.message,
+                stack: error.stack,
+                response: error.response?.data
+            }
+        });
+
         console.error("Error en la prueba de sincronización:", error);
         res.status(500).json({
             success: false,
             message: "Error en la prueba de sincronización",
-            error: error.message
+            error: error.message,
+            logs,
+            debug: {
+                environment: process.env.NODE_ENV,
+                timestamp: new Date().toISOString(),
+                duration: `${duration} segundos`,
+                errorDetails: {
+                    message: error.message,
+                    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+                    response: error.response?.data
+                }
+            }
         });
     }
 });

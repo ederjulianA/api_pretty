@@ -14,12 +14,20 @@ const logLevels = {
 const log = (level, message, data = null) => {
   const timestamp = new Date().toISOString();
   const logMessage = `[${timestamp}] [${level}] [WOO] ${message}`;
+  const logData = {
+    timestamp,
+    level,
+    message,
+    data: data ? JSON.parse(JSON.stringify(data)) : null
+  };
 
   if (data) {
     console.log(logMessage, JSON.stringify(data, null, 2));
   } else {
     console.log(logMessage);
   }
+
+  return logData;
 };
 
 // Función para guardar el log en la base de datos
@@ -143,6 +151,7 @@ const chunkArray = (array, size) => {
 // Función para actualizar el estado del pedido y el stock de cada artículo en WooCommerce
 const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec = null, fac_nro = null) => {
   let messages = [];
+  let debugLogs = [];
   let successCount = 0;
   let errorCount = 0;
   let skippedCount = 0;
@@ -152,23 +161,38 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
   try {
     // Validar que orderDetails sea un array y no esté vacío
     if (!Array.isArray(orderDetails) || orderDetails.length === 0) {
-      throw new Error('orderDetails debe ser un array no vacío de artículos');
+      const error = 'orderDetails debe ser un array no vacío de artículos';
+      debugLogs.push(log(logLevels.ERROR, error));
+      throw new Error(error);
     }
 
     // Validar que fac_nro esté presente
     if (!fac_nro) {
-      throw new Error('El número de documento (fac_nro) es obligatorio');
+      const error = 'El número de documento (fac_nro) es obligatorio';
+      debugLogs.push(log(logLevels.ERROR, error));
+      throw new Error(error);
     }
 
-    log(logLevels.INFO, `Iniciando actualización en WooCommerce`, {
+    // Validar configuración de WooCommerce
+    if (!process.env.WC_URL || !process.env.WC_CONSUMER_KEY || !process.env.WC_CONSUMER_SECRET) {
+      const error = 'Faltan variables de entorno de WooCommerce';
+      debugLogs.push(log(logLevels.ERROR, error, {
+        WC_URL: Boolean(process.env.WC_URL),
+        WC_CONSUMER_KEY: Boolean(process.env.WC_CONSUMER_KEY),
+        WC_CONSUMER_SECRET: Boolean(process.env.WC_CONSUMER_SECRET)
+      }));
+      throw new Error(error);
+    }
+
+    debugLogs.push(log(logLevels.INFO, `Iniciando actualización en WooCommerce`, {
       orden: fac_nro_woo || 'N/A',
       documento: fac_nro,
       totalItems: orderDetails.length,
       fecha: fac_fec
-    });
+    }));
 
     const formattedDate = fac_fec ? formatDateToISO8601(fac_fec) : null;
-    log(logLevels.INFO, `Fecha formateada: ${formattedDate || 'No proporcionada'}`);
+    debugLogs.push(log(logLevels.INFO, `Fecha formateada: ${formattedDate || 'No proporcionada'}`));
 
     // Actualizar estado del pedido si existe
     if (fac_nro_woo) {
@@ -288,12 +312,13 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
       batchesProcessed: batches.length,
       messages,
       status: errorCount > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
-      errorDetails: null
+      errorDetails: null,
+      debugLogs
     };
 
     // Guardar el log en la base de datos
     const logId = await saveSyncLog(logData);
-    log(logLevels.INFO, `Log guardado con ID: ${logId}`);
+    debugLogs.push(log(logLevels.INFO, `Log guardado con ID: ${logId}`));
 
     return {
       messages,
@@ -306,15 +331,16 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
         batchesProcessed: batches.length,
         logId,
         fac_nro
-      }
+      },
+      debugLogs
     };
   } catch (error) {
-    log(logLevels.ERROR, "Error general en updateWooOrderStatusAndStock", {
+    debugLogs.push(log(logLevels.ERROR, "Error general en updateWooOrderStatusAndStock", {
       error: error.message,
       stack: error.stack,
       details: error,
       fac_nro
-    });
+    }));
 
     // Guardar el log de error
     const errorLogData = {
@@ -332,18 +358,19 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
         message: error.message,
         stack: error.stack,
         details: error
-      }
+      },
+      debugLogs
     };
 
     try {
       const logId = await saveSyncLog(errorLogData);
-      log(logLevels.INFO, `Log de error guardado con ID: ${logId}`);
+      debugLogs.push(log(logLevels.INFO, `Log de error guardado con ID: ${logId}`));
     } catch (logError) {
-      log(logLevels.ERROR, "Error guardando log de error", {
+      debugLogs.push(log(logLevels.ERROR, "Error guardando log de error", {
         error: logError.message,
         originalError: error.message,
         fac_nro
-      });
+      }));
     }
 
     return {
@@ -357,7 +384,8 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
         batchesProcessed: 0,
         logId: null,
         fac_nro
-      }
+      },
+      debugLogs
     };
   }
 };
