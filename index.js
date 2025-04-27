@@ -28,6 +28,8 @@ import salesRoutes from "./routes/salesRoutes.js";
 import proveedorRoutes from './routes/proveedorRoutes.js';
 import testSyncRoutes from './routes/testSyncRoutes.js';
 import kardexRoutes from './routes/kardexRoutes.js';
+import inventoryComparisonRoutes from './routes/inventoryComparisonRoutes.js';
+import inventarioConteoRoutes from './routes/inventarioConteo.js';
 
 app.use(express.json());
 app.use(cors());
@@ -57,6 +59,8 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api', proveedorRoutes);
 app.use('/api/test', testSyncRoutes);
 app.use('/api/kardex', kardexRoutes);
+app.use('/api/inventory-comparison', inventoryComparisonRoutes);
+app.use('/api/inventario-conteo', inventarioConteoRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });
