@@ -20,4 +20,10 @@ router.patch('/:id/estado', InventarioConteoController.actualizarEstadoConteo);
 // Listar conteos con filtros
 router.get('/', InventarioConteoController.listarConteos);
 
+// Actualizar cantidad de un detalle
+router.patch('/:conteo_id/detalle/:articulo_codigo/cantidad', InventarioConteoController.actualizarCantidadDetalle);
+
+// Buscar en el detalle del conteo
+router.get('/:conteo_id/detalle/buscar', InventarioConteoController.buscarDetalleConteo);
+
 module.exports = router; 

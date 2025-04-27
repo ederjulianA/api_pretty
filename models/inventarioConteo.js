@@ -222,6 +222,130 @@ class InventarioConteo {
             throw error;
         }
     }
+
+    static async actualizarCantidadDetalle(conteo_id, articulo_codigo, cantidad_fisica) {
+        try {
+            const pool = await poolPromise;
+
+            // Primero validamos que el artículo existe y obtenemos su art_sec
+            const articulo = await this.validarArticulo(articulo_codigo);
+
+            // Verificar si existe el detalle
+            const detalleExistente = await pool.request()
+                .input('conteo_id', sql.Int, conteo_id)
+                .input('articulo_artsec', sql.VarChar, articulo.art_sec)
+                .query(`
+                    SELECT cantidad_sistema 
+                    FROM inventario_conteo_detalle 
+                    WHERE conteo_id = @conteo_id 
+                    AND articulo_artsec = @articulo_artsec
+                `);
+
+            if (detalleExistente.recordset.length === 0) {
+                throw new Error('No se encontró el detalle a actualizar');
+            }
+
+            // Obtener cantidad del sistema
+            const cantidad_sistema = detalleExistente.recordset[0].cantidad_sistema;
+
+            // Calcular nueva diferencia
+            const diferencia = cantidad_fisica - cantidad_sistema;
+
+            // Actualizar el detalle
+            const result = await pool.request()
+                .input('conteo_id', sql.Int, conteo_id)
+                .input('articulo_artsec', sql.VarChar, articulo.art_sec)
+                .input('cantidad_fisica', sql.Decimal, cantidad_fisica)
+                .input('diferencia', sql.Decimal, diferencia)
+                .query(`
+                    UPDATE inventario_conteo_detalle
+                    SET cantidad_fisica = @cantidad_fisica,
+                        diferencia = @diferencia
+                    WHERE conteo_id = @conteo_id 
+                    AND articulo_artsec = @articulo_artsec
+                `);
+
+            return result.rowsAffected[0];
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    static async buscarDetalleConteo(conteo_id, filtros = {}) {
+        try {
+            const pool = await poolPromise;
+            const pageNumber = parseInt(filtros.pageNumber) || 1;
+            const pageSize = parseInt(filtros.pageSize) || 10;
+            const offset = (pageNumber - 1) * pageSize;
+
+            let query = `
+                WITH Resultados AS (
+                    SELECT 
+                        d.articulo_codigo as art_cod,
+                        a.art_nom,
+                        d.cantidad_sistema,
+                        d.cantidad_fisica,
+                        d.diferencia,
+                        CASE 
+                            WHEN @nombre IS NOT NULL AND a.art_nom LIKE @nombre + '%' THEN 1
+                            WHEN @nombre IS NOT NULL AND a.art_nom LIKE '%' + @nombre + '%' THEN 2
+                            ELSE 3
+                        END as relevancia
+                    FROM inventario_conteo_detalle d
+                    INNER JOIN articulos a ON d.articulo_artsec = a.art_sec
+                    WHERE d.conteo_id = @conteo_id
+                    ${filtros.nombre ? 'AND a.art_nom LIKE @nombre + \'%\' OR a.art_nom LIKE \'%\' + @nombre + \'%\'' : ''}
+                    ${filtros.codigo ? 'AND d.articulo_codigo LIKE @codigo + \'%\'' : ''}
+                )
+                SELECT 
+                    art_cod,
+                    art_nom,
+                    cantidad_sistema,
+                    cantidad_fisica,
+                    diferencia,
+                    (SELECT COUNT(*) FROM Resultados) as total
+                FROM Resultados
+                ORDER BY relevancia, art_nom
+                OFFSET @offset ROWS
+                FETCH NEXT @pageSize ROWS ONLY
+            `;
+
+            const request = pool.request()
+                .input('conteo_id', sql.Int, conteo_id)
+                .input('offset', sql.Int, offset)
+                .input('pageSize', sql.Int, pageSize);
+
+            if (filtros.nombre) {
+                request.input('nombre', sql.VarChar, filtros.nombre);
+            }
+            if (filtros.codigo) {
+                request.input('codigo', sql.VarChar, filtros.codigo);
+            }
+
+            const result = await request.query(query);
+
+            if (result.recordset.length === 0) {
+                return {
+                    data: [],
+                    total: 0,
+                    pageNumber,
+                    pageSize
+                };
+            }
+
+            const total = result.recordset[0].total;
+            delete result.recordset[0].total;
+
+            return {
+                data: result.recordset,
+                total,
+                pageNumber,
+                pageSize
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
 }
 
 module.exports = InventarioConteo; 

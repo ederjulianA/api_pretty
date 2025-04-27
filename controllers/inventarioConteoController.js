@@ -147,6 +147,63 @@ class InventarioConteoController {
             });
         }
     }
+
+    static async actualizarCantidadDetalle(req, res) {
+        try {
+            const { conteo_id, articulo_codigo } = req.params;
+            const { cantidad_fisica } = req.body;
+
+            if (!cantidad_fisica && cantidad_fisica !== 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'La cantidad física es requerida'
+                });
+            }
+
+            const rowsAffected = await InventarioConteo.actualizarCantidadDetalle(
+                conteo_id,
+                articulo_codigo,
+                cantidad_fisica
+            );
+
+            res.status(200).json({
+                success: true,
+                data: {
+                    message: 'Cantidad actualizada exitosamente',
+                    rowsAffected: rowsAffected
+                }
+            });
+        } catch (error) {
+            res.status(200).json({
+                success: false,
+                error: error.message
+            });
+        }
+    }
+
+    static async buscarDetalleConteo(req, res) {
+        try {
+            const { conteo_id } = req.params;
+            const { nombre, codigo, pageNumber, pageSize } = req.query;
+
+            const resultado = await InventarioConteo.buscarDetalleConteo(conteo_id, {
+                nombre,
+                codigo,
+                pageNumber,
+                pageSize
+            });
+
+            res.status(200).json({
+                success: true,
+                ...resultado
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                error: error.message
+            });
+        }
+    }
 }
 
 module.exports = InventarioConteoController; 
