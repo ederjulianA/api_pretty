@@ -204,6 +204,24 @@ class InventarioConteoController {
             });
         }
     }
+
+    static async verificarArticuloEnDetalle(req, res) {
+        try {
+            const { conteoId, codigoArticulo } = req.params;
+
+            const existe = await InventarioConteo.verificarArticuloEnDetalle(conteoId, codigoArticulo);
+
+            res.status(200).json({
+                success: true,
+                data: existe
+            });
+        } catch (error) {
+            res.status(200).json({
+                success: false,
+                error: error.message
+            });
+        }
+    }
 }
 
 module.exports = InventarioConteoController; 

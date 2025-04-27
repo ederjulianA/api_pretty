@@ -26,4 +26,7 @@ router.patch('/:conteo_id/detalle/:articulo_codigo/cantidad', InventarioConteoCo
 // Buscar en el detalle del conteo
 router.get('/:conteo_id/detalle/buscar', InventarioConteoController.buscarDetalleConteo);
 
+// Verificar si un artículo está en el detalle del conteo
+router.get('/:conteoId/detalle/verificar/:codigoArticulo', InventarioConteoController.verificarArticuloEnDetalle);
+
 module.exports = router; 

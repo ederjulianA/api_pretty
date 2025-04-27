@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import fileUpload from "express-fileupload";
+import wooRoutes from './routes/woo.js';
 dotenv.config();
 
 const app = express();
@@ -61,6 +62,7 @@ app.use('/api/test', testSyncRoutes);
 app.use('/api/kardex', kardexRoutes);
 app.use('/api/inventory-comparison', inventoryComparisonRoutes);
 app.use('/api/inventario-conteo', inventarioConteoRoutes);
+app.use('/api/woo', wooRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });

@@ -346,6 +346,30 @@ class InventarioConteo {
             throw error;
         }
     }
+
+    static async verificarArticuloEnDetalle(conteo_id, articulo_codigo) {
+        try {
+            const pool = await poolPromise;
+
+            // Primero validamos que el artículo existe y obtenemos su art_sec
+            const articulo = await this.validarArticulo(articulo_codigo);
+
+            // Verificar si existe en el detalle
+            const result = await pool.request()
+                .input('conteo_id', sql.Int, conteo_id)
+                .input('articulo_artsec', sql.VarChar, articulo.art_sec)
+                .query(`
+                    SELECT 1 
+                    FROM inventario_conteo_detalle 
+                    WHERE conteo_id = @conteo_id 
+                    AND articulo_artsec = @articulo_artsec
+                `);
+
+            return result.recordset.length > 0;
+        } catch (error) {
+            throw error;
+        }
+    }
 }
 
 module.exports = InventarioConteo; 
