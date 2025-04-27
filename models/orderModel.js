@@ -93,12 +93,14 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     await transaction.commit();
 
     // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
-    if (fac_tip_cod === 'VTA') {
+    if (fac_tip_cod === 'VTA' && detalles.length < 90) {
       // Remover los logs y manejar errores silenciosamente
       setImmediate(() => {
         updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, fac_nro)
           .catch(err => console.error("Error updating WooCommerce:", err));
       });
+    } else if (fac_tip_cod === 'VTA' && detalles.length >= 90) {
+      console.log("Skipping WooCommerce update due to large number of items (>90)");
     }
 
     return { message: "Pedido actualizado exitosamente." };
@@ -387,12 +389,14 @@ const createCompleteOrder = async ({
     await transaction.commit();
 
     // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
-    if (fac_tip_cod === 'VTA') {
+    if (fac_tip_cod === 'VTA' && detalles.length < 90) {
       // Llamamos de forma asíncrona a la función que actualiza el estado del pedido y stock en WooCommerce
       setImmediate(() => {
         updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, FinalFacNro)
           .catch(err => console.error("Error updating WooCommerce:", err));
       });
+    } else if (fac_tip_cod === 'VTA' && detalles.length >= 90) {
+      console.log("Skipping WooCommerce update due to large number of items (>90)");
     }
 
     return { fac_sec: NewFacSec, fac_nro: FinalFacNro };
@@ -467,12 +471,14 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
 
     await transaction.commit();
 
-    if (detalles.length > 0) {
+    if (detalles.length > 0 && detalles.length < 90) {
       try {
         await updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, fac_nro);
       } catch (wooError) {
         console.error('Error al actualizar WooCommerce:', wooError.message);
       }
+    } else if (detalles.length >= 90) {
+      console.log("Skipping WooCommerce update due to large number of items (>90)");
     }
 
     return {

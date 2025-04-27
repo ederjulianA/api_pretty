@@ -245,8 +245,8 @@ class InventarioConteo {
                 throw new Error('No se encontró el detalle a actualizar');
             }
 
-            // Obtener cantidad del sistema
-            const cantidad_sistema = detalleExistente.recordset[0].cantidad_sistema;
+            // Obtener cantidad actual del sistema
+            const cantidad_sistema = await this.obtenerCantidadSistema(articulo.art_sec);
 
             // Calcular nueva diferencia
             const diferencia = cantidad_fisica - cantidad_sistema;
@@ -255,11 +255,13 @@ class InventarioConteo {
             const result = await pool.request()
                 .input('conteo_id', sql.Int, conteo_id)
                 .input('articulo_artsec', sql.VarChar, articulo.art_sec)
+                .input('cantidad_sistema', sql.Decimal, cantidad_sistema)
                 .input('cantidad_fisica', sql.Decimal, cantidad_fisica)
                 .input('diferencia', sql.Decimal, diferencia)
                 .query(`
                     UPDATE inventario_conteo_detalle
-                    SET cantidad_fisica = @cantidad_fisica,
+                    SET cantidad_sistema = @cantidad_sistema,
+                        cantidad_fisica = @cantidad_fisica,
                         diferencia = @diferencia
                     WHERE conteo_id = @conteo_id 
                     AND articulo_artsec = @articulo_artsec

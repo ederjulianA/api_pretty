@@ -106,13 +106,17 @@ const createInventoryAdjustment = async ({
 
     await transaction.commit();
 
-    // Actualizar el stock en WooCommerce
-    try {
-      const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, FinalFacNro);
-      console.log("WooCommerce stock update result:", wooResult);
-    } catch (wooError) {
-      console.error("Error updating WooCommerce stock:", wooError);
-      // No lanzamos el error para no afectar la transacción principal
+    // Actualizar el stock en WooCommerce solo si hay menos de 90 items
+    if (detalles.length < 90) {
+      try {
+        const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, FinalFacNro);
+        console.log("WooCommerce stock update result:", wooResult);
+      } catch (wooError) {
+        console.error("Error updating WooCommerce stock:", wooError);
+        // No lanzamos el error para no afectar la transacción principal
+      }
+    } else {
+      console.log("Skipping WooCommerce update due to large number of items (>90)");
     }
 
     return {
@@ -220,13 +224,17 @@ const updateInventoryAdjustment = async ({
 
     await transaction.commit();
 
-    // Actualizar el stock en WooCommerce
-    try {
-      const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, fac_nro);
-      console.log("WooCommerce stock update result:", wooResult);
-    } catch (wooError) {
-      console.error("Error updating WooCommerce stock:", wooError);
-      // No lanzamos el error para no afectar la transacción principal
+    // Actualizar el stock en WooCommerce solo si hay menos de 90 items
+    if (detalles.length < 90) {
+      try {
+        const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, fac_nro);
+        console.log("WooCommerce stock update result:", wooResult);
+      } catch (wooError) {
+        console.error("Error updating WooCommerce stock:", wooError);
+        // No lanzamos el error para no afectar la transacción principal
+      }
+    } else {
+      console.log("Skipping WooCommerce update due to large number of items (>90)");
     }
 
     return {
