@@ -4,6 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import fileUpload from "express-fileupload";
 import wooRoutes from './routes/woo.js';
+import updateWooStockRoutes from './routes/updateWooStockRoutes.js';
 dotenv.config();
 
 const app = express();
@@ -63,6 +64,7 @@ app.use('/api/kardex', kardexRoutes);
 app.use('/api/inventory-comparison', inventoryComparisonRoutes);
 app.use('/api/inventario-conteo', inventarioConteoRoutes);
 app.use('/api/woo', wooRoutes);
+app.use('/api/updateWooStock', updateWooStockRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });
