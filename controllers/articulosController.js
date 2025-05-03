@@ -5,7 +5,7 @@ const { validateArticulo, createArticulo, getArticulo, updateArticulo, getArticu
 const updateArticuloEndpoint = async (req, res) => {
   try {
     const { id_articulo } = req.params;
-    const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor } = req.body;
+    const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha } = req.body;
 
     if (!id_articulo || !art_cod || !art_nom || !categoria || !subcategoria || !art_woo_id || precio_detal == null || precio_mayor == null) {
       return res.status(400).json({
@@ -22,7 +22,8 @@ const updateArticuloEndpoint = async (req, res) => {
       subcategoria,
       art_woo_id,
       precio_detal,
-      precio_mayor
+      precio_mayor,
+      actualiza_fecha
     });
 
     return res.json({ success: true, ...result });

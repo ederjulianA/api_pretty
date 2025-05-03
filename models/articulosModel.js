@@ -41,7 +41,7 @@ const validateArticulo = async ({ art_cod, art_woo_id }) => {
     throw error;
   }
 };
-const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor) => {
+const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null) => {
   try {
     const api = new WooCommerceRestApi({
       url: process.env.WC_URL,
@@ -49,6 +49,12 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
       consumerSecret: process.env.WC_CONSUMER_SECRET,
       version: "wc/v3"
     });
+
+    // Validar actualiza_fecha
+    if (actualiza_fecha !== 'S' && actualiza_fecha !== 'N') {
+      throw new Error('actualiza_fecha debe ser "S" o "N"');
+    }
+
     const data = {
       name: art_nom,
       sku: art_cod,
@@ -57,8 +63,44 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
         { key: '_precio_mayorista', value: precio_mayor }
       ]
     };
-    await api.put(`products/${art_woo_id}`, data);
+
+    // Solo incluir la fecha si actualiza_fecha es 'S' y hay una fecha válida
+    if (actualiza_fecha === 'S' && fac_fec) {
+      const dateObj = new Date(fac_fec);
+      if (!isNaN(dateObj.getTime())) {
+        data.date_created = dateObj.toISOString().slice(0, 19).replace('Z', '');
+      }
+    }
+
+    console.log('Actualizando producto en WooCommerce:', {
+      art_woo_id,
+      art_cod,
+      data: JSON.stringify(data, null, 2)
+    });
+
+    const response = await api.put(`products/${art_woo_id}`, data);
+    
+    console.log('Respuesta de WooCommerce:', {
+      status: response.status,
+      statusText: response.statusText,
+      data: JSON.stringify(response.data, null, 2)
+    });
+
+    return {
+      success: true,
+      status: response.status,
+      data: response.data
+    };
   } catch (error) {
+    console.error('Error al actualizar producto en WooCommerce:', {
+      art_woo_id,
+      art_cod,
+      error: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      statusText: error.response?.statusText
+    });
+
     throw new Error(`Error al actualizar producto en WooCommerce: ${error.message}`);
   }
 };
@@ -140,7 +182,7 @@ const createArticulo = async (articuloData) => {
     database: null
   };
   let art_woo_id = null;
-  let imageUrls = [];
+  let imageUrls = []; 
 
   try {
     const pool = await poolPromise;
@@ -424,7 +466,7 @@ const getArticulo = async (art_sec) => {
   }
 };
 
-const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor }) => {
+const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, fac_fec = null }) => {
   let transaction;
   try {
     const pool = await poolPromise;
@@ -494,7 +536,7 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
 
     // Actualización asíncrona en WooCommerce
     setImmediate(() => {
-      updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor);
+      updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec);
     });
 
     return { message: "Artículo actualizado exitosamente." };

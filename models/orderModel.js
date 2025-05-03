@@ -96,7 +96,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     if (fac_tip_cod === 'VTA' && detalles.length < 90) {
       // Remover los logs y manejar errores silenciosamente
       setImmediate(() => {
-        updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, fac_nro)
+        updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, fac_nro,'N')
           .catch(err => console.error("Error updating WooCommerce:", err));
       });
     } else if (fac_tip_cod === 'VTA' && detalles.length >= 90) {
@@ -392,7 +392,7 @@ const createCompleteOrder = async ({
     if (fac_tip_cod === 'VTA' && detalles.length < 90) {
       // Llamamos de forma asíncrona a la función que actualiza el estado del pedido y stock en WooCommerce
       setImmediate(() => {
-        updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, FinalFacNro)
+        updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, FinalFacNro,'N')
           .catch(err => console.error("Error updating WooCommerce:", err));
       });
     } else if (fac_tip_cod === 'VTA' && detalles.length >= 90) {
@@ -473,7 +473,7 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
 
     if (detalles.length > 0 && detalles.length < 90) {
       try {
-        await updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, fac_nro);
+        await updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, fac_nro,'N');
       } catch (wooError) {
         console.error('Error al actualizar WooCommerce:', wooError.message);
       }

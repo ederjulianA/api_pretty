@@ -6,7 +6,8 @@ const createInventoryAdjustment = async ({
   fac_usu_cod_cre,
   detalles,
   fac_fec,
-  fac_obs
+  fac_obs,
+  actualiza_fecha 
 }) => {
   let transaction;
   try {
@@ -109,7 +110,13 @@ const createInventoryAdjustment = async ({
     // Actualizar el stock en WooCommerce solo si hay menos de 90 items
     if (detalles.length < 90) {
       try {
-        const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, FinalFacNro);
+        console.log("Actualizando WooCommerce con parámetros:", {
+          detalles: detalles.length,
+          fac_fec,
+          fac_nro: FinalFacNro,
+          actualiza_fecha
+        });
+        const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, FinalFacNro, actualiza_fecha);
         console.log("WooCommerce stock update result:", wooResult);
       } catch (wooError) {
         console.error("Error updating WooCommerce stock:", wooError);
@@ -141,7 +148,8 @@ const updateInventoryAdjustment = async ({
   nit_sec,
   detalles,
   fac_fec,
-  fac_obs
+  fac_obs,
+  actualiza_fecha
 }) => {
   let transaction;
   try {
@@ -227,7 +235,13 @@ const updateInventoryAdjustment = async ({
     // Actualizar el stock en WooCommerce solo si hay menos de 90 items
     if (detalles.length < 90) {
       try {
-        const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, fac_nro);
+        console.log("Actualizando WooCommerce con parámetros:", {
+          detalles: detalles.length,
+          fac_fec,
+          fac_nro,
+          actualiza_fecha
+        });
+        const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, fac_nro, actualiza_fecha);
         console.log("WooCommerce stock update result:", wooResult);
       } catch (wooError) {
         console.error("Error updating WooCommerce stock:", wooError);

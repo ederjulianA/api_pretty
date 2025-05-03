@@ -63,9 +63,11 @@ export const updateAdjustment = async (req, res) => {
       nit_sec, 
       detalles, 
       fac_fec,
-      fac_obs 
+      fac_obs,
+      actualiza_fecha
     } = req.body;
 
+    console.log('EDER actualiza_fecha', actualiza_fecha);
     // Validaciones básicas
     if (!fac_nro) {
       return res.status(400).json({ error: "fac_nro es requerido" });
@@ -134,7 +136,8 @@ export const updateAdjustment = async (req, res) => {
       nit_sec,
       detalles,
       fac_fec,
-      fac_obs
+      fac_obs,
+      actualiza_fecha
     });
 
     res.json({

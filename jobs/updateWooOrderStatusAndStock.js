@@ -149,7 +149,7 @@ const chunkArray = (array, size) => {
 };
 
 // Función para actualizar el estado del pedido y el stock de cada artículo en WooCommerce
-const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec = null, fac_nro = null) => {
+const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec = null, fac_nro = null, actualiza_fecha = 'N') => {
   let messages = [];
   let debugLogs = [];
   let successCount = 0;
@@ -159,6 +159,9 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
   const BATCH_SIZE = 25;
 
   try {
+    // Log del valor inicial de actualiza_fecha
+    debugLogs.push(log(logLevels.INFO, `Valor inicial de actualiza_fecha: ${actualiza_fecha}`));
+
     // Validar que orderDetails sea un array y no esté vacío
     if (!Array.isArray(orderDetails) || orderDetails.length === 0) {
       const error = 'orderDetails debe ser un array no vacío de artículos';
@@ -169,6 +172,13 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
     // Validar que fac_nro esté presente
     if (!fac_nro) {
       const error = 'El número de documento (fac_nro) es obligatorio';
+      debugLogs.push(log(logLevels.ERROR, error));
+      throw new Error(error);
+    }
+
+    // Validar actualiza_fecha
+    if (actualiza_fecha !== 'S' && actualiza_fecha !== 'N') {
+      const error = 'actualiza_fecha debe ser "S" o "N"';
       debugLogs.push(log(logLevels.ERROR, error));
       throw new Error(error);
     }
@@ -234,11 +244,28 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
         }
 
         const newStock = await getArticleStock(art_sec);
-        productUpdates.push({
+        const updateData = {
           id: artWooId,
-          stock_quantity: newStock,
-          date_created: formattedDate
-        });
+          stock_quantity: newStock
+        };
+
+        // Solo incluir la fecha si actualiza_fecha es 'S'
+        if (actualiza_fecha === 'S' && formattedDate) {
+          debugLogs.push(log(logLevels.INFO, `Incluyendo fecha en actualización para art_sec ${art_sec}`, {
+            art_sec,
+            actualiza_fecha,
+            formattedDate
+          }));
+          updateData.date_created = formattedDate;
+        } else {
+          debugLogs.push(log(logLevels.INFO, `No se incluye fecha en actualización para art_sec ${art_sec}`, {
+            art_sec,
+            actualiza_fecha,
+            formattedDate
+          }));
+        }
+
+        productUpdates.push(updateData);
       } catch (error) {
         log(logLevels.ERROR, `Error preparando actualización para art_sec ${item.art_sec}`, {
           error: error.message,
@@ -252,6 +279,7 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
     const batches = chunkArray(productUpdates, BATCH_SIZE);
     log(logLevels.INFO, `Dividiendo actualizaciones en ${batches.length} lotes de ${BATCH_SIZE} artículos`);
 
+    log(logLevels.INFO, `Actualiza fecha: ${actualiza_fecha}`);
     // Procesar cada lote
     for (const [batchIndex, batch] of batches.entries()) {
       try {
