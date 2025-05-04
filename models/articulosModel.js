@@ -86,6 +86,37 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
       data: JSON.stringify(response.data, null, 2)
     });
 
+    // Guardar el log en la base de datos
+    const pool = await poolPromise;
+    await pool.request()
+      .input('fac_nro_woo', sql.VarChar(50), null)
+      .input('fac_nro', sql.VarChar(50), null)
+      .input('total_items', sql.Int, 1)
+      .input('success_count', sql.Int, 1)
+      .input('error_count', sql.Int, 0)
+      .input('skipped_count', sql.Int, 0)
+      .input('duration', sql.Float, 0)
+      .input('batches_processed', sql.Int, 1)
+      .input('messages', sql.NVarChar(sql.MAX), JSON.stringify([
+        `Producto ${art_cod} actualizado exitosamente en WooCommerce`,
+        {
+          status: response.status,
+          statusText: response.statusText,
+          data: response.data
+        }
+      ]))
+      .input('status', sql.VarChar(20), 'SUCCESS')
+      .input('error_details', sql.NVarChar(sql.MAX), null)
+      .query(`
+        INSERT INTO dbo.woo_sync_logs (
+          fac_nro_woo, fac_nro, total_items, success_count, error_count, 
+          skipped_count, duration, batches_processed, messages, status, error_details
+        ) VALUES (
+          @fac_nro_woo, @fac_nro, @total_items, @success_count, @error_count,
+          @skipped_count, @duration, @batches_processed, @messages, @status, @error_details
+        );
+      `);
+
     return {
       success: true,
       status: response.status,
@@ -100,6 +131,46 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
       status: error.response?.status,
       statusText: error.response?.statusText
     });
+
+    // Guardar el log de error en la base de datos
+    try {
+      const pool = await poolPromise;
+      await pool.request()
+        .input('fac_nro_woo', sql.VarChar(50), null)
+        .input('fac_nro', sql.VarChar(50), null)
+        .input('total_items', sql.Int, 1)
+        .input('success_count', sql.Int, 0)
+        .input('error_count', sql.Int, 1)
+        .input('skipped_count', sql.Int, 0)
+        .input('duration', sql.Float, 0)
+        .input('batches_processed', sql.Int, 1)
+        .input('messages', sql.NVarChar(sql.MAX), JSON.stringify([
+          `Error al actualizar producto ${art_cod} en WooCommerce`,
+          {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data
+          }
+        ]))
+        .input('status', sql.VarChar(20), 'ERROR')
+        .input('error_details', sql.NVarChar(sql.MAX), JSON.stringify({
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+          statusText: error.response?.statusText
+        }))
+        .query(`
+          INSERT INTO dbo.woo_sync_logs (
+            fac_nro_woo, fac_nro, total_items, success_count, error_count, 
+            skipped_count, duration, batches_processed, messages, status, error_details
+          ) VALUES (
+            @fac_nro_woo, @fac_nro, @total_items, @success_count, @error_count,
+            @skipped_count, @duration, @batches_processed, @messages, @status, @error_details
+          );
+        `);
+    } catch (logError) {
+      console.error('Error guardando log de error:', logError);
+    }
 
     throw new Error(`Error al actualizar producto en WooCommerce: ${error.message}`);
   }
