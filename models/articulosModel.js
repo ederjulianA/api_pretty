@@ -123,14 +123,33 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
       data: response.data
     };
   } catch (error) {
-    console.error('Error al actualizar producto en WooCommerce:', {
-      art_woo_id,
-      art_cod,
-      error: error.message,
-      response: error.response?.data,
-      status: error.response?.status,
-      statusText: error.response?.statusText
-    });
+    // Preparar información detallada del error
+    const errorInfo = {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+      stack: error.stack,
+      response: {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        headers: error.response?.headers
+      },
+      request: {
+        method: error.request?.method,
+        url: error.request?.url,
+        headers: error.request?.headers,
+        data: error.request?.data
+      },
+      config: {
+        url: error.config?.url,
+        method: error.config?.method,
+        headers: error.config?.headers,
+        data: error.config?.data
+      }
+    };
+
+    console.error('Error al actualizar producto en WooCommerce:', errorInfo);
 
     // Guardar el log de error en la base de datos
     try {
@@ -147,18 +166,18 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
         .input('messages', sql.NVarChar(sql.MAX), JSON.stringify([
           `Error al actualizar producto ${art_cod} en WooCommerce`,
           {
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            data: error.response?.data
+            error: error.message,
+            status: error.response?.status || 'No response',
+            statusText: error.response?.statusText || 'No response',
+            data: error.response?.data || 'No response data',
+            request: {
+              method: error.request?.method || 'No request',
+              url: error.request?.url || 'No URL'
+            }
           }
         ]))
         .input('status', sql.VarChar(20), 'ERROR')
-        .input('error_details', sql.NVarChar(sql.MAX), JSON.stringify({
-          message: error.message,
-          response: error.response?.data,
-          status: error.response?.status,
-          statusText: error.response?.statusText
-        }))
+        .input('error_details', sql.NVarChar(sql.MAX), JSON.stringify(errorInfo))
         .query(`
           INSERT INTO dbo.woo_sync_logs (
             fac_nro_woo, fac_nro, total_items, success_count, error_count, 
