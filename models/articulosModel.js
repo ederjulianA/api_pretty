@@ -58,7 +58,7 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
     const data = {
       name: art_nom,
       sku: art_cod,
-      price: precio_detal.toString(),
+      regular_price: precio_detal.toString(),
       meta_data: [
         { key: '_precio_mayorista', value: precio_mayor }
       ]
