@@ -571,7 +571,9 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       SET art_cod = @art_cod,
           art_nom = @art_nom,
           inv_sub_gru_cod = @subcategoria,
-          art_woo_id = @art_woo_id
+          art_woo_id = @art_woo_id,
+          art_woo_sync_status = 'PENDING',
+          art_woo_sync_message = NULL
       WHERE art_sec = @id_articulo
     `;
     await request
@@ -624,12 +626,56 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
 
     await transaction.commit();
 
-    // Actualización asíncrona en WooCommerce
-    setImmediate(() => {
-      updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec);
-    });
+    // Actualización en WooCommerce
+    try {
+      const wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec);
+      
+      // Actualizar estado de sincronización
+      await pool.request()
+        .input('id_articulo', sql.Decimal(18, 0), id_articulo)
+        .input('sync_status', sql.VarChar(20), 'SUCCESS')
+        .input('sync_message', sql.NVarChar(sql.MAX), JSON.stringify(wooResult))
+        .query(`
+          UPDATE dbo.articulos
+          SET art_woo_sync_status = @sync_status,
+              art_woo_sync_message = @sync_message
+          WHERE art_sec = @id_articulo
+        `);
 
-    return { message: "Artículo actualizado exitosamente." };
+      return { 
+        message: "Artículo actualizado exitosamente.",
+        wooCommerce: {
+          success: true,
+          status: wooResult.status,
+          data: wooResult.data
+        }
+      };
+    } catch (wooError) {
+      // Actualizar estado de sincronización con error
+      await pool.request()
+        .input('id_articulo', sql.Decimal(18, 0), id_articulo)
+        .input('sync_status', sql.VarChar(20), 'ERROR')
+        .input('sync_message', sql.NVarChar(sql.MAX), JSON.stringify({
+          message: wooError.message,
+          response: wooError.response?.data,
+          status: wooError.response?.status,
+          statusText: wooError.response?.statusText
+        }))
+        .query(`
+          UPDATE dbo.articulos
+          SET art_woo_sync_status = @sync_status,
+              art_woo_sync_message = @sync_message
+          WHERE art_sec = @id_articulo
+        `);
+
+      return { 
+        message: "Artículo actualizado, pero falló la sincronización con WooCommerce.",
+        wooCommerce: {
+          success: false,
+          error: wooError.message
+        }
+      };
+    }
   } catch (error) {
     if (transaction) {
       try {
