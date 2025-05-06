@@ -206,11 +206,17 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
 
     // Actualizar estado del pedido si existe
     if (fac_nro_woo) {
-      log(logLevels.INFO, `Actualizando estado del pedido ${fac_nro_woo} a 'processing'`);
+      log(logLevels.INFO, `Actualizando estado del pedido ${fac_nro_woo} a 'completed'`);
       try {
-        const orderUpdateData = { status: "processing" };
+        const orderUpdateData = { status: "completed" };
+        log(logLevels.INFO, `Datos de actualización del pedido:`, { orderUpdateData });
         const orderResponse = await wcApi.put(`orders/${fac_nro_woo}`, orderUpdateData);
-        messages.push(`Pedido ${fac_nro_woo} actualizado a 'processing' en WooCommerce.`);
+        log(logLevels.INFO, `Respuesta de WooCommerce:`, { 
+          status: orderResponse.status,
+          statusText: orderResponse.statusText,
+          data: orderResponse.data
+        });
+        messages.push(`Pedido ${fac_nro_woo} actualizado a 'completed' en WooCommerce.`);
         log(logLevels.INFO, `Pedido actualizado exitosamente`, {
           orderId: fac_nro_woo,
           response: orderResponse.data
