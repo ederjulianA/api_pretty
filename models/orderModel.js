@@ -147,9 +147,9 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
         f.fac_tip_cod,
         SUM(fd.kar_total) AS total_pedido,
         (
-          SELECT STRING_AGG(t.fac_nro, '-')
+          SELECT STRING_AGG(t.fac_nro, '-') WITHIN GROUP (ORDER BY t.fac_fec DESC, t.fac_nro ASC)
           FROM (
-              SELECT DISTINCT f2.fac_nro
+              SELECT DISTINCT f2.fac_nro, f2.fac_fec
               FROM dbo.facturakardes fk2
               INNER JOIN dbo.factura f2
                   ON fk2.fac_sec = f2.fac_sec
@@ -189,7 +189,7 @@ SELECT
     total_pedido,
     documentos
 FROM PedidoResumen
-ORDER BY fac_fec DESC
+ORDER BY fac_fec DESC, fac_nro DESC
 OFFSET (@PageNumber - 1) * @PageSize ROWS
 FETCH NEXT @PageSize ROWS ONLY;
     `;
