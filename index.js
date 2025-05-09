@@ -33,6 +33,7 @@ import kardexRoutes from './routes/kardexRoutes.js';
 import inventoryComparisonRoutes from './routes/inventoryComparisonRoutes.js';
 import inventarioConteoRoutes from './routes/inventarioConteo.js';
 
+
 app.use(express.json());
 app.use(cors());
 app.use(fileUpload({
@@ -41,6 +42,12 @@ app.use(fileUpload({
     fileSize: 50 * 1024 * 1024 // 50MB max file(s) size
   },
 }));
+
+// Agregar una ruta de prueba para verificar que el router de WooCommerce está funcionando
+app.use("/api/woo", wooRoutes);
+app.get("/api/woo/test", (req, res) => {
+  res.json({ message: "WooCommerce router is working" });
+});
 
 app.use("/api/categorias", inventarioGrupoRoutes);
 app.use("/api/articulos", articulosRoutes);
@@ -63,7 +70,6 @@ app.use('/api/test', testSyncRoutes);
 app.use('/api/kardex', kardexRoutes);
 app.use('/api/inventory-comparison', inventoryComparisonRoutes);
 app.use('/api/inventario-conteo', inventarioConteoRoutes);
-app.use('/api/woo', wooRoutes);
 app.use('/api/updateWooStock', updateWooStockRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
