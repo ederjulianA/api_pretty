@@ -119,6 +119,10 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 
 const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod, fac_nro_woo }) => {
   try {
+    console.log('[getOrdenes] Parámetros recibidos:', {
+      FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod, fac_nro_woo
+    });
+
     const pool = await poolPromise;
     const request = pool.request();
 
@@ -195,8 +199,16 @@ FETCH NEXT @PageSize ROWS ONLY;
     `;
 
     const result = await request.query(query);
+
+    console.log(`[getOrdenes] Consulta ejecutada correctamente. Registros devueltos: ${result.recordset.length}`);
+
     return result.recordset;
   } catch (error) {
+    console.error('[getOrdenes] Error al ejecutar la consulta:', {
+      error: error.message,
+      stack: error.stack,
+      FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod, fac_nro_woo
+    });
     throw error;
   }
 };
