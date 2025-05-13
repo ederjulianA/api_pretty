@@ -88,6 +88,23 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
           VALUES
             (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @kar_lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori)
         `);
+
+      // Si existe kar_fac_sec_ori, actualizar fac_nro_origen en la tabla factura
+      if (detail.kar_fac_sec_ori) {
+        const updateOriginRequest = new sql.Request(transaction);
+        const updateOriginQuery = `
+          UPDATE f
+          SET f.fac_nro_origen = fo.fac_nro
+          FROM dbo.factura f
+          INNER JOIN dbo.factura fo ON fo.fac_sec = @kar_fac_sec_ori
+          WHERE f.fac_sec = @fac_sec
+            AND fo.fac_est_fac = 'A'
+        `;
+        await updateOriginRequest
+          .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+          .input('kar_fac_sec_ori', sql.Decimal(18, 0), detail.kar_fac_sec_ori)
+          .query(updateOriginQuery);
+      }
     }
 
     await transaction.commit();
@@ -139,32 +156,16 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
     request.input('fue_cod', sql.Int, fue_cod);
 
     const query = `
-;WITH PedidoResumen AS (
     SELECT
-        f.fac_sec,
         f.fac_fec,
-        f.fac_nro_woo,
         n.nit_ide,
         n.nit_nom,
         f.fac_nro,
-        f.fac_est_fac,
         f.fac_tip_cod,
+        f.fac_nro_woo,
+        f.fac_est_fac,
         SUM(fd.kar_total) AS total_pedido,
-        (
-          SELECT STRING_AGG(t.fac_nro, '-') WITHIN GROUP (ORDER BY t.fac_fec DESC, t.fac_nro ASC)
-          FROM (
-              SELECT DISTINCT f2.fac_nro, f2.fac_fec
-              FROM dbo.facturakardes fk2
-              INNER JOIN dbo.factura f2
-                  ON fk2.fac_sec = f2.fac_sec
-              LEFT JOIN dbo.tipo_comprobantes tc2
-                  ON f2.f_tip_cod = tc2.tip_cod
-              WHERE fk2.kar_fac_sec_ori = f.fac_sec
-                AND f2.fac_est_fac = 'A'
-                AND fk2.kar_uni > 0
-                AND tc2.fue_cod = 1
-          ) t
-        ) AS documentos
+        f.fac_nro_origen as documentos
     FROM dbo.factura f
     INNER JOIN dbo.nit n
         ON f.nit_sec = n.nit_sec
@@ -178,24 +179,13 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
       AND (@nit_ide IS NULL OR n.nit_ide = @nit_ide)
       AND (@nit_nom IS NULL OR n.nit_nom LIKE '%' + @nit_nom + '%')
       AND (@fac_nro IS NULL OR f.fac_nro = @fac_nro)
-       AND (@fac_nro_woo IS NULL OR f.fac_nro_woo = @fac_nro_woo)
-      AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)    GROUP BY 
-        f.fac_sec, f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro,f.fac_nro_woo, f.fac_est_fac, f.fac_tip_cod
-)
-SELECT
-    fac_fec,
-    nit_ide,
-    nit_nom,
-    fac_nro,
-    fac_tip_cod,
-    fac_nro_woo,
-    fac_est_fac,
-    total_pedido,
-    documentos
-FROM PedidoResumen
-ORDER BY fac_fec DESC, fac_nro DESC
-OFFSET (@PageNumber - 1) * @PageSize ROWS
-FETCH NEXT @PageSize ROWS ONLY;
+      AND (@fac_nro_woo IS NULL OR f.fac_nro_woo = @fac_nro_woo)
+      AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)
+    GROUP BY 
+        f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_fac, f.fac_nro_origen
+    ORDER BY f.fac_fec DESC, f.fac_nro DESC
+    OFFSET (@PageNumber - 1) * @PageSize ROWS
+    FETCH NEXT @PageSize ROWS ONLY;
     `;
 
     const result = await request.query(query);
@@ -396,6 +386,22 @@ const createCompleteOrder = async ({
           (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori)
       `;
       await insertRequest.query(insertDetailQuery);
+
+      // Si existe kar_fac_sec_ori, actualizar fac_nro_origen en la tabla factura
+      if (detalle.kar_fac_sec_ori && fac_tip_cod === 'VTA') {
+        const updateOriginRequest = new sql.Request(transaction);
+        const updateOriginQuery = `
+          UPDATE f
+          SET f.fac_nro_origen = @FinalFacNro
+          FROM dbo.factura f
+          WHERE f.fac_sec = @kar_fac_sec_ori
+            AND f.fac_tip_cod = 'COT'
+        `;
+        await updateOriginRequest
+          .input('kar_fac_sec_ori', sql.Decimal(18, 0), detalle.kar_fac_sec_ori)
+          .input('FinalFacNro', sql.VarChar(20), FinalFacNro)
+          .query(updateOriginQuery);
+      }
     }
 
     await transaction.commit();
