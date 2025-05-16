@@ -33,6 +33,7 @@ import testSyncRoutes from './routes/testSyncRoutes.js';
 import kardexRoutes from './routes/kardexRoutes.js';
 import inventoryComparisonRoutes from './routes/inventoryComparisonRoutes.js';
 import inventarioConteoRoutes from './routes/inventarioConteo.js';
+import userRoutes from './routes/userRoutes.js';
 
 
 app.use(express.json());
@@ -73,6 +74,7 @@ app.use('/api/kardex', kardexRoutes);
 app.use('/api/inventory-comparison', inventoryComparisonRoutes);
 app.use('/api/inventario-conteo', inventarioConteoRoutes);
 app.use('/api/updateWooStock', updateWooStockRoutes);
+app.use("/api/users", userRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });

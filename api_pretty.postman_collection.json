@@ -704,6 +704,50 @@
 					}
 				}
 			]
+		},
+		{
+			"name": "Usuarios",
+			"item": [
+				{
+					"name": "Listar Usuarios",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users"]
+						}
+					},
+					"response": [
+						{
+							"name": "Lista de Usuarios",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": [
+								{
+									"id": "1",
+									"name": "Juan Pérez",
+									"email": "juan@example.com",
+									"role_id": "2"
+								},
+								{
+									"id": "2",
+									"name": "Ana López",
+									"email": "ana@example.com",
+									"role_id": "1"
+								}
+							]
+						}
+					]
+				}
+			]
 		}
 	],
 	"variable": [
