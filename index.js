@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import fileUpload from "express-fileupload";
 import wooRoutes from './routes/woo.js';
 import updateWooStockRoutes from './routes/updateWooStockRoutes.js';
+import roleRoutes from './routes/roleRoutes.js';
 dotenv.config();
 
 const app = express();
@@ -54,6 +55,7 @@ app.use("/api/articulos", articulosRoutes);
 app.use("/api/nits", nitsRoutes);
 app.use("/api/order", orderRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/roles", roleRoutes);
 app.use("/api/parametros", parametrosRoutes);
 app.use("/api/ciudades", ciudadesRoutes);
 app.use("/api/subcategorias", inventarioSubgrupoRoutes);

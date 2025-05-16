@@ -1,0 +1,719 @@
+{
+	"info": {
+		"_postman_id": "your-collection-id",
+		"name": "API Pretty",
+		"description": "Colección de endpoints para la API Pretty",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Autenticación",
+			"item": [
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"usu_cod\": \"usuario123\",\n    \"usu_pass\": \"contraseña123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "login"]
+						}
+					},
+					"response": [
+						{
+							"name": "Login Exitoso",
+							"originalRequest": {
+								"method": "POST",
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"usu_cod\": \"usuario123\",\n    \"usu_pass\": \"contraseña123\"\n}"
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+								"user": {
+									"id": 1,
+									"username": "usuario123",
+									"name": "Usuario Ejemplo"
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Obtener Permisos",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/permissions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "permissions"]
+						}
+					},
+					"response": [
+						{
+							"name": "Permisos del Usuario",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"permissions": {
+									"dashboard": { "access": true, "actions": ["view", "export"] },
+									"products": { "access": true, "actions": ["view", "create", "edit", "delete"] }
+								}
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Roles",
+			"item": [
+				{
+					"name": "Listar Roles",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/roles?page=1&limit=10&active=true",
+							"host": ["{{base_url}}"],
+							"path": ["api", "roles"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "active",
+									"value": "true"
+								}
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "Lista de Roles",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"roles": [
+									{
+										"id": 1,
+										"name": "Administrador",
+										"description": "Acceso completo al sistema",
+										"active": true
+									},
+									{
+										"id": 2,
+										"name": "Supervisor",
+										"description": "Acceso a reportes y supervisión",
+										"active": true
+									}
+								],
+								"pagination": {
+									"totalItems": 2,
+									"totalPages": 1,
+									"currentPage": 1
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Obtener Rol Específico",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/roles/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "roles", "1"]
+						}
+					},
+					"response": [
+						{
+							"name": "Detalle del Rol",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"role": {
+									"id": 1,
+									"name": "Administrador",
+									"description": "Acceso completo a todas las funcionalidades del sistema",
+									"active": true,
+									"permissions": {
+										"dashboard": { "access": true, "actions": ["view", "export"] },
+										"products": { "access": true, "actions": ["view", "create", "edit", "delete"] },
+										"clients": { "access": true, "actions": ["view", "create", "edit", "delete"] },
+										"orders": { "access": true, "actions": ["view", "create", "edit", "delete", "cancel"] }
+									}
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Crear Rol",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Supervisor\",\n  \"description\": \"Acceso a reportes y funciones de supervisión\",\n  \"permissions\": {\n    \"dashboard\": {\n      \"access\": true,\n      \"actions\": [\"view\", \"export\"]\n    },\n    \"products\": {\n      \"access\": true,\n      \"actions\": [\"view\"]\n    },\n    \"orders\": {\n      \"access\": true,\n      \"actions\": [\"view\", \"cancel\"]\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/roles",
+							"host": ["{{base_url}}"],
+							"path": ["api", "roles"]
+						}
+					},
+					"response": [
+						{
+							"name": "Rol Creado",
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Rol creado exitosamente",
+								"role": {
+									"id": 3,
+									"name": "Supervisor",
+									"description": "Acceso a reportes y funciones de supervisión"
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Actualizar Rol",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Supervisor Avanzado\",\n  \"description\": \"Acceso a reportes y funciones avanzadas de supervisión\",\n  \"permissions\": {\n    \"dashboard\": {\n      \"access\": true,\n      \"actions\": [\"view\", \"export\"]\n    },\n    \"products\": {\n      \"access\": true,\n      \"actions\": [\"view\", \"edit\"]\n    },\n    \"orders\": {\n      \"access\": true,\n      \"actions\": [\"view\", \"create\", \"cancel\"]\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/roles/3",
+							"host": ["{{base_url}}"],
+							"path": ["api", "roles", "3"]
+						}
+					},
+					"response": [
+						{
+							"name": "Rol Actualizado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Rol actualizado exitosamente",
+								"role": {
+									"id": 3,
+									"name": "Supervisor Avanzado",
+									"description": "Acceso a reportes y funciones avanzadas de supervisión"
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Eliminar Rol",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/roles/3",
+							"host": ["{{base_url}}"],
+							"path": ["api", "roles", "3"]
+						}
+					},
+					"response": [
+						{
+							"name": "Rol Eliminado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Rol eliminado exitosamente"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Artículos",
+			"item": [
+				{
+					"name": "Obtener Artículos",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/articulos?nombre=rubyface&inv_gru_cod=9&PageNumber=1&PageSize=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos"],
+							"query": [
+								{
+									"key": "nombre",
+									"value": "rubyface"
+								},
+								{
+									"key": "inv_gru_cod",
+									"value": "9"
+								},
+								{
+									"key": "PageNumber",
+									"value": "1"
+								},
+								{
+									"key": "PageSize",
+									"value": "50"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Validar Artículo",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/articulos/validar?art_cod=ART001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos", "validar"],
+							"query": [
+								{
+									"key": "art_cod",
+									"value": "ART001"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Crear Artículo",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"art_cod\": \"ART001\",\n    \"art_nom\": \"Artículo de prueba\",\n    \"inv_gru_cod\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/articulos",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos"]
+						}
+					}
+				},
+				{
+					"name": "Actualizar Artículo",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"art_nom\": \"Artículo actualizado\",\n    \"inv_gru_cod\": 2\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/articulos/:id_articulo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos", ":id_articulo"],
+							"variable": [
+								{
+									"key": "id_articulo",
+									"value": "1"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Pedidos",
+			"item": [
+				{
+					"name": "Obtener Pedidos",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/order?FechaDesde=2024-01-01&FechaHasta=2024-03-20&PageNumber=1&PageSize=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "order"],
+							"query": [
+								{
+									"key": "FechaDesde",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "FechaHasta",
+									"value": "2024-03-20"
+								},
+								{
+									"key": "PageNumber",
+									"value": "1"
+								},
+								{
+									"key": "PageSize",
+									"value": "10"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Obtener Pedido por Número",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/order/:fac_nro",
+							"host": ["{{base_url}}"],
+							"path": ["api", "order", ":fac_nro"],
+							"variable": [
+								{
+									"key": "fac_nro",
+									"value": "VTA001"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Crear Pedido",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nit_sec\": \"123456789\",\n    \"fac_tip_cod\": \"VTA\",\n    \"detalles\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"kar_uni\": 1,\n            \"kar_pre_pub\": 100\n        }\n    ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/order",
+							"host": ["{{base_url}}"],
+							"path": ["api", "order"]
+						}
+					}
+				},
+				{
+					"name": "Actualizar Pedido",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fac_est_fac\": \"A\",\n    \"detalles\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"kar_uni\": 2,\n            \"kar_pre_pub\": 100\n        }\n    ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/order/:fac_nro",
+							"host": ["{{base_url}}"],
+							"path": ["api", "order", ":fac_nro"],
+							"variable": [
+								{
+									"key": "fac_nro",
+									"value": "VTA001"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Anular Documento",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fac_nro\": \"VTA001\",\n    \"fac_tip_cod\": \"VTA\",\n    \"fac_obs\": \"Documento anulado\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/order/anular",
+							"host": ["{{base_url}}"],
+							"path": ["api", "order", "anular"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Clientes",
+			"item": [
+				{
+					"name": "Obtener Clientes",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/nits?nit_nom=ejemplo&PageNumber=1&PageSize=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "nits"],
+							"query": [
+								{
+									"key": "nit_nom",
+									"value": "ejemplo"
+								},
+								{
+									"key": "PageNumber",
+									"value": "1"
+								},
+								{
+									"key": "PageSize",
+									"value": "50"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Crear Cliente",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nit_ide\": \"123456789\",\n    \"nit_nom\": \"Cliente de prueba\",\n    \"nit_dir\": \"Dirección de prueba\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/nits",
+							"host": ["{{base_url}}"],
+							"path": ["api", "nits"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "WooCommerce",
+			"item": [
+				{
+					"name": "Actualizar Stock",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/updateWooStock/:art_cod",
+							"host": ["{{base_url}}"],
+							"path": ["api", "updateWooStock", ":art_cod"],
+							"variable": [
+								{
+									"key": "art_cod",
+									"value": "ART001"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Confirmar Pedido",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/confirmOrder/:fac_nro_woo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "confirmOrder", ":fac_nro_woo"],
+							"variable": [
+								{
+									"key": "fac_nro_woo",
+									"value": "12345"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Sincronizar Pedidos",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/syncOrders",
+							"host": ["{{base_url}}"],
+							"path": ["api", "syncOrders"]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000"
+		},
+		{
+			"key": "token",
+			"value": "your_jwt_token_here"
+		}
+	]
+} 

@@ -183,7 +183,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
       AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)
     GROUP BY 
         f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_fac, f.fac_nro_origen
-    ORDER BY f.fac_fec DESC, f.fac_nro DESC
+    ORDER BY f.fac_fec DESC, f.fac_nro  ASC
     OFFSET (@PageNumber - 1) * @PageSize ROWS
     FETCH NEXT @PageSize ROWS ONLY;
     `;
@@ -248,7 +248,8 @@ const getOrder = async (fac_nro) => {
         ad2.art_bod_pre AS precio_mayor,
         vw.existencia,
         a.art_cod,
-		  a.art_nom
+		    a.art_nom,
+        a.art_url_img_servi
       FROM dbo.facturakardes fd
       INNER JOIN dbo.articulos a ON fd.art_sec = a.art_sec
       LEFT JOIN dbo.articulosdetalle ad1 

@@ -1,9 +1,14 @@
 // routes/authRoutes.js
-const express = require('express');
+import express from 'express';
+import { loginUser, getCurrentPermissions } from '../controllers/authController.js';
+import { verifyToken } from '../middlewares/authMiddleware.js';
+
 const router = express.Router();
-const authController = require('../controllers/authController');
 
-// Endpoint para el login de usuarios
-router.post('/login', authController.loginUser);
+// Ruta para el login
+router.post('/login', loginUser);
 
-module.exports = router;
+// Ruta para obtener permisos actualizados
+router.get('/permissions', verifyToken, getCurrentPermissions);
+
+export default router;
