@@ -30,7 +30,37 @@ const log = (level, message, data = null) => {
   return logData;
 };
 
-// Función para guardar el log en la base de datos
+// Función para guardar logs de lotes
+const saveBatchLog = async (logId, batchIndex, batchData, results) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input("log_id", sql.Int, logId)
+      .input("batch_index", sql.Int, batchIndex)
+      .input("batch_data", sql.NVarChar(sql.MAX), JSON.stringify(batchData))
+      .input("success_count", sql.Int, results.successfulUpdates.length)
+      .input("error_count", sql.Int, results.failedUpdates.length)
+      .input("success_details", sql.NVarChar(sql.MAX), JSON.stringify(results.successfulUpdates))
+      .input("error_details", sql.NVarChar(sql.MAX), JSON.stringify(results.failedUpdates))
+      .query(`
+        INSERT INTO dbo.woo_sync_batch_logs (
+          log_id, batch_index, batch_data, success_count, error_count,
+          success_details, error_details
+        ) VALUES (
+          @log_id, @batch_index, @batch_data, @success_count, @error_count,
+          @success_details, @error_details
+        )
+      `);
+  } catch (error) {
+    log(logLevels.ERROR, "Error guardando log de lote", {
+      error: error.message,
+      logId,
+      batchIndex
+    });
+  }
+};
+
+// Modificar la función saveSyncLog para incluir más detalles
 const saveSyncLog = async (logData) => {
   try {
     const pool = await poolPromise;
@@ -47,13 +77,21 @@ const saveSyncLog = async (logData) => {
       .input("status", sql.VarChar(20), logData.status)
       .input("error_details", sql.NVarChar(sql.MAX), logData.errorDetails ? JSON.stringify(logData.errorDetails) : null)
       .input("product_updates", sql.NVarChar(sql.MAX), logData.productUpdates ? JSON.stringify(logData.productUpdates) : null)
+      .input("debug_logs", sql.NVarChar(sql.MAX), JSON.stringify(logData.debugLogs))
+      .input("order_details", sql.NVarChar(sql.MAX), JSON.stringify(logData.orderDetails))
+      .input("config", sql.NVarChar(sql.MAX), JSON.stringify({
+        actualiza_fecha: logData.actualiza_fecha,
+        fac_fec: logData.fac_fec
+      }))
       .query(`
         INSERT INTO dbo.woo_sync_logs (
           fac_nro_woo, fac_nro, total_items, success_count, error_count, 
-          skipped_count, duration, batches_processed, messages, status, error_details, product_updates
+          skipped_count, duration, batches_processed, messages, status, 
+          error_details, product_updates, debug_logs, order_details, config
         ) VALUES (
           @fac_nro_woo, @fac_nro, @total_items, @success_count, @error_count,
-          @skipped_count, @duration, @batches_processed, @messages, @status, @error_details, @product_updates
+          @skipped_count, @duration, @batches_processed, @messages, @status, 
+          @error_details, @product_updates, @debug_logs, @order_details, @config
         );
         SELECT SCOPE_IDENTITY() as id;
       `);
@@ -147,6 +185,18 @@ const chunkArray = (array, size) => {
     chunks.push(array.slice(i, i + size));
   }
   return chunks;
+};
+
+// Función para reintentar operaciones
+const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
+    }
+  }
 };
 
 // Función para actualizar el estado del pedido y el stock de cada artículo en WooCommerce
@@ -297,7 +347,19 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
           update: batch
         };
 
-        const response = await wcApi.post('products/batch', batchData);
+        // Agregar timeout y reintentos
+        const response = await retryOperation(async () => {
+          const result = await wcApi.post('products/batch', batchData);
+          if (!result || !result.data) {
+            throw new Error('Respuesta inválida de WooCommerce');
+          }
+          return result;
+        });
+
+        // Validar respuesta
+        if (!response.data || !Array.isArray(response.data.update)) {
+          throw new Error('Formato de respuesta inválido de WooCommerce');
+        }
 
         // Procesar resultados del lote
         const batchResults = response.data;
@@ -305,6 +367,17 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
         // Contar éxitos y errores del lote
         const successfulUpdates = batchResults.update.filter(item => !item.error);
         const failedUpdates = batchResults.update.filter(item => item.error);
+
+        // Log detallado de actualizaciones
+        log(logLevels.INFO, `Resultados del lote ${batchIndex + 1}:`, {
+          total: batch.length,
+          exitosos: successfulUpdates.length,
+          fallidos: failedUpdates.length,
+          detalles: {
+            exitosos: successfulUpdates,
+            fallidos: failedUpdates
+          }
+        });
 
         successCount += successfulUpdates.length;
         errorCount += failedUpdates.length;
@@ -314,9 +387,16 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
           messages.push(`Producto ${item.id} actualizado con nuevo stock: ${item.stock_quantity}`);
         });
 
-        // Agregar mensajes de error
+        // Agregar mensajes de error con más detalle
         failedUpdates.forEach(item => {
-          messages.push(`Error actualizando producto ${item.id}: ${item.error?.message || 'Error desconocido'}`);
+          const errorMessage = item.error?.message || 'Error desconocido';
+          const errorCode = item.error?.code || 'N/A';
+          messages.push(`Error actualizando producto ${item.id}: ${errorMessage} (Código: ${errorCode})`);
+          log(logLevels.ERROR, `Error en actualización de producto`, {
+            productId: item.id,
+            error: item.error,
+            batchIndex: batchIndex + 1
+          });
         });
 
         log(logLevels.INFO, `Lote ${batchIndex + 1} completado`, {
@@ -324,10 +404,17 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
           errores: failedUpdates.length
         });
 
+        // Guardar log del lote
+        await saveBatchLog(logId, batchIndex, batch, {
+          successfulUpdates,
+          failedUpdates
+        });
+
       } catch (batchError) {
         log(logLevels.ERROR, `Error procesando lote ${batchIndex + 1}`, {
           error: batchError.message,
-          details: batchError.response?.data || 'No response data'
+          details: batchError.response?.data || 'No response data',
+          batch: batch
         });
         errorCount += batch.length;
         messages.push(`Error procesando lote ${batchIndex + 1}: ${batchError.message}`);
