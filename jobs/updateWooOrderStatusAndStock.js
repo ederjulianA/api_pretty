@@ -46,13 +46,14 @@ const saveSyncLog = async (logData) => {
       .input("messages", sql.NVarChar(sql.MAX), JSON.stringify(logData.messages))
       .input("status", sql.VarChar(20), logData.status)
       .input("error_details", sql.NVarChar(sql.MAX), logData.errorDetails ? JSON.stringify(logData.errorDetails) : null)
+      .input("product_updates", sql.NVarChar(sql.MAX), logData.productUpdates ? JSON.stringify(logData.productUpdates) : null)
       .query(`
         INSERT INTO dbo.woo_sync_logs (
           fac_nro_woo, fac_nro, total_items, success_count, error_count, 
-          skipped_count, duration, batches_processed, messages, status, error_details
+          skipped_count, duration, batches_processed, messages, status, error_details, product_updates
         ) VALUES (
           @fac_nro_woo, @fac_nro, @total_items, @success_count, @error_count,
-          @skipped_count, @duration, @batches_processed, @messages, @status, @error_details
+          @skipped_count, @duration, @batches_processed, @messages, @status, @error_details, @product_updates
         );
         SELECT SCOPE_IDENTITY() as id;
       `);
@@ -283,6 +284,7 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
 
     // Dividir las actualizaciones en lotes
     const batches = chunkArray(productUpdates, BATCH_SIZE);
+    console.log('Product Updates:', JSON.stringify(productUpdates, null, 2));
     log(logLevels.INFO, `Dividiendo actualizaciones en ${batches.length} lotes de ${BATCH_SIZE} artículos`);
 
     log(logLevels.INFO, `Actualiza fecha: ${actualiza_fecha}`);
@@ -347,7 +349,8 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
       messages,
       status: errorCount > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
       errorDetails: null,
-      debugLogs
+      debugLogs,
+      productUpdates
     };
 
     // Guardar el log en la base de datos
