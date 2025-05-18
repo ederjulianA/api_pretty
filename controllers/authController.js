@@ -23,7 +23,7 @@ const loginUser = async (req, res) => {
       .input('usu_cod', sql.VarChar(20), usu_cod)
       .query(`
         SELECT u.usu_cod, u.usu_nom, u.usu_pass,
-               r.rol_id, r.rol_nombre
+               r.rol_id, r.rol_nombre, u.usu_cambia_pass
         FROM dbo.Usuarios u
         LEFT JOIN dbo.UsuariosRoles ur ON u.usu_cod = ur.usu_cod
         LEFT JOIN dbo.Roles r ON ur.rol_id = r.rol_id
@@ -82,8 +82,10 @@ const loginUser = async (req, res) => {
     res.json({
       success: true,
       token,
-      usuario: user.usu_nom,
+      usuario: user.usu_cod,
+      usuario_nombre: user.usu_nom,
       rol: user.rol_nombre,
+      cambia_pass: user.usu_cambia_pass,
       permisos: permisosFormateados
     });
 
@@ -131,4 +133,92 @@ const getCurrentPermissions = async (req, res) => {
   }
 };
 
-export { loginUser, getCurrentPermissions };
+const changePassword = async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const { usu_cod } = req.user;
+
+        // Validar que se proporcionen ambas contraseñas
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Por favor complete todos los campos requeridos'
+            });
+        }
+
+        const pool = await poolPromise;
+        
+        // Obtener el usuario actual
+        const result = await pool.request()
+            .input('usu_cod', sql.VarChar(20), usu_cod)
+            .query(`
+                SELECT usu_cod, usu_pass
+                FROM dbo.Usuarios
+                WHERE usu_cod = @usu_cod
+            `);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No se encontró la cuenta'
+            });
+        }
+
+        const user = result.recordset[0];
+
+        // Verificar que la contraseña actual sea correcta
+        const isValidPassword = await bcrypt.compare(currentPassword, user.usu_pass);
+        if (!isValidPassword) {
+            return res.status(401).json({
+                success: false,
+                message: 'Credenciales inválidas'
+            });
+        }
+
+        // Validar que la nueva contraseña sea diferente a la actual
+        if (currentPassword === newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'La nueva contraseña debe ser diferente a la actual'
+            });
+        }
+
+        // Validar requisitos de seguridad de la nueva contraseña
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+        if (!passwordRegex.test(newPassword)) {
+            return res.status(400).json({
+                success: false,
+                message: 'La contraseña debe cumplir con los requisitos de seguridad'
+            });
+        }
+
+        // Encriptar la nueva contraseña
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // Actualizar la contraseña en la base de datos
+        await pool.request()
+            .input('usu_cod', sql.VarChar(20), usu_cod)
+            .input('usu_pass', sql.VarChar(255), hashedPassword)
+            .query(`
+                UPDATE dbo.Usuarios
+                SET usu_pass = @usu_pass,
+                    usu_cambia_pass = 0
+                WHERE usu_cod = @usu_cod
+            `);
+
+        res.json({
+            success: true,
+            message: 'Contraseña actualizada correctamente'
+        });
+
+    } catch (error) {
+        console.error('Error al cambiar la contraseña:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ocurrió un error al procesar la solicitud'
+        });
+    }
+};
+
+export { loginUser, getCurrentPermissions, changePassword };

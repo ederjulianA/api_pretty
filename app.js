@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import wooRoutes from './routes/woo.js';
 import logger from './config/logger.js';
 import authRoutes from './routes/authRoutes.js';
@@ -6,7 +7,8 @@ import roleRoutes from './routes/roleRoutes.js';
 
 const app = express();
 
-// Middleware para parsear JSON
+// Middleware
+app.use(cors());
 app.use(express.json());
 
 // Middleware de logging

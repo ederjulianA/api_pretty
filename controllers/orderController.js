@@ -27,7 +27,7 @@ const updateOrderEndpoint = async (req, res) => {
 const createCompleteOrder = async (req, res) => {
   try {
     const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs } = req.body;
-
+    console.log(req.body);
     // Validar que se envíe el nit del cliente y al menos un detalle
     if (!nit_sec || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
       return res.status(400).json({ error: "Debe enviar 'nit_sec' y un arreglo no vacío de 'detalles'." });
@@ -74,7 +74,8 @@ const getOrdenesEndpoint = async (req, res) => {
       fac_est_fac,
       PageNumber,
       PageSize,
-      fue_cod
+      fue_cod,
+      fac_usu_cod_cre
     } = req.query;
 
     // Validar que se provean FechaDesde y FechaHasta
@@ -96,7 +97,8 @@ const getOrdenesEndpoint = async (req, res) => {
       fac_est_fac: fac_est_fac || null,
       fue_cod: fue_cod || null,
       PageNumber: pageNumber,
-      PageSize: pageSize
+      PageSize: pageSize,
+      fac_usu_cod_cre: fac_usu_cod_cre || null
     });
 
     return res.json({ success: true, ordenes });

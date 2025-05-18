@@ -152,10 +152,10 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 };
 
 
-const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod, fac_nro_woo }) => {
+const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod, fac_nro_woo, fac_usu_cod_cre }) => {
   try {
     console.log('[getOrdenes] Parámetros recibidos:', {
-      FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod, fac_nro_woo
+      FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, fac_est_fac, PageNumber, PageSize, fue_cod, fac_nro_woo,fac_usu_cod_cre
     });
 
     const pool = await poolPromise;
@@ -172,7 +172,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
     request.input('PageNumber', sql.Int, PageNumber);
     request.input('PageSize', sql.Int, PageSize);
     request.input('fue_cod', sql.Int, fue_cod);
-
+    request.input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre || null);
     const query = `
     SELECT
         f.fac_fec,
@@ -183,7 +183,8 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
         f.fac_nro_woo,
         f.fac_est_fac,
         SUM(fd.kar_total) AS total_pedido,
-        f.fac_nro_origen as documentos
+        f.fac_nro_origen as documentos,
+        f.fac_usu_cod_cre
     FROM dbo.factura f
     INNER JOIN dbo.nit n
         ON f.nit_sec = n.nit_sec
@@ -195,12 +196,13 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
       AND f.fac_fec <= @FechaHasta
       AND tc.fue_cod = @fue_cod
       AND (@nit_ide IS NULL OR n.nit_ide = @nit_ide)
+      AND (@fac_usu_cod_cre IS NULL OR f.fac_usu_cod_cre = @fac_usu_cod_cre)
       AND (@nit_nom IS NULL OR n.nit_nom LIKE '%' + @nit_nom + '%')
       AND (@fac_nro IS NULL OR f.fac_nro = @fac_nro)
       AND (@fac_nro_woo IS NULL OR f.fac_nro_woo = @fac_nro_woo)
       AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)
     GROUP BY 
-        f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_fac, f.fac_nro_origen
+        f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_fac, f.fac_nro_origen,fac_usu_cod_cre
     ORDER BY f.fac_fec DESC, f.fac_nro  ASC
     OFFSET (@PageNumber - 1) * @PageSize ROWS
     FETCH NEXT @PageSize ROWS ONLY;

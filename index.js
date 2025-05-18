@@ -18,8 +18,6 @@ import authRoutes from "./routes/authRoutes.js";
 import parametrosRoutes from "./routes/parametrosRoutes.js";
 import ciudadesRoutes from "./routes/ciudadesRoutes.js";
 import inventarioSubgrupoRoutes from "./routes/inventarioSubgrupoRoutes.js";
-// Nota: Verifica si 'crearArticuloRoutes' y 'editarArticuloRoutes' deben provenir de rutas distintas.
-// En este ejemplo se usan desde "articulosRoutes.js" pero podrías ajustarlo según tu estructura.
 import crearArticuloRoutes from "./routes/articulosRoutes.js";
 import editarArticuloRoutes from "./routes/articulosRoutes.js";
 import consultarArticuloByArtCodRoutes from "./routes/articulosRoutes.js";
@@ -35,7 +33,7 @@ import inventoryComparisonRoutes from './routes/inventoryComparisonRoutes.js';
 import inventarioConteoRoutes from './routes/inventarioConteo.js';
 import userRoutes from './routes/userRoutes.js';
 
-
+// Middleware
 app.use(express.json());
 app.use(cors());
 app.use(fileUpload({
@@ -45,7 +43,7 @@ app.use(fileUpload({
   },
 }));
 
-// Agregar una ruta de prueba para verificar que el router de WooCommerce está funcionando
+// Rutas
 app.use("/api/woo", wooRoutes);
 app.get("/api/woo/test", (req, res) => {
   res.json({ message: "WooCommerce router is working" });
