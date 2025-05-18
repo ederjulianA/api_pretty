@@ -30,6 +30,20 @@ const log = (level, message, data = null) => {
   return logData;
 };
 
+const logEder = async (logDesc) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('LogDesc', sql.NVarChar(sql.MAX), logDesc)
+      .query(`
+        INSERT INTO dbo.LogEd (LogDesc)
+        VALUES (@LogDesc)
+      `);
+  } catch (error) {
+    console.error('Error al guardar en LogEd:', error);
+    throw error;
+  }
+}
 // Función para guardar logs de lotes
 const saveBatchLog = async (logId, batchIndex, batchData, results) => {
   try {
@@ -123,6 +137,7 @@ const wcApi = new WooCommerceRestApi({
 // Función auxiliar para obtener el saldo (stock) actual de un artículo desde la vista vwExistencias
 const getArticleStock = async (art_sec) => {
   log(logLevels.INFO, `Consultando stock para art_sec: ${art_sec}`);
+  await logEder(`Consultando stock para art_sec: ${art_sec}`);
   try {
     const pool = await poolPromise;
     const result = await pool.request()
@@ -131,6 +146,7 @@ const getArticleStock = async (art_sec) => {
 
     const stock = result.recordset.length > 0 ? Number(result.recordset[0].existencia) : 0;
     log(logLevels.INFO, `Stock encontrado para art_sec ${art_sec}: ${stock}`, { art_sec, stock });
+    await logEder(`Stock encontrado para art_sec ${art_sec}: ${stock}`);
     return stock;
   } catch (error) {
     log(logLevels.ERROR, `Error obteniendo stock para art_sec ${art_sec}`, {
@@ -138,6 +154,7 @@ const getArticleStock = async (art_sec) => {
       stack: error.stack,
       art_sec
     });
+    await logEder(`Error obteniendo stock para art_sec ${art_sec}: ${error.message}`);
     throw error;
   }
 };
@@ -145,6 +162,7 @@ const getArticleStock = async (art_sec) => {
 // Función auxiliar para obtener el art_woo_id 
 const getArticleWooId = async (art_sec) => {
   log(logLevels.INFO, `Buscando art_woo_id para art_sec: ${art_sec}`);
+  await logEder(`Buscando art_woo_id para art_sec: ${art_sec}`);
   try {
     const pool = await poolPromise;
     const result = await pool.request()
@@ -153,6 +171,7 @@ const getArticleWooId = async (art_sec) => {
 
     const artWooId = result.recordset.length > 0 ? result.recordset[0].art_woo_id : '';
     log(logLevels.INFO, `art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`, { art_sec, artWooId });
+    await logEder(`art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`);
     return artWooId;
   } catch (error) {
     log(logLevels.ERROR, `Error buscando art_woo_id para art_sec ${art_sec}`, {
@@ -160,6 +179,7 @@ const getArticleWooId = async (art_sec) => {
       stack: error.stack,
       art_sec
     });
+    await logEder(`Error buscando art_woo_id para art_sec ${art_sec}: ${error.message}`);
     throw error;
   }
 };
@@ -306,6 +326,8 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
           stock_quantity: newStock
         };
 
+        logEder(`stock ${newStock} art_sec ${art_sec} art_woo_id ${artWooId}`);
+
         // Solo incluir la fecha si actualiza_fecha es 'S'
         if (actualiza_fecha === 'S' && formattedDate) {
           debugLogs.push(log(logLevels.INFO, `Incluyendo fecha en actualización para art_sec ${art_sec}`, {
@@ -335,6 +357,7 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
     // Dividir las actualizaciones en lotes
     const batches = chunkArray(productUpdates, BATCH_SIZE);
     console.log('Product Updates:', JSON.stringify(productUpdates, null, 2));
+    logEder(`productUpdates ${JSON.stringify(productUpdates, null, 2)}`);
     log(logLevels.INFO, `Dividiendo actualizaciones en ${batches.length} lotes de ${BATCH_SIZE} artículos`);
 
     log(logLevels.INFO, `Actualiza fecha: ${actualiza_fecha}`);
@@ -342,6 +365,7 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
     for (const [batchIndex, batch] of batches.entries()) {
       try {
         log(logLevels.INFO, `Procesando lote ${batchIndex + 1}/${batches.length}`);
+        await logEder(`Procesando lote ${batchIndex + 1}/${batches.length}`);
 
         const batchData = {
           update: batch
@@ -378,31 +402,32 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
             fallidos: failedUpdates
           }
         });
+        await logEder(`Resultados del lote ${batchIndex + 1}: Total=${batch.length}, Exitosos=${successfulUpdates.length}, Fallidos=${failedUpdates.length}`);
 
         successCount += successfulUpdates.length;
         errorCount += failedUpdates.length;
 
         // Agregar mensajes de éxito
-        successfulUpdates.forEach(item => {
-          messages.push(`Producto ${item.id} actualizado con nuevo stock: ${item.stock_quantity}`);
+        successfulUpdates.forEach(async item => {
+          const message = `Producto ${item.id} actualizado con nuevo stock: ${item.stock_quantity}`;
+          messages.push(message);
+          await logEder(message);
         });
 
         // Agregar mensajes de error con más detalle
-        failedUpdates.forEach(item => {
+        failedUpdates.forEach(async item => {
           const errorMessage = item.error?.message || 'Error desconocido';
           const errorCode = item.error?.code || 'N/A';
-          messages.push(`Error actualizando producto ${item.id}: ${errorMessage} (Código: ${errorCode})`);
-          log(logLevels.ERROR, `Error en actualización de producto`, {
-            productId: item.id,
-            error: item.error,
-            batchIndex: batchIndex + 1
-          });
+          const message = `Error actualizando producto ${item.id}: ${errorMessage} (Código: ${errorCode})`;
+          messages.push(message);
+          await logEder(message);
         });
 
         log(logLevels.INFO, `Lote ${batchIndex + 1} completado`, {
           exitosos: successfulUpdates.length,
           errores: failedUpdates.length
         });
+        await logEder(`Lote ${batchIndex + 1} completado: Exitosos=${successfulUpdates.length}, Errores=${failedUpdates.length}`);
 
         // Guardar log del lote
         await saveBatchLog(logId, batchIndex, batch, {
@@ -411,13 +436,15 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
         });
 
       } catch (batchError) {
-        log(logLevels.ERROR, `Error procesando lote ${batchIndex + 1}`, {
+        const errorMessage = `Error procesando lote ${batchIndex + 1}: ${batchError.message}`;
+        log(logLevels.ERROR, errorMessage, {
           error: batchError.message,
           details: batchError.response?.data || 'No response data',
           batch: batch
         });
+        await logEder(errorMessage);
         errorCount += batch.length;
-        messages.push(`Error procesando lote ${batchIndex + 1}: ${batchError.message}`);
+        messages.push(errorMessage);
       }
     }
 
