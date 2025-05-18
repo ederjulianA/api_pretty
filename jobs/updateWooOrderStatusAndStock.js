@@ -3,6 +3,9 @@ import { poolPromise, sql } from "../db.js";
 import wcPkg from "@woocommerce/woocommerce-rest-api";
 const WooCommerceRestApi = wcPkg.default || wcPkg;
 
+// Log de inicialización
+console.log('Inicializando updateWooOrderStatusAndStock.js - Versión:', new Date().toISOString());
+
 // Configuración de logging
 const logLevels = {
   INFO: 'INFO',
