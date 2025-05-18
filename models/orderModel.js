@@ -111,11 +111,29 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 
     // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
     if (fac_tip_cod === 'VTA' && detalles.length < 90) {
-      // Remover los logs y manejar errores silenciosamente
-      setImmediate(() => {
-        updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, fac_nro,'N')
-          .catch(err => console.error("Error updating WooCommerce:", err));
-      });
+      try {
+        // Procesar en lotes más pequeños para Vercel
+        const BATCH_SIZE = 10; // Reducir el tamaño del lote para Vercel
+        const batches = [];
+        
+        for (let i = 0; i < detalles.length; i += BATCH_SIZE) {
+          batches.push(detalles.slice(i, i + BATCH_SIZE));
+        }
+
+        // Procesar cada lote secuencialmente
+        for (const batch of batches) {
+          await updateWooOrderStatusAndStock(
+            fac_nro_woo,
+            batch,
+            fac_fec,
+            fac_nro,
+            'N'
+          );
+        }
+      } catch (error) {
+        console.error("Error updating WooCommerce:", error);
+        // No lanzamos el error para no afectar la transacción principal
+      }
     } else if (fac_tip_cod === 'VTA' && detalles.length >= 90) {
       console.log("Skipping WooCommerce update due to large number of items (>90)");
     }
@@ -409,11 +427,29 @@ const createCompleteOrder = async ({
 
     // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
     if (fac_tip_cod === 'VTA' && detalles.length < 90) {
-      // Llamamos de forma asíncrona a la función que actualiza el estado del pedido y stock en WooCommerce
-      setImmediate(() => {
-        updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, FinalFacNro,'N')
-          .catch(err => console.error("Error updating WooCommerce:", err));
-      });
+      try {
+        // Procesar en lotes más pequeños para Vercel
+        const BATCH_SIZE = 10; // Reducir el tamaño del lote para Vercel
+        const batches = [];
+        
+        for (let i = 0; i < detalles.length; i += BATCH_SIZE) {
+          batches.push(detalles.slice(i, i + BATCH_SIZE));
+        }
+
+        // Procesar cada lote secuencialmente
+        for (const batch of batches) {
+          await updateWooOrderStatusAndStock(
+            fac_nro_woo,
+            batch,
+            fac_fec,
+            FinalFacNro,  // Usar FinalFacNro en lugar de fac_nro
+            'N'
+          );
+        }
+      } catch (error) {
+        console.error("Error updating WooCommerce:", error);
+        // No lanzamos el error para no afectar la transacción principal
+      }
     } else if (fac_tip_cod === 'VTA' && detalles.length >= 90) {
       console.log("Skipping WooCommerce update due to large number of items (>90)");
     }

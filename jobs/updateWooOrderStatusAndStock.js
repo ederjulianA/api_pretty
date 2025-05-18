@@ -123,13 +123,13 @@ const saveSyncLog = async (logData) => {
   }
 };
 
-// Configura la API de WooCommerce
+// Configura la API de WooCommerce con timeout más corto para Vercel
 const wcApi = new WooCommerceRestApi({
   url: process.env.WC_URL,
   consumerKey: process.env.WC_CONSUMER_KEY,
   consumerSecret: process.env.WC_CONSUMER_SECRET,
   version: "wc/v3",
-  timeout: 30000, // Aumentado a 30 segundos para lotes grandes
+  timeout: 8000, // Reducido a 8 segundos para Vercel
   axiosConfig: {
     headers: {
       'Content-Type': 'application/json',
@@ -230,7 +230,7 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
   let errorCount = 0;
   let skippedCount = 0;
   const startTime = new Date();
-  const BATCH_SIZE = 25;
+  const BATCH_SIZE = 10; // Reducido para Vercel
 
   try {
     // Log del valor inicial de actualiza_fecha
@@ -280,26 +280,13 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
 
     // Actualizar estado del pedido si existe
     if (fac_nro_woo) {
-      log(logLevels.INFO, `Actualizando estado del pedido ${fac_nro_woo} a 'completed'`);
       try {
         const orderUpdateData = { status: "completed" };
-        log(logLevels.INFO, `Datos de actualización del pedido:`, { orderUpdateData });
-        const orderResponse = await wcApi.put(`orders/${fac_nro_woo}`, orderUpdateData);
-        log(logLevels.INFO, `Respuesta de WooCommerce:`, { 
-          status: orderResponse.status,
-          statusText: orderResponse.statusText,
-          data: orderResponse.data
-        });
+        await wcApi.put(`orders/${fac_nro_woo}`, orderUpdateData);
         messages.push(`Pedido ${fac_nro_woo} actualizado a 'completed' en WooCommerce.`);
-        log(logLevels.INFO, `Pedido actualizado exitosamente`, {
-          orderId: fac_nro_woo,
-          response: orderResponse.data
-        });
       } catch (orderError) {
         log(logLevels.ERROR, `Error actualizando pedido ${fac_nro_woo}`, {
-          error: orderError.message,
-          details: orderError.response?.data || 'No response data',
-          stack: orderError.stack
+          error: orderError.message
         });
         messages.push(`Error actualizando pedido ${fac_nro_woo}: ${orderError.message}`);
         errorCount++;
@@ -307,9 +294,6 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
     }
 
     // Preparar datos para actualización por lotes
-    log(logLevels.INFO, `Preparando actualización por lotes para ${orderDetails.length} artículos`);
-
-    // Obtener todos los art_woo_id y stocks primero
     const productUpdates = [];
     for (const item of orderDetails) {
       try {
@@ -324,128 +308,51 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
         }
 
         const newStock = await getArticleStock(art_sec);
-        const updateData = {
+        productUpdates.push({
           id: artWooId,
           stock_quantity: newStock
-        };
-
-        logEder(`stock ${newStock} art_sec ${art_sec} art_woo_id ${artWooId}`);
-
-        // Solo incluir la fecha si actualiza_fecha es 'S'
-        if (actualiza_fecha === 'S' && formattedDate) {
-          debugLogs.push(log(logLevels.INFO, `Incluyendo fecha en actualización para art_sec ${art_sec}`, {
-            art_sec,
-            actualiza_fecha,
-            formattedDate
-          }));
-          updateData.date_created = formattedDate;
-        } else {
-          debugLogs.push(log(logLevels.INFO, `No se incluye fecha en actualización para art_sec ${art_sec}`, {
-            art_sec,
-            actualiza_fecha,
-            formattedDate
-          }));
-        }
-
-        productUpdates.push(updateData);
+        });
       } catch (error) {
         log(logLevels.ERROR, `Error preparando actualización para art_sec ${item.art_sec}`, {
-          error: error.message,
-          art_sec: item.art_sec
+          error: error.message
         });
         errorCount++;
       }
     }
 
-    // Dividir las actualizaciones en lotes
+    // Procesar actualizaciones en lotes más pequeños
     const batches = chunkArray(productUpdates, BATCH_SIZE);
-    console.log('Product Updates:', JSON.stringify(productUpdates, null, 2));
-    logEder(`productUpdates ${JSON.stringify(productUpdates, null, 2)}`);
-    log(logLevels.INFO, `Dividiendo actualizaciones en ${batches.length} lotes de ${BATCH_SIZE} artículos`);
-
-    log(logLevels.INFO, `Actualiza fecha: ${actualiza_fecha}`);
-    // Procesar cada lote
+    
     for (const [batchIndex, batch] of batches.entries()) {
       try {
-        log(logLevels.INFO, `Procesando lote ${batchIndex + 1}/${batches.length}`);
-        await logEder(`Procesando lote ${batchIndex + 1}/${batches.length}`);
-
-        const batchData = {
-          update: batch
-        };
-
-        // Agregar timeout y reintentos
+        const batchData = { update: batch };
         const response = await retryOperation(async () => {
           const result = await wcApi.post('products/batch', batchData);
           if (!result || !result.data) {
             throw new Error('Respuesta inválida de WooCommerce');
           }
           return result;
-        });
+        }, 2, 1000); // Reducir reintentos y tiempo de espera
 
-        // Validar respuesta
-        if (!response.data || !Array.isArray(response.data.update)) {
-          throw new Error('Formato de respuesta inválido de WooCommerce');
-        }
-
-        // Procesar resultados del lote
-        const batchResults = response.data;
-
-        // Contar éxitos y errores del lote
-        const successfulUpdates = batchResults.update.filter(item => !item.error);
-        const failedUpdates = batchResults.update.filter(item => item.error);
-
-        // Log detallado de actualizaciones
-        log(logLevels.INFO, `Resultados del lote ${batchIndex + 1}:`, {
-          total: batch.length,
-          exitosos: successfulUpdates.length,
-          fallidos: failedUpdates.length,
-          detalles: {
-            exitosos: successfulUpdates,
-            fallidos: failedUpdates
-          }
-        });
-        await logEder(`Resultados del lote ${batchIndex + 1}: Total=${batch.length}, Exitosos=${successfulUpdates.length}, Fallidos=${failedUpdates.length}`);
+        const successfulUpdates = response.data.update.filter(item => !item.error);
+        const failedUpdates = response.data.update.filter(item => item.error);
 
         successCount += successfulUpdates.length;
         errorCount += failedUpdates.length;
 
-        // Agregar mensajes de éxito
-        successfulUpdates.forEach(async item => {
-          const message = `Producto ${item.id} actualizado con nuevo stock: ${item.stock_quantity}`;
-          messages.push(message);
-          await logEder(message);
+        // Agregar mensajes de éxito y error
+        successfulUpdates.forEach(item => {
+          messages.push(`Producto ${item.id} actualizado con nuevo stock: ${item.stock_quantity}`);
         });
 
-        // Agregar mensajes de error con más detalle
-        failedUpdates.forEach(async item => {
+        failedUpdates.forEach(item => {
           const errorMessage = item.error?.message || 'Error desconocido';
-          const errorCode = item.error?.code || 'N/A';
-          const message = `Error actualizando producto ${item.id}: ${errorMessage} (Código: ${errorCode})`;
-          messages.push(message);
-          await logEder(message);
-        });
-
-        log(logLevels.INFO, `Lote ${batchIndex + 1} completado`, {
-          exitosos: successfulUpdates.length,
-          errores: failedUpdates.length
-        });
-        await logEder(`Lote ${batchIndex + 1} completado: Exitosos=${successfulUpdates.length}, Errores=${failedUpdates.length}`);
-
-        // Guardar log del lote
-        await saveBatchLog(logId, batchIndex, batch, {
-          successfulUpdates,
-          failedUpdates
+          messages.push(`Error actualizando producto ${item.id}: ${errorMessage}`);
         });
 
       } catch (batchError) {
         const errorMessage = `Error procesando lote ${batchIndex + 1}: ${batchError.message}`;
-        log(logLevels.ERROR, errorMessage, {
-          error: batchError.message,
-          details: batchError.response?.data || 'No response data',
-          batch: batch
-        });
-        await logEder(errorMessage);
+        log(logLevels.ERROR, errorMessage);
         errorCount += batch.length;
         messages.push(errorMessage);
       }
