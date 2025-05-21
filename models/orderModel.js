@@ -311,6 +311,26 @@ const createCompleteOrder = async ({
     transaction = new sql.Transaction(pool);
     await transaction.begin();
 
+    // Validación previa para facturas de venta
+    if (fac_tip_cod === 'VTA' && fac_nro_woo) {
+      const validationRequest = new sql.Request(transaction);
+      const validationQuery = `
+        SELECT COUNT(*) as existe
+        FROM dbo.factura 
+        WHERE fac_nro_woo = @fac_nro_woo 
+          AND fac_est_fac = 'A'
+          AND fac_tip_cod = 'VTA'
+      `;
+      
+      const validationResult = await validationRequest
+        .input('fac_nro_woo', sql.VarChar(16), fac_nro_woo)
+        .query(validationQuery);
+
+      if (validationResult.recordset[0].existe > 0) {
+        throw new Error(`Ya existe una factura de venta activa con el número de WooCommerce: ${fac_nro_woo}`);
+      }
+    }
+
     // Usamos un Request vinculado a la transacción para operaciones de encabezado
     const request = new sql.Request(transaction);
 
