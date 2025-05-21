@@ -5,7 +5,7 @@
 $repoPath = "C:\api_pretty"
 $branch = "main"
 $logFile = "C:\api_pretty\update.log"
-$repoUrl = "https://github.com/tu-usuario/api_pretty.git"  # Reemplaza con tu URL de GitHub
+$repoUrl = "https://github.com/ederjulianA/api_pretty.git"  # Reemplaza con tu URL de GitHub
 
 # Función para escribir logs
 function Write-Log {
