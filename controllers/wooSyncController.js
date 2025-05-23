@@ -65,6 +65,25 @@ const validateArtSec = (art_sec) => {
 };
 
 /**
+ * Gets art_sec from articulos table using art_cod (sku)
+ * @param {string} art_cod - The art_cod (sku) to search for
+ * @returns {Promise<string|null>} - The art_sec or null if not found
+ */
+const getArtSecFromArtCod = async (art_cod) => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('art_cod', sql.VarChar(50), art_cod)
+            .query('SELECT art_sec FROM dbo.articulos WHERE art_cod = @art_cod');
+
+        return result.recordset.length > 0 ? result.recordset[0].art_sec : null;
+    } catch (error) {
+        console.error(`Error getting art_sec for art_cod ${art_cod}:`, error);
+        throw error;
+    }
+};
+
+/**
  * Synchronizes products from WooCommerce to ArticuloHook table
  * Uses pagination and batch processing for better performance
  */
@@ -121,25 +140,29 @@ export const syncWooProducts = async (req, res) => {
                         continue;
                     }
 
-                    // Validate and sanitize art_sec
-                    const art_sec = validateArtSec(sku);
+                    // Get art_sec from articulos table
+                    console.log('Getting art_sec for art_cod:', sku);
+                    const art_sec = await getArtSecFromArtCod(sku);
+                    
                     if (!art_sec) {
-                        console.warn(`Product ${product.sku} skipped: Invalid SKU format`, {
-                            originalSku: sku,
+                        console.warn(`Product ${product.sku} skipped: No art_sec found for art_cod`, {
+                            art_cod: sku,
                             productId: product.id,
                             name: name
                         });
                         errors.push({
                             productId: product.sku,
-                            error: "Invalid SKU format",
+                            error: "No art_sec found for art_cod",
                             details: {
-                                originalSku: sku,
+                                art_cod: sku,
                                 productId: product.id,
                                 name: name
                             }
                         });
                         continue;
                     }
+
+                    console.log('Found art_sec:', art_sec);
 
                     // Find wholesale price from meta_data
                     const wholesalePriceMeta = meta_data.find(meta => meta.key === '_precio_mayorista');
@@ -157,7 +180,7 @@ export const syncWooProducts = async (req, res) => {
                     const artWooId = await getArticleWooId(art_sec);
                     console.log('art_woo_id result:', artWooId);
 
-                    const systemStock = artWooId ? await getArticleStock(artWooId) : 0;
+                    const systemStock = await getArticleStock(art_sec);
                     console.log('systemStock result:', systemStock);
 
                     const currentDate = new Date();
@@ -166,7 +189,7 @@ export const syncWooProducts = async (req, res) => {
                     // Check if product exists in ArticuloHook
                     const pool = await poolPromise;
                     const result = await pool.request()
-                        .input('ArtHookCod', sql.NVarChar(30), art_sec)
+                        .input('ArtHookCod', sql.NVarChar(30), sku)
                         .query('SELECT ArtHookCod FROM ArticuloHook WHERE ArtHookCod = @ArtHookCod');
 
                     if (result.recordset.length > 0) {
@@ -180,7 +203,7 @@ export const syncWooProducts = async (req, res) => {
                             .input('ArtHookFchHraMod', sql.DateTime, currentDate)
                             .input('ArtHookActualizado', sql.NVarChar(1), 'S')
                             .input('ArtHooStockSys', sql.Int, systemStock)
-                            .input('ArtHookCod', sql.NVarChar(30), art_sec)
+                            .input('ArtHookCod', sql.NVarChar(30), sku)
                             .query(`
                                 UPDATE ArticuloHook 
                                 SET ArtHooName = @ArtHooName,
@@ -197,7 +220,7 @@ export const syncWooProducts = async (req, res) => {
                     } else {
                         // Insert new product
                         await pool.request()
-                            .input('ArtHookCod', sql.NVarChar(30), art_sec)
+                            .input('ArtHookCod', sql.NVarChar(30), sku)
                             .input('ArtHooName', sql.NVarChar(100), name)
                             .input('ArtHooStok', sql.Int, stock_quantity)
                             .input('ArtHookDetal', sql.Decimal(18, 0), retailPrice || 0)
