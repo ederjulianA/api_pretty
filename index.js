@@ -6,6 +6,7 @@ import fileUpload from "express-fileupload";
 import wooRoutes from './routes/woo.js';
 import updateWooStockRoutes from './routes/updateWooStockRoutes.js';
 import roleRoutes from './routes/roleRoutes.js';
+import wooSyncRoutes from './routes/wooSyncRoutes.js';
 dotenv.config();
 
 const app = express();
@@ -45,6 +46,7 @@ app.use(fileUpload({
 
 // Rutas
 app.use("/api/woo", wooRoutes);
+app.use("/api/woo", wooSyncRoutes);
 app.get("/api/woo/test", (req, res) => {
   res.json({ message: "WooCommerce router is working" });
 });

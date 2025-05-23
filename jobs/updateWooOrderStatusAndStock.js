@@ -47,6 +47,7 @@ const logEder = async (logDesc) => {
     throw error;
   }
 }
+
 // Función para guardar logs de lotes
 const saveBatchLog = async (logId, batchIndex, batchData, results) => {
   try {
@@ -138,7 +139,7 @@ const wcApi = new WooCommerceRestApi({
 });
 
 // Función auxiliar para obtener el saldo (stock) actual de un artículo desde la vista vwExistencias
-const getArticleStock = async (art_sec) => {
+export const getArticleStock = async (art_sec) => {
   log(logLevels.INFO, `Consultando stock para art_sec: ${art_sec}`);
   await logEder(`Consultando stock para art_sec: ${art_sec}`);
   try {
@@ -163,7 +164,7 @@ const getArticleStock = async (art_sec) => {
 };
 
 // Función auxiliar para obtener el art_woo_id 
-const getArticleWooId = async (art_sec) => {
+export const getArticleWooId = async (art_sec) => {
   log(logLevels.INFO, `Buscando art_woo_id para art_sec: ${art_sec}`);
   await logEder(`Buscando art_woo_id para art_sec: ${art_sec}`);
   try {
