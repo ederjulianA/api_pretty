@@ -33,6 +33,7 @@ import kardexRoutes from './routes/kardexRoutes.js';
 import inventoryComparisonRoutes from './routes/inventoryComparisonRoutes.js';
 import inventarioConteoRoutes from './routes/inventarioConteo.js';
 import userRoutes from './routes/userRoutes.js';
+import inventoryDifferenceRoutes from './routes/inventoryDifferenceRoutes.js';
 
 // Middleware
 app.use(express.json());
@@ -47,6 +48,7 @@ app.use(fileUpload({
 // Rutas
 app.use("/api/woo", wooRoutes);
 app.use("/api/woo", wooSyncRoutes);
+app.use("/api/inventory-differences", inventoryDifferenceRoutes);
 app.get("/api/woo/test", (req, res) => {
   res.json({ message: "WooCommerce router is working" });
 });
