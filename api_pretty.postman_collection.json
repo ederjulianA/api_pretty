@@ -641,7 +641,41 @@
 			"name": "WooCommerce",
 			"item": [
 				{
-					"name": "Actualizar Stock",
+					"name": "Test WooCommerce",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/test",
+							"host": ["{{base_url}}"],
+							"path": ["api", "woo", "test"]
+						}
+					}
+				},
+				{
+					"name": "Sincronizar Pedidos WooCommerce",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/syncOrders",
+							"host": ["{{base_url}}"],
+							"path": ["api", "woo", "syncOrders"]
+						}
+					}
+				},
+				{
+					"name": "Actualizar Stock WooCommerce",
 					"request": {
 						"method": "PUT",
 						"header": [
@@ -662,32 +696,14 @@
 							]
 						}
 					}
-				},
+				}
+			]
+		},
+		{
+			"name": "Inventario",
+			"item": [
 				{
-					"name": "Confirmar Pedido",
-					"request": {
-						"method": "PUT",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/confirmOrder/:fac_nro_woo",
-							"host": ["{{base_url}}"],
-							"path": ["api", "confirmOrder", ":fac_nro_woo"],
-							"variable": [
-								{
-									"key": "fac_nro_woo",
-									"value": "12345"
-								}
-							]
-						}
-					}
-				},
-				{
-					"name": "Sincronizar Pedidos",
+					"name": "Obtener Categorías",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -697,9 +713,270 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/syncOrders",
+							"raw": "{{base_url}}/api/categorias",
 							"host": ["{{base_url}}"],
-							"path": ["api", "syncOrders"]
+							"path": ["api", "categorias"]
+						}
+					}
+				},
+				{
+					"name": "Obtener Subcategorías",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/subcategorias",
+							"host": ["{{base_url}}"],
+							"path": ["api", "subcategorias"]
+						}
+					}
+				},
+				{
+					"name": "Obtener Artículos",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/articulos?nombre=rubyface&inv_gru_cod=9&PageNumber=1&PageSize=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos"],
+							"query": [
+								{
+									"key": "nombre",
+									"value": "rubyface"
+								},
+								{
+									"key": "inv_gru_cod",
+									"value": "9"
+								},
+								{
+									"key": "PageNumber",
+									"value": "1"
+								},
+								{
+									"key": "PageSize",
+									"value": "50"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Crear Artículo",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/crearArticulo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "crearArticulo"]
+						}
+					}
+				},
+				{
+					"name": "Editar Artículo",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/editarArticulo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "editarArticulo"]
+						}
+					}
+				},
+				{
+					"name": "Consultar Artículo por Código",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/consultarArticuloByArtCod",
+							"host": ["{{base_url}}"],
+							"path": ["api", "consultarArticuloByArtCod"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Pedidos",
+			{
+				"name": "Confirmar Pedido",
+				"request": {
+					"method": "PUT",
+					"header": [
+						{
+							"key": "x-access-token",
+							"value": "{{token}}"
+						}
+					],
+					"url": {
+						"raw": "{{base_url}}/api/confirmOrder/:fac_nro_woo",
+						"host": ["{{base_url}}"],
+						"path": ["api", "confirmOrder", ":fac_nro_woo"],
+						"variable": [
+							{
+								"key": "fac_nro_woo",
+								"value": "12345"
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"name": "Parámetros",
+			"item": [
+				{
+					"name": "Obtener Parámetros",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/parametros",
+							"host": ["{{base_url}}"],
+							"path": ["api", "parametros"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Ciudades",
+			"item": [
+				{
+					"name": "Obtener Ciudades",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/ciudades",
+							"host": ["{{base_url}}"],
+							"path": ["api", "ciudades"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Ventas",
+			"item": [
+				{
+					"name": "Obtener Ventas",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/sales",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sales"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Proveedores",
+			"item": [
+				{
+					"name": "Obtener Proveedores",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/proveedores",
+							"host": ["{{base_url}}"],
+							"path": ["api", "proveedores"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Kardex",
+			"item": [
+				{
+					"name": "Obtener Movimientos Kardex",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/kardex",
+							"host": ["{{base_url}}"],
+							"path": ["api", "kardex"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Inventario Conteo",
+			"item": [
+				{
+					"name": "Obtener Conteos",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo"]
 						}
 					}
 				}
@@ -709,7 +986,7 @@
 			"name": "Usuarios",
 			"item": [
 				{
-					"name": "Listar Usuarios",
+					"name": "Obtener Usuarios",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -723,29 +1000,29 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "users"]
 						}
-					},
-					"response": [
-						{
-							"name": "Lista de Usuarios",
-							"status": "OK",
-							"code": 200,
-							"_postman_previewlanguage": "json",
-							"body": [
-								{
-									"id": "1",
-									"name": "Juan Pérez",
-									"email": "juan@example.com",
-									"role_id": "2"
-								},
-								{
-									"id": "2",
-									"name": "Ana López",
-									"email": "ana@example.com",
-									"role_id": "1"
-								}
-							]
+					}
+				}
+			]
+		},
+		{
+			"name": "Roles",
+			"item": [
+				{
+					"name": "Obtener Roles",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/roles",
+							"host": ["{{base_url}}"],
+							"path": ["api", "roles"]
 						}
-					]
+					}
 				}
 			]
 		}
