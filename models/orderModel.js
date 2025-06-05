@@ -183,7 +183,12 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
         f.fac_nro_woo,
         f.fac_est_fac,
         SUM(fd.kar_total) AS total_pedido,
-        f.fac_nro_origen as documentos,
+        (SELECT STRING_AGG(fac_nro_origen, ', ') 
+         FROM (SELECT DISTINCT f.fac_nro_origen 
+               FROM factura f2 
+               WHERE f2.fac_nro = f.fac_nro_origen 
+               AND f2.fac_est_fac = 'A' 
+               AND f2.fac_tip_cod = 'VTA') AS docs) as documentos,
         f.fac_usu_cod_cre
     FROM dbo.factura f
     INNER JOIN dbo.nit n
