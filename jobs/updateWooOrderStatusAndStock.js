@@ -311,6 +311,7 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
         const newStock = await getArticleStock(art_sec);
         productUpdates.push({
           id: artWooId,
+          date_created: formattedDate,
           stock_quantity: newStock
         });
       } catch (error) {

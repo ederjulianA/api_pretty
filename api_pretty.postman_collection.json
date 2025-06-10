@@ -572,6 +572,29 @@
 							"path": ["api", "order", "anular"]
 						}
 					}
+				},
+				{
+					"name": "Confirmar Pedido",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/confirmOrder/:fac_nro_woo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "confirmOrder", ":fac_nro_woo"],
+							"variable": [
+								{
+									"key": "fac_nro_woo",
+									"value": "12345"
+								}
+							]
+						}
+					}
 				}
 			]
 		},
@@ -660,17 +683,30 @@
 				{
 					"name": "Sincronizar Pedidos WooCommerce",
 					"request": {
-						"method": "GET",
+						"method": "POST",
 						"header": [
 							{
 								"key": "x-access-token",
 								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
 							}
 						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"FechaDesde\": \"2024-01-01\",\n    \"FechaHasta\": \"2024-03-20\",\n    \"Estado\": \"pending\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
 						"url": {
-							"raw": "{{base_url}}/api/woo/syncOrders",
+							"raw": "{{base_url}}/api/woo/sync-orders",
 							"host": ["{{base_url}}"],
-							"path": ["api", "woo", "syncOrders"]
+							"path": ["api", "woo", "sync-orders"]
 						}
 					}
 				},
@@ -823,32 +859,6 @@
 					}
 				}
 			]
-		},
-		{
-			"name": "Pedidos",
-			{
-				"name": "Confirmar Pedido",
-				"request": {
-					"method": "PUT",
-					"header": [
-						{
-							"key": "x-access-token",
-							"value": "{{token}}"
-						}
-					],
-					"url": {
-						"raw": "{{base_url}}/api/confirmOrder/:fac_nro_woo",
-						"host": ["{{base_url}}"],
-						"path": ["api", "confirmOrder", ":fac_nro_woo"],
-						"variable": [
-							{
-								"key": "fac_nro_woo",
-								"value": "12345"
-							}
-						]
-					}
-				}
-			}
 		},
 		{
 			"name": "Parámetros",
