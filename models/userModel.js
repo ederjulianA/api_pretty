@@ -85,5 +85,5 @@ const updateUser = async (id, { name, email, role_id }) => {
     throw error;
   }
 };
-
+ 
 module.exports = { findUserByCod, getAllUsers, createUser, updateUser };

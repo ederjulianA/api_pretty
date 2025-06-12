@@ -184,11 +184,18 @@ const changePassword = async (req, res) => {
         }
 
         // Validar requisitos de seguridad de la nueva contraseña
-        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&.])[A-Za-z\d@$!%*?&.]{8,}$/;
         if (!passwordRegex.test(newPassword)) {
+            const errors = [];
+            if (newPassword.length < 8) errors.push('tener al menos 8 caracteres');
+            if (!/[A-Z]/.test(newPassword)) errors.push('contener al menos una letra mayúscula');
+            if (!/[a-z]/.test(newPassword)) errors.push('contener al menos una letra minúscula');
+            if (!/\d/.test(newPassword)) errors.push('contener al menos un número');
+            if (!/[@$!%*?&.]/.test(newPassword)) errors.push('contener al menos un carácter especial (@$!%*?&.)');
+
             return res.status(400).json({
                 success: false,
-                message: 'La contraseña debe cumplir con los requisitos de seguridad'
+                message: 'La contraseña debe ' + errors.join(', ')
             });
         }
 
@@ -221,4 +228,80 @@ const changePassword = async (req, res) => {
     }
 };
 
-export { loginUser, getCurrentPermissions, changePassword };
+const changePasswordAdmin = async (req, res) => {
+    try {
+        const { usu_cod, newPassword } = req.body;
+
+        // Validar que se proporcionen los datos requeridos
+        if (!usu_cod || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Por favor complete todos los campos requeridos'
+            });
+        }
+
+        const pool = await poolPromise;
+        
+        // Verificar que el usuario existe
+        const result = await pool.request()
+            .input('usu_cod', sql.VarChar(20), usu_cod)
+            .query(`
+                SELECT usu_cod
+                FROM dbo.Usuarios
+                WHERE usu_cod = @usu_cod
+            `);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No se encontró la cuenta del usuario'
+            });
+        }
+
+        // Validar requisitos de seguridad de la nueva contraseña
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&.])[A-Za-z\d@$!%*?&.]{8,}$/;
+        if (!passwordRegex.test(newPassword)) {
+            const errors = [];
+            if (newPassword.length < 8) errors.push('tener al menos 8 caracteres');
+            if (!/[A-Z]/.test(newPassword)) errors.push('contener al menos una letra mayúscula');
+            if (!/[a-z]/.test(newPassword)) errors.push('contener al menos una letra minúscula');
+            if (!/\d/.test(newPassword)) errors.push('contener al menos un número');
+            if (!/[@$!%*?&.]/.test(newPassword)) errors.push('contener al menos un carácter especial (@$!%*?&.)');
+
+            return res.status(400).json({
+                success: false,
+                message: 'La contraseña debe ' + errors.join(', ')
+            });
+        }
+
+        // Encriptar la nueva contraseña
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // Actualizar la contraseña en la base de datos
+        await pool.request()
+            .input('usu_cod', sql.VarChar(20), usu_cod)
+            .input('usu_pass', sql.VarChar(255), hashedPassword)
+            .query(`
+                UPDATE dbo.Usuarios
+                SET usu_pass = @usu_pass,
+                    usu_cambia_pass = 1
+                WHERE usu_cod = @usu_cod
+            `);
+
+        res.json({
+            success: true,
+            message: 'Contraseña actualizada correctamente'
+        });
+
+    } catch (error) {
+        console.error('Error al cambiar la contraseña:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ocurrió un error al procesar la solicitud'
+        });
+    }
+};
+
+export { loginUser, getCurrentPermissions, changePassword, changePasswordAdmin };
+ 
