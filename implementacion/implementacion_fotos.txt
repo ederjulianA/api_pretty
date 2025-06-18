@@ -1,0 +1,216 @@
+IMPLEMENTACIÓN DE GESTIÓN DE FOTOS DE PRODUCTOS
+
+1. ESTRUCTURA DE CARPETAS
+----------------------
+src/
+  components/
+    product/
+      ProductPhotoGallery/
+        index.jsx
+        ProductPhotoGallery.jsx
+        ProductPhotoGalleryItem.jsx
+        ProductPhotoUploader.jsx
+      hooks/
+        useProductPhotos.js
+      services/
+        photoService.js
+
+2. COMPONENTES PRINCIPALES
+------------------------
+a) ProductPhotoGallery (Componente Contenedor)
+   - Gestión del estado general de las fotos
+   - Coordinación entre componentes de subida y visualización
+   - Manejo de eliminación de fotos
+   - Implementación del layout principal
+   - Integración con el formulario de edición de producto
+
+b) ProductPhotoGalleryItem (Componente Presentacional)
+   - Visualización de foto individual
+   - Vista previa de foto
+   - Botón de eliminación
+   - Estilos y animaciones
+   - Manejo de estados de carga
+
+c) ProductPhotoUploader (Componente Presentacional)
+   - Funcionalidad de drag & drop
+   - Input de archivo
+   - Barra de progreso
+   - Validaciones de archivo
+   - Mensajes de error/éxito
+
+3. HOOK PERSONALIZADO
+-------------------
+useProductPhotos
+- Gestión del estado de fotos
+- Métodos de subida
+- Métodos de eliminación
+- Carga inicial de fotos
+- Manejo de errores
+- Estados de carga
+
+4. SERVICIO DE FOTOS
+------------------
+photoService
+- Subida a servidor temporal
+- Eliminación de fotos
+- Obtención de fotos del producto
+- Sincronización con WooCommerce
+- Manejo de errores de API
+
+5. ENDPOINTS NECESARIOS
+---------------------
+a) GET /api/productos/{productId}/fotos
+   - Obtener todas las fotos del producto
+   - Incluir metadatos y URLs
+
+b) POST /api/productos/{productId}/fotos/temp
+   - Subir foto temporal
+   - Validar tipo y tamaño
+   - Retornar URL temporal
+
+c) DELETE /api/productos/{productId}/fotos/{fotoId}
+   - Eliminar foto
+   - Limpiar almacenamiento
+
+d) PUT /api/productos/{productId}/fotos/{fotoId}/principal
+   - Establecer foto principal
+   - Actualizar estado de otras fotos
+
+e) POST /api/productos/{productId}/fotos/sync-woo
+   - Sincronizar con WooCommerce
+   - Actualizar estados
+
+f) PUT /api/productos/{productId}/fotos/reordenar
+   - Actualizar orden de fotos
+   - Persistir cambios
+
+6. BASE DE DATOS
+--------------
+Tabla: producto_fotos
+
+CREATE TABLE producto_fotos (
+    id VARCHAR(36) PRIMARY KEY,          -- Identificador único de la foto
+    art_sec VARCHAR(36),                 -- Referencia al artículo (FK)
+    nombre VARCHAR(255),                 -- Nombre original del archivo
+    url VARCHAR(255),                    -- URL donde está almacenada la foto
+    tipo VARCHAR(50),                    -- Tipo de archivo (jpg, png, etc)
+    tamanio INT,                         -- Tamaño en bytes
+    fecha_creacion DATETIME,             -- Fecha de subida
+    woo_photo_id VARCHAR(36),            -- ID de la foto en WooCommerce
+    es_principal BOOLEAN DEFAULT false,  -- Indica si es la foto principal
+    posicion INT,                        -- Orden de la foto en la galería
+    estado VARCHAR(20) DEFAULT 'temp',   -- Estado: 'temp', 'woo', 'error'
+    FOREIGN KEY (art_sec) REFERENCES articulos(art_sec) ON DELETE CASCADE,
+    CONSTRAINT chk_estado CHECK (estado IN ('temp', 'woo', 'error'))
+);
+
+-- Índices para optimización
+CREATE INDEX idx_producto_fotos_art_sec ON producto_fotos(art_sec);
+CREATE INDEX idx_producto_fotos_estado ON producto_fotos(estado);
+CREATE INDEX idx_producto_fotos_orden ON producto_fotos(art_sec, posicion);
+
+-- Restricción para asegurar una sola foto principal por artículo
+CREATE UNIQUE INDEX idx_foto_principal ON producto_fotos(art_sec, es_principal) WHERE es_principal = true;
+
+Notas:
+- La tabla se relaciona con 'articulos' usando art_sec como clave foránea
+- Se implementa ON DELETE CASCADE para eliminar las fotos cuando se elimina el artículo
+- Se agrega un índice único para asegurar una sola foto principal por artículo
+- El estado por defecto es 'temp' para nuevas fotos
+- es_principal por defecto es false para nuevas fotos
+
+7. CONSIDERACIONES TÉCNICAS
+-------------------------
+a) Seguridad
+   - Validación de tipos de archivo
+   - Límites de tamaño
+   - Sanitización de nombres
+   - Autenticación y autorización
+
+b) Performance
+   - Optimización de imágenes
+   - Lazy loading
+   - Caché
+   - Compresión
+
+c) UX/UI
+   - Feedback visual
+   - Estados de carga
+   - Mensajes de error
+   - Animaciones
+   - Responsive design
+
+d) Manejo de Errores
+   - Validaciones
+   - Mensajes de error
+   - Recuperación de fallos
+   - Logging
+
+8. FLUJO DE TRABAJO
+-----------------
+a) Subida de Fotos
+   1. Usuario selecciona archivo
+   2. Validación local
+   3. Subida a servidor temporal
+   4. Actualización de UI
+   5. Feedback al usuario
+
+b) Eliminación de Fotos
+   1. Confirmación de usuario
+   2. Eliminación en servidor
+   3. Actualización de UI
+   4. Feedback al usuario
+
+c) Sincronización con WooCommerce
+   1. Subida a WooCommerce
+   2. Actualización de estados
+   3. Manejo de errores
+   4. Feedback al usuario
+
+9. PRUEBAS
+--------
+a) Unitarias
+   - Componentes
+   - Hooks
+   - Servicios
+   - Utilidades
+
+b) Integración
+   - Flujos completos
+   - API
+   - Base de datos
+
+c) UI/UX
+   - Responsive
+   - Accesibilidad
+   - Performance
+
+10. DOCUMENTACIÓN
+---------------
+a) Técnica
+   - Estructura
+   - Componentes
+   - API
+   - Base de datos
+
+b) Usuario
+   - Guía de uso
+   - Limitaciones
+   - Mejores prácticas
+
+11. MANTENIMIENTO
+---------------
+a) Monitoreo
+   - Errores
+   - Performance
+   - Uso de recursos
+
+b) Limpieza
+   - Archivos temporales
+   - Base de datos
+   - Caché
+
+c) Actualizaciones
+   - Dependencias
+   - Seguridad
+   - Mejoras 

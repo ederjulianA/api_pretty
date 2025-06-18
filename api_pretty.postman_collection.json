@@ -315,32 +315,17 @@
 					"request": {
 						"method": "GET",
 						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
+							{ "key": "x-access-token", "value": "{{token}}" }
 						],
 						"url": {
 							"raw": "{{base_url}}/api/articulos?nombre=rubyface&inv_gru_cod=9&PageNumber=1&PageSize=50",
 							"host": ["{{base_url}}"],
 							"path": ["api", "articulos"],
 							"query": [
-								{
-									"key": "nombre",
-									"value": "rubyface"
-								},
-								{
-									"key": "inv_gru_cod",
-									"value": "9"
-								},
-								{
-									"key": "PageNumber",
-									"value": "1"
-								},
-								{
-									"key": "PageSize",
-									"value": "50"
-								}
+								{ "key": "nombre", "value": "rubyface" },
+								{ "key": "inv_gru_cod", "value": "9" },
+								{ "key": "PageNumber", "value": "1" },
+								{ "key": "PageSize", "value": "50" }
 							]
 						}
 					}
@@ -350,21 +335,29 @@
 					"request": {
 						"method": "GET",
 						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
+							{ "key": "x-access-token", "value": "{{token}}" }
 						],
 						"url": {
 							"raw": "{{base_url}}/api/articulos/validar?art_cod=ART001",
 							"host": ["{{base_url}}"],
 							"path": ["api", "articulos", "validar"],
 							"query": [
-								{
-									"key": "art_cod",
-									"value": "ART001"
-								}
+								{ "key": "art_cod", "value": "ART001" }
 							]
+						}
+					}
+				},
+				{
+					"name": "Obtener Siguiente Código Disponible",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "x-access-token", "value": "{{token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/articulos/next-codigo/generate",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos", "next-codigo", "generate"]
 						}
 					}
 				},
@@ -373,20 +366,8 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
+							{ "key": "x-access-token", "value": "{{token}}" }
 						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"art_cod\": \"ART001\",\n    \"art_nom\": \"Artículo de prueba\",\n    \"inv_gru_cod\": 1\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
 						"url": {
 							"raw": "{{base_url}}/api/articulos",
 							"host": ["{{base_url}}"],
@@ -395,33 +376,52 @@
 					}
 				},
 				{
-					"name": "Actualizar Artículo",
+					"name": "Obtener Artículo por ID",
 					"request": {
-						"method": "PUT",
+						"method": "GET",
 						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
+							{ "key": "x-access-token", "value": "{{token}}" }
 						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"art_nom\": \"Artículo actualizado\",\n    \"inv_gru_cod\": 2\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
 						"url": {
 							"raw": "{{base_url}}/api/articulos/:id_articulo",
 							"host": ["{{base_url}}"],
 							"path": ["api", "articulos", ":id_articulo"],
 							"variable": [
-								{
-									"key": "id_articulo",
-									"value": "1"
-								}
+								{ "key": "id_articulo", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Actualizar Artículo",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "x-access-token", "value": "{{token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/articulos/:id_articulo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos", ":id_articulo"],
+							"variable": [
+								{ "key": "id_articulo", "value": "1" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Obtener Artículo por Código",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "x-access-token", "value": "{{token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/api/articulos/articulo/:art_cod",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos", "articulo", ":art_cod"],
+							"variable": [
+								{ "key": "art_cod", "value": "ART001" }
 							]
 						}
 					}
@@ -1033,6 +1033,273 @@
 							"path": ["api", "roles"]
 						}
 					}
+				}
+			]
+		},
+		{
+			"name": "Fotos de Productos",
+			"item": [
+				{
+					"name": "Obtener Fotos de Producto",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/productos/:productId/fotos",
+							"host": ["{{base_url}}"],
+							"path": ["api", "productos", ":productId", "fotos"],
+							"variable": [
+								{
+									"key": "productId",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "Lista de Fotos",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"data": [
+									{
+										"id": "uuid-1",
+										"art_sec": "1",
+										"nombre": "foto1.jpg",
+										"url": "https://res.cloudinary.com/...",
+										"tipo": "image/jpeg",
+										"tamanio": 1024,
+										"fecha_creacion": "2024-03-20T10:00:00Z",
+										"estado": "woo",
+										"cloudinary_id": "products/1/temp/uuid-1",
+										"woo_photo_id": "123"
+									}
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Subir Foto Temporal",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "photo",
+									"type": "file",
+									"src": "/path/to/your/image.jpg"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/productos/:productId/fotos/temp",
+							"host": ["{{base_url}}"],
+							"path": ["api", "productos", ":productId", "fotos", "temp"],
+							"variable": [
+								{
+									"key": "productId",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "Foto Subida",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"data": {
+									"id": "uuid-1",
+									"art_sec": "1",
+									"nombre": "foto1.jpg",
+									"url": "https://res.cloudinary.com/...",
+									"tipo": "image/jpeg",
+									"tamanio": 1024,
+									"fecha_creacion": "2024-03-20T10:00:00Z",
+									"estado": "temp",
+									"cloudinary_id": "products/1/temp/uuid-1"
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Eliminar Foto",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/productos/:productId/fotos/:photoId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "productos", ":productId", "fotos", ":photoId"],
+							"variable": [
+								{
+									"key": "productId",
+									"value": "1"
+								},
+								{
+									"key": "photoId",
+									"value": "uuid-1"
+								}
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "Foto Eliminada",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Photo deleted successfully"
+							}
+						}
+					]
+				},
+				{
+					"name": "Establecer Foto Principal",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/productos/:productId/fotos/:photoId/principal",
+							"host": ["{{base_url}}"],
+							"path": ["api", "productos", ":productId", "fotos", ":photoId", "principal"],
+							"variable": [
+								{
+									"key": "productId",
+									"value": "1"
+								},
+								{
+									"key": "photoId",
+									"value": "uuid-1"
+								}
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "Foto Principal Actualizada",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Main photo updated successfully"
+							}
+						}
+					]
+				},
+				{
+					"name": "Sincronizar con WooCommerce",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/productos/:productId/fotos/sync-woo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "productos", ":productId", "fotos", "sync-woo"],
+							"variable": [
+								{
+									"key": "productId",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "Sincronización Completada",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"data": {
+									"success": ["uuid-1", "uuid-2"],
+									"errors": []
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Reordenar Fotos",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"photoOrder\": [\"uuid-2\", \"uuid-1\", \"uuid-3\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/productos/:productId/fotos/reordenar",
+							"host": ["{{base_url}}"],
+							"path": ["api", "productos", ":productId", "fotos", "reordenar"],
+							"variable": [
+								{
+									"key": "productId",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "Fotos Reordenadas",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Photos reordered successfully"
+							}
+						}
+					]
 				}
 			]
 		}

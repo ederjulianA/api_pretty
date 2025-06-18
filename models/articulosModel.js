@@ -2,6 +2,8 @@
 const { sql, poolPromise } = require('../db');
 const WooCommerceRestApi = require("@woocommerce/woocommerce-rest-api").default;
 const cloudinary = require('../config/cloudinary');
+const { v4: uuidv4 } = require('uuid');
+const ProductPhoto = require('./ProductPhoto');
 
 // Configura la API de WooCommerce (asegúrate de tener estas variables en tu .env)
 const wcApi = new WooCommerceRestApi({
@@ -430,6 +432,28 @@ const createArticulo = async (articuloData) => {
         .input('artSecWoo', sql.Decimal(18, 0), art_sec)
         .query(updateWooIdQuery);
 
+      // Registrar las fotos en la tabla producto_fotos
+      if (wooProduct.data.images && wooProduct.data.images.length > 0) {
+        for (let i = 0; i < wooProduct.data.images.length; i++) {
+          const image = wooProduct.data.images[i];
+          const originalImage = articuloData.images[i];
+          const photo = new ProductPhoto({
+            id: uuidv4(),
+            art_sec: art_sec.toString(),
+            nombre: `${articuloData.art_cod}_${i + 1}`,
+            url: image.src,
+            tipo: originalImage ? originalImage.mimetype : 'image/jpeg',
+            tamanio: originalImage ? originalImage.size : 0,
+            fecha_creacion: new Date(),
+            woo_photo_id: image.id.toString(),
+            es_principal: i === 0,
+            posicion: i,
+            estado: 'woo'
+          });
+          await photo.save();
+        }
+      }
+
     } catch (wooError) {
       errors.wooCommerce = {
         message: 'Error al sincronizar con WooCommerce',
@@ -692,24 +716,25 @@ const getNextArticuloCodigo = async () => {
   try {
     const pool = await poolPromise;
 
-    // 1. Obtener el último código numérico de artículo
-    const query = `
+    // 1. Buscar el mayor código de 4 dígitos (>= 1000)
+    const query4Digits = `
       SELECT TOP 1 art_cod
       FROM dbo.articulos
-      WHERE art_cod LIKE '[0-9]%'  -- Solo códigos que empiecen con números
-      AND art_cod NOT LIKE '%[^0-9]%'  -- Solo códigos que sean completamente numéricos
+      WHERE LEN(art_cod) = 4
+        AND art_cod LIKE '[0-9][0-9][0-9][0-9]'
+        AND art_cod NOT LIKE '%[^0-9]%'
+        AND CAST(art_cod AS INT) >= 1000
       ORDER BY CAST(art_cod AS INT) DESC
     `;
-
-    const result = await pool.request().query(query);
+    const result4 = await pool.request().query(query4Digits);
 
     let nextCodigo;
-    if (result.recordset.length === 0) {
-      // Si no hay códigos numéricos, empezar desde 1
-      nextCodigo = '1';
+    if (result4.recordset.length === 0) {
+      // Si no hay códigos de 4 dígitos, empezar desde 5000
+      nextCodigo = '5000';
     } else {
-      // Obtener el último código y sumar 1
-      const ultimoCodigo = result.recordset[0].art_cod;
+      // Obtener el último código de 4 dígitos y sumar 1
+      const ultimoCodigo = result4.recordset[0].art_cod;
       nextCodigo = (parseInt(ultimoCodigo) + 1).toString();
     }
 

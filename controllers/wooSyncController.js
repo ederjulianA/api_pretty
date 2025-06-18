@@ -1,6 +1,8 @@
 import wcPkg from "@woocommerce/woocommerce-rest-api";
 import { poolPromise, sql } from '../db.js';
 import { getArticleStock, getArticleWooId } from '../jobs/updateWooOrderStatusAndStock.js';
+import ProductPhoto from '../models/ProductPhoto.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const WooCommerceRestApi = wcPkg.default || wcPkg;
 
@@ -83,6 +85,15 @@ const getArtSecFromArtCod = async (art_cod) => {
     }
 };
 
+
+/** Obtener el total de articulos en la tabla articulos          */
+const getTotalArticulos = async () => {
+    const pool = await poolPromise;
+    const result = await pool.request().query('SELECT COUNT(*) AS total FROM dbo.articulos');
+    return result.recordset[0].total;
+};
+
+
 /**
  * Synchronizes products from WooCommerce to ArticuloHook table
  * Uses pagination and batch processing for better performance
@@ -96,25 +107,56 @@ export const syncWooProducts = async (req, res) => {
     let errors = [];
 
     try {
-        // Get total number of products
-        const initialResponse = await wooCommerce.get('products', {
-            per_page: 1,
+        // Get total number of products with a larger per_page to ensure we get the total
+        //
+       /* const initialResponse = await wooCommerce.get('products', {
+            per_page: 100,
             page: 1
-        });
-        const totalProducts = parseInt(initialResponse.headers['x-wp-total']);
+        });*/
+
+        
+        
+        // Log the complete response headers for debugging
+       // console.log('WooCommerce Response Headers:', initialResponse.headers);
+        
+        //const totalProducts = parseInt(initialResponse.headers['x-wp-total']);
+        const totalProducts = await getTotalArticulos();
         const totalPages = Math.ceil(totalProducts / BATCH_SIZE);
 
+        // Validate the total products count
+        if (!totalProducts || totalProducts <= 0) {
+            throw new Error(`Invalid total products count received: ${totalProducts}`);
+        }
+
         console.log(`Starting synchronization of ${totalProducts} products`);
+        console.log(`Total pages to process: ${totalPages}`);
+        console.log(`Batch size: ${BATCH_SIZE}`);
+
+        // Verify we can get products from the first page
+      /*  const firstPageProducts = initialResponse.data;
+        console.log(`Products in first page: ${firstPageProducts.length}`);
+
+        if (firstPageProducts.length === 0) {
+            throw new Error('No products found in the first page');
+        }*/
 
         // Process products in batches
         while (page <= totalPages) {
+            console.log(`Processing page ${page} of ${totalPages}`);
+            
             const response = await wooCommerce.get('products', {
                 per_page: BATCH_SIZE,
                 page: page
             });
 
             const products = response.data;
+            console.log(`Retrieved ${products.length} products from page ${page}`);
             
+            if (products.length === 0) {
+                console.warn(`No products found in page ${page}, stopping synchronization`);
+                break;
+            }
+
             // Process each product in the batch
             for (const product of products) {
                 try {
@@ -136,7 +178,7 @@ export const syncWooProducts = async (req, res) => {
 
                     // Skip products without SKU
                     if (!sku) {
-                        console.warn(`Product ${product.sku} skipped: No SKU found`);
+                        console.warn(`Product ${product.id} skipped: No SKU found`);
                         continue;
                     }
 
@@ -163,6 +205,93 @@ export const syncWooProducts = async (req, res) => {
                     }
 
                     console.log('Found art_sec:', art_sec);
+
+                    // Procesar imágenes del producto
+                    if (product.images && product.images.length > 0) {
+                        console.log('Procesando imágenes del producto:', {
+                            productId: product.id,
+                            imageCount: product.images.length
+                        });
+
+                        // Obtener imágenes existentes del producto
+                        const existingPhotos = await ProductPhoto.findByProductId(art_sec);
+                        const existingPhotoIds = new Set(existingPhotos.map(photo => photo.woo_photo_id));
+
+                        // Procesar cada imagen
+                        for (let i = 0; i < product.images.length; i++) {
+                            const image = product.images[i];
+                            try {
+                                // Si la imagen ya existe, saltarla
+                                if (existingPhotoIds.has(image.id.toString())) {
+                                    console.log('Imagen ya existe, saltando:', {
+                                        woo_photo_id: image.id,
+                                        position: i
+                                    });
+                                    continue;
+                                }
+
+                                // Obtener el tipo MIME de la imagen
+                                let imageType = 'image/jpeg'; // valor por defecto
+                                if (image.src) {
+                                    const extension = image.src.split('.').pop().toLowerCase();
+                                    switch (extension) {
+                                        case 'png':
+                                            imageType = 'image/png';
+                                            break;
+                                        case 'gif':
+                                            imageType = 'image/gif';
+                                            break;
+                                        case 'webp':
+                                            imageType = 'image/webp';
+                                            break;
+                                        case 'jpg':
+                                        case 'jpeg':
+                                            imageType = 'image/jpeg';
+                                            break;
+                                        default:
+                                            console.log('Extensión de imagen no reconocida:', extension);
+                                    }
+                                }
+
+                                // Crear nueva foto
+                                const photo = new ProductPhoto({
+                                    id: uuidv4(),
+                                    art_sec: art_sec.toString(),
+                                    nombre: `${sku}_${i + 1}`,
+                                    url: image.src,
+                                    tipo: imageType,
+                                    tamanio: 0,
+                                    fecha_creacion: new Date(),
+                                    woo_photo_id: image.id.toString(),
+                                    es_principal: i === 0,
+                                    posicion: i,
+                                    estado: 'woo'
+                                });
+
+                                await photo.save();
+                                console.log('Nueva imagen guardada:', {
+                                    woo_photo_id: image.id,
+                                    position: i,
+                                    tipo: imageType
+                                });
+                            } catch (photoError) {
+                                console.error('Error al procesar imagen:', {
+                                    error: photoError.message,
+                                    imageId: image.id,
+                                    position: i
+                                });
+                                errors.push({
+                                    productId: sku,
+                                    error: "Error al procesar imagen",
+                                    details: {
+                                        imageId: image.id,
+                                        position: i,
+                                        error: photoError.message
+                                    }
+                                });
+                            }
+                        }
+                    }
 
                     // Find wholesale price from meta_data
                     const wholesalePriceMeta = meta_data.find(meta => meta.key === '_precio_mayorista');
@@ -250,7 +379,7 @@ export const syncWooProducts = async (req, res) => {
                 }
             }
 
-            console.log(`Processed batch ${page}/${totalPages}`);
+            console.log(`Completed batch ${page}/${totalPages}. Processed ${totalProcessed} products so far`);
             page++;
         }
 
@@ -259,7 +388,8 @@ export const syncWooProducts = async (req, res) => {
             Total processed: ${totalProcessed}
             Total updated: ${totalUpdated}
             Total created: ${totalCreated}
-            Total errors: ${errors.length}`);
+            Total errors: ${errors.length}
+            Expected total: ${totalProducts}`);
 
         res.json({
             success: true,
@@ -268,7 +398,8 @@ export const syncWooProducts = async (req, res) => {
                 totalProcessed,
                 totalUpdated,
                 totalCreated,
-                totalErrors: errors.length
+                totalErrors: errors.length,
+                expectedTotal: totalProducts
             },
             errors: errors.length > 0 ? errors : undefined
         });

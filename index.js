@@ -36,6 +36,7 @@ import inventoryComparisonRoutes from './routes/inventoryComparisonRoutes.js';
 import inventarioConteoRoutes from './routes/inventarioConteo.js';
 import userRoutes from './routes/userRoutes.js';
 import inventoryDifferenceRoutes from './routes/inventoryDifferenceRoutes.js';
+import productPhotoRoutes from './routes/productPhotoRoutes.js';
 
 // Middleware
 app.use(express.json());
@@ -81,6 +82,7 @@ app.use('/api/inventario-conteo', inventarioConteoRoutes);
 app.use('/api/updateWooStock', updateWooStockRoutes);
 app.use("/api/users", userRoutes);
 app.use('/api', documentoInventarioRoutes);
+app.use("/api/productos", productPhotoRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });

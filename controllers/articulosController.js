@@ -176,11 +176,6 @@ const getArticuloEndpoint = async (req, res) => {
 const getNextArticuloCodigoEndpoint = async (req, res) => {
   try {
     const result = await articulosModel.getNextArticuloCodigo();
-
-    if (!result.success) {
-      return res.status(400).json(result);
-    }
-
     res.json(result);
   } catch (error) {
     res.status(500).json({
