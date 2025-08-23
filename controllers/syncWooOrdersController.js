@@ -164,6 +164,117 @@ const getArticleInfo = async (sku) => {
 };
 
 /**
+ * Función auxiliar para obtener precios base de un artículo
+ * @param {string} art_sec - ID del artículo
+ * @returns {Promise<{precio_detal_original: number, precio_mayor_original: number}>} - Precios base
+ */
+const getArticuloPreciosBase = async (art_sec) => {
+    const pool = await poolPromise;
+    const result = await pool.request()
+        .input("art_sec", sql.VarChar(30), art_sec)
+        .query(`
+            SELECT 
+                ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+                ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original
+            FROM dbo.articulos a
+            LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+            LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+            WHERE a.art_sec = @art_sec
+        `);
+   
+    if (result.recordset.length === 0) {
+        return { precio_detal_original: 0, precio_mayor_original: 0 };
+    }
+   
+    return result.recordset[0];
+};
+
+/**
+ * Función para obtener información de promociones de un artículo en una fecha específica
+ * @param {string} art_sec - ID del artículo
+ * @param {Date} fecha - Fecha para validar promociones
+ * @returns {Promise<Object|null>} - Información de promociones o null
+ */
+const getArticuloPromocionInfo = async (art_sec, fecha) => {
+    const pool = await poolPromise;
+    const result = await pool.request()
+        .input("art_sec", sql.VarChar(30), art_sec)
+        .input("fecha", sql.DateTime, fecha)
+        .query(`
+            SELECT 
+                a.art_sec,
+                a.art_cod,
+                a.art_nom,
+                -- Precios base
+                ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+                ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+                -- Información de promoción
+                pd.pro_det_precio_oferta,
+                pd.pro_det_descuento_porcentaje,
+                p.pro_fecha_inicio,
+                p.pro_fecha_fin,
+                p.pro_codigo AS codigo_promocion,
+                p.pro_descripcion AS descripcion_promocion,
+                -- Determinar si tiene oferta activa
+                CASE
+                    WHEN p.pro_sec IS NOT NULL
+                         AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0)
+                              OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
+                    THEN 'S'
+                    ELSE 'N'
+                END AS tiene_oferta
+            FROM dbo.articulos a
+            LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+            LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+            LEFT JOIN dbo.promociones_detalle pd ON a.art_sec = pd.art_sec AND pd.pro_det_estado = 'A'
+            LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec 
+                AND p.pro_activa = 'S'
+                AND @fecha BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+            WHERE a.art_sec = @art_sec
+        `);
+   
+    if (result.recordset.length === 0) {
+        // Si no se encuentra el artículo, devolver null
+        return null;
+    }
+   
+    const data = result.recordset[0];
+   
+    // Calcular precios finales
+    let precioFinalDetal = data.precio_detal_original;
+    let precioFinalMayor = data.precio_mayor_original;
+   
+    if (data.tiene_oferta === 'S') {
+        if (data.pro_det_precio_oferta && data.pro_det_precio_oferta > 0) {
+            precioFinalDetal = data.pro_det_precio_oferta;
+            precioFinalMayor = data.pro_det_precio_oferta;
+        } else if (data.pro_det_descuento_porcentaje && data.pro_det_descuento_porcentaje > 0) {
+            const factorDescuento = 1 - (data.pro_det_descuento_porcentaje / 100);
+            precioFinalDetal = data.precio_detal_original * factorDescuento;
+            precioFinalMayor = data.precio_mayor_original * factorDescuento;
+        }
+    }
+   
+    // Siempre devolver un objeto con los precios base, incluso cuando no hay promoción
+    return {
+        art_sec: data.art_sec,
+        art_cod: data.art_cod,
+        art_nom: data.art_nom,
+        precio_detal_original: data.precio_detal_original,
+        precio_mayor_original: data.precio_mayor_original,
+        precio_detal: precioFinalDetal,
+        precio_mayor: precioFinalMayor,
+        precio_oferta: data.pro_det_precio_oferta,
+        descuento_porcentaje: data.pro_det_descuento_porcentaje,
+        pro_fecha_inicio: data.pro_fecha_inicio,
+        pro_fecha_fin: data.pro_fecha_fin,
+        codigo_promocion: data.codigo_promocion,
+        descripcion_promocion: data.descripcion_promocion,
+        tiene_oferta: data.tiene_oferta
+    };
+};
+
+/**
  * Actualiza la lista de precios según el monto total de la factura
  * @param {number} facSec - ID de la factura
  * @returns {Promise<void>}
@@ -261,6 +372,26 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 continue;
             }
 
+            // Obtener información de promociones del artículo en la fecha del pedido
+            const promocionInfo = await getArticuloPromocionInfo(articleInfo, orderData.dateCreated);
+            
+            // Obtener precios base del artículo (para casos donde no hay promoción o artículo no encontrado)
+            const preciosBase = await getArticuloPreciosBase(articleInfo);
+            
+            // Determinar los precios finales para facturakardes
+            let precioDetalFinal = 0;
+            let precioMayorFinal = 0;
+            
+            if (promocionInfo) {
+                // Si tenemos información de promociones, usar esos precios
+                precioDetalFinal = promocionInfo.precio_detal_original;
+                precioMayorFinal = promocionInfo.precio_mayor_original;
+            } else {
+                // Si no hay promoción pero el artículo existe, usar precios base
+                precioDetalFinal = preciosBase.precio_detal_original;
+                precioMayorFinal = preciosBase.precio_mayor_original;
+            }
+
             const subtotal = parseFloat(item.subtotal);
             const total = parseFloat(item.total);
             const quantity = parseInt(item.quantity);
@@ -278,7 +409,10 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 itemId: item.id, 
                 artSec: articleInfo,
                 quantity,
-                price: item.price 
+                price: item.price,
+                precioDetalFinal,
+                precioMayorFinal,
+                tienePromocion: !!promocionInfo
             });
 
             await transaction.request()
@@ -294,16 +428,27 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 .input('kar_sub_tot', sql.Decimal(18, 2), quantity * item.price)
                 .input('kar_lis_pre_cod', sql.Int, 1)
                 .input('kar_total', sql.Decimal(18, 2), quantity * item.price)
+                .input('kar_pre_pub_detal', sql.Decimal(18, 2), precioDetalFinal)
+                .input('kar_pre_pub_mayor', sql.Decimal(18, 2), precioMayorFinal)
+                .input('kar_tiene_oferta', sql.VarChar(1), promocionInfo ? promocionInfo.tiene_oferta : 'N')
+                .input('kar_precio_oferta', sql.Decimal(18, 2), promocionInfo ? promocionInfo.precio_oferta : null)
+                .input('kar_descuento_porcentaje', sql.Decimal(18, 2), promocionInfo ? promocionInfo.descuento_porcentaje : null)
+                .input('kar_codigo_promocion', sql.VarChar(50), promocionInfo ? promocionInfo.codigo_promocion : null)
+                .input('kar_descripcion_promocion', sql.VarChar(200), promocionInfo ? promocionInfo.descripcion_promocion : null)
                 .query(`
                     INSERT INTO dbo.facturakardes (
                         fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni,
                         kar_nat, kar_pre, kar_pre_pub, kar_des_uno,
-                        kar_sub_tot, kar_lis_pre_cod, kar_total
+                        kar_sub_tot, kar_lis_pre_cod, kar_total,
+                        kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta,
+                        kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion
                     )
                     VALUES (
                         @fac_sec, @kar_sec, @art_sec, @kar_bod_sec, @kar_uni,
                         @kar_nat, @kar_pre, @kar_pre_pub, @kar_des_uno,
-                        @kar_sub_tot, @kar_lis_pre_cod, @kar_total
+                        @kar_sub_tot, @kar_lis_pre_cod, @kar_total,
+                        @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta,
+                        @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion
                     )
                 `);
         }
@@ -373,6 +518,26 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 continue;
             }
 
+            // Obtener información de promociones del artículo en la fecha del pedido
+            const promocionInfo = await getArticuloPromocionInfo(articleInfo, orderData.dateCreated);
+            
+            // Obtener precios base del artículo (para casos donde no hay promoción o artículo no encontrado)
+            const preciosBase = await getArticuloPreciosBase(articleInfo);
+            
+            // Determinar los precios finales para facturakardes
+            let precioDetalFinal = 0;
+            let precioMayorFinal = 0;
+            
+            if (promocionInfo) {
+                // Si tenemos información de promociones, usar esos precios
+                precioDetalFinal = promocionInfo.precio_detal_original;
+                precioMayorFinal = promocionInfo.precio_mayor_original;
+            } else {
+                // Si no hay promoción pero el artículo existe, usar precios base
+                precioDetalFinal = preciosBase.precio_detal_original;
+                precioMayorFinal = preciosBase.precio_mayor_original;
+            }
+
             const subtotal = parseFloat(item.subtotal);
             const total = parseFloat(item.total);
             const quantity = parseInt(item.quantity);
@@ -390,7 +555,10 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 itemId: item.id, 
                 artSec: articleInfo,
                 quantity,
-                price: item.price 
+                price: item.price,
+                precioDetalFinal,
+                precioMayorFinal,
+                tienePromocion: !!promocionInfo
             });
 
             await transaction.request()
@@ -406,16 +574,27 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 .input('kar_sub_tot', sql.Decimal(18, 2), quantity * item.price)
                 .input('kar_lis_pre_cod', sql.Int, 1)
                 .input('kar_total', sql.Decimal(18, 2), quantity * item.price)
+                .input('kar_pre_pub_detal', sql.Decimal(18, 2), precioDetalFinal)
+                .input('kar_pre_pub_mayor', sql.Decimal(18, 2), precioMayorFinal)
+                .input('kar_tiene_oferta', sql.VarChar(1), promocionInfo ? promocionInfo.tiene_oferta : 'N')
+                .input('kar_precio_oferta', sql.Decimal(18, 2), promocionInfo ? promocionInfo.precio_oferta : null)
+                .input('kar_descuento_porcentaje', sql.Decimal(18, 2), promocionInfo ? promocionInfo.descuento_porcentaje : null)
+                .input('kar_codigo_promocion', sql.VarChar(50), promocionInfo ? promocionInfo.codigo_promocion : null)
+                .input('kar_descripcion_promocion', sql.VarChar(200), promocionInfo ? promocionInfo.descripcion_promocion : null)
                 .query(`
                     INSERT INTO dbo.facturakardes (
                         fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni,
                         kar_nat, kar_pre, kar_pre_pub, kar_des_uno,
-                        kar_sub_tot, kar_lis_pre_cod, kar_total
+                        kar_sub_tot, kar_lis_pre_cod, kar_total,
+                        kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta,
+                        kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion
                     )
                     VALUES (
                         @fac_sec, @kar_sec, @art_sec, @kar_bod_sec, @kar_uni,
                         @kar_nat, @kar_pre, @kar_pre_pub, @kar_des_uno,
-                        @kar_sub_tot, @kar_lis_pre_cod, @kar_total
+                        @kar_sub_tot, @kar_lis_pre_cod, @kar_total,
+                        @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta,
+                        @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion
                     )
                 `);
         }

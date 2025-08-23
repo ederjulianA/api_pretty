@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "your-collection-id",
 		"name": "API Pretty",
-		"description": "Colección de endpoints para la API Pretty",
+		"description": "Colección completa de endpoints para la API Pretty",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -13,7 +13,12 @@
 					"name": "Login",
 					"request": {
 						"method": "POST",
-						"header": [],
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
 						"body": {
 							"mode": "raw",
 							"raw": "{\n    \"usu_cod\": \"usuario123\",\n    \"usu_pass\": \"contraseña123\"\n}",
@@ -308,6 +313,133 @@
 			]
 		},
 		{
+			"name": "Usuarios",
+			"item": [
+				{
+					"name": "Obtener Usuarios",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users"]
+						}
+					},
+					"response": [
+						{
+							"name": "Lista de Usuarios",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"users": [
+									{
+										"id": 1,
+										"username": "admin",
+										"name": "Administrador",
+										"email": "admin@example.com",
+										"active": true
+									}
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Crear Usuario",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"nuevo_usuario\",\n    \"name\": \"Nuevo Usuario\",\n    \"email\": \"nuevo@example.com\",\n    \"password\": \"password123\",\n    \"role_id\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users"]
+						}
+					},
+					"response": [
+						{
+							"name": "Usuario Creado",
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Usuario creado exitosamente",
+								"user": {
+									"id": 2,
+									"username": "nuevo_usuario",
+									"name": "Nuevo Usuario",
+									"email": "nuevo@example.com"
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Actualizar Usuario",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Usuario Actualizado\",\n    \"email\": \"actualizado@example.com\",\n    \"role_id\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/2",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "2"]
+						}
+					},
+					"response": [
+						{
+							"name": "Usuario Actualizado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Usuario actualizado exitosamente",
+								"user": {
+									"id": 2,
+									"name": "Usuario Actualizado",
+									"email": "actualizado@example.com"
+								}
+							}
+						}
+					]
+				}
+			]
+		},
+		{
 			"name": "Artículos",
 			"item": [
 				{
@@ -315,116 +447,281 @@
 					"request": {
 						"method": "GET",
 						"header": [
-							{ "key": "x-access-token", "value": "{{token}}" }
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
 						],
 						"url": {
 							"raw": "{{base_url}}/api/articulos?nombre=rubyface&inv_gru_cod=9&PageNumber=1&PageSize=50",
 							"host": ["{{base_url}}"],
 							"path": ["api", "articulos"],
 							"query": [
-								{ "key": "nombre", "value": "rubyface" },
-								{ "key": "inv_gru_cod", "value": "9" },
-								{ "key": "PageNumber", "value": "1" },
-								{ "key": "PageSize", "value": "50" }
+								{
+									"key": "nombre",
+									"value": "rubyface"
+								},
+								{
+									"key": "inv_gru_cod",
+									"value": "9"
+								},
+								{
+									"key": "PageNumber",
+									"value": "1"
+								},
+								{
+									"key": "PageSize",
+									"value": "50"
+								}
 							]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Lista de Artículos",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"data": [
+									{
+										"id": 1,
+										"art_cod": "ART001",
+										"art_nom": "Producto Ejemplo",
+										"art_pre_pub": 100.00,
+										"stock_actual": 50
+									}
+								],
+								"pagination": {
+									"totalItems": 1,
+									"totalPages": 1,
+									"currentPage": 1
+								}
+							}
+						}
+					]
 				},
 				{
 					"name": "Validar Artículo",
 					"request": {
 						"method": "GET",
 						"header": [
-							{ "key": "x-access-token", "value": "{{token}}" }
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
 						],
 						"url": {
 							"raw": "{{base_url}}/api/articulos/validar?art_cod=ART001",
 							"host": ["{{base_url}}"],
 							"path": ["api", "articulos", "validar"],
 							"query": [
-								{ "key": "art_cod", "value": "ART001" }
+								{
+									"key": "art_cod",
+									"value": "ART001"
+								}
 							]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Validación de Artículo",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"exists": true,
+								"message": "El código de artículo ya existe"
+							}
+						}
+					]
 				},
 				{
 					"name": "Obtener Siguiente Código Disponible",
 					"request": {
 						"method": "GET",
 						"header": [
-							{ "key": "x-access-token", "value": "{{token}}" }
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
 						],
 						"url": {
 							"raw": "{{base_url}}/api/articulos/next-codigo/generate",
 							"host": ["{{base_url}}"],
 							"path": ["api", "articulos", "next-codigo", "generate"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Código Generado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"nextCode": "ART002"
+							}
+						}
+					]
 				},
 				{
 					"name": "Crear Artículo",
 					"request": {
 						"method": "POST",
 						"header": [
-							{ "key": "x-access-token", "value": "{{token}}" }
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"art_cod\": \"ART002\",\n    \"art_nom\": \"Nuevo Producto\",\n    \"art_pre_pub\": 150.00,\n    \"inv_gru_cod\": 1,\n    \"inv_sub_cod\": 1\n}"
+						},
 						"url": {
 							"raw": "{{base_url}}/api/articulos",
 							"host": ["{{base_url}}"],
 							"path": ["api", "articulos"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Artículo Creado",
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Artículo creado exitosamente",
+								"data": {
+									"id": 2,
+									"art_cod": "ART002",
+									"art_nom": "Nuevo Producto"
+								}
+							}
+						}
+					]
 				},
 				{
 					"name": "Obtener Artículo por ID",
 					"request": {
 						"method": "GET",
 						"header": [
-							{ "key": "x-access-token", "value": "{{token}}" }
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/articulos/:id_articulo",
+							"raw": "{{base_url}}/api/articulos/1",
 							"host": ["{{base_url}}"],
-							"path": ["api", "articulos", ":id_articulo"],
-							"variable": [
-								{ "key": "id_articulo", "value": "1" }
-							]
+							"path": ["api", "articulos", "1"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Detalle del Artículo",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"data": {
+									"id": 1,
+									"art_cod": "ART001",
+									"art_nom": "Producto Ejemplo",
+									"art_pre_pub": 100.00,
+									"stock_actual": 50,
+									"inv_gru_cod": 1,
+									"inv_sub_cod": 1
+								}
+							}
+						}
+					]
 				},
 				{
 					"name": "Actualizar Artículo",
 					"request": {
 						"method": "PUT",
 						"header": [
-							{ "key": "x-access-token", "value": "{{token}}" }
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
 						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"art_nom\": \"Producto Actualizado\",\n    \"art_pre_pub\": 120.00\n}"
+						},
 						"url": {
-							"raw": "{{base_url}}/api/articulos/:id_articulo",
+							"raw": "{{base_url}}/api/articulos/1",
 							"host": ["{{base_url}}"],
-							"path": ["api", "articulos", ":id_articulo"],
-							"variable": [
-								{ "key": "id_articulo", "value": "1" }
-							]
+							"path": ["api", "articulos", "1"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Artículo Actualizado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Artículo actualizado exitosamente",
+								"data": {
+									"id": 1,
+									"art_nom": "Producto Actualizado",
+									"art_pre_pub": 120.00
+								}
+							}
+						}
+					]
 				},
 				{
 					"name": "Obtener Artículo por Código",
 					"request": {
 						"method": "GET",
 						"header": [
-							{ "key": "x-access-token", "value": "{{token}}" }
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/articulos/articulo/:art_cod",
+							"raw": "{{base_url}}/api/articulos/articulo/ART001",
 							"host": ["{{base_url}}"],
-							"path": ["api", "articulos", "articulo", ":art_cod"],
-							"variable": [
-								{ "key": "art_cod", "value": "ART001" }
-							]
+							"path": ["api", "articulos", "articulo", "ART001"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Artículo por Código",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"data": {
+									"id": 1,
+									"art_cod": "ART001",
+									"art_nom": "Producto Ejemplo",
+									"art_pre_pub": 100.00,
+									"stock_actual": 50
+								}
+							}
+						}
+					]
 				}
 			]
 		},
@@ -464,7 +761,32 @@
 								}
 							]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Lista de Pedidos",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"data": [
+									{
+										"fac_nro": "VTA001",
+										"fac_fec": "2024-03-20",
+										"nit_sec": "123456789",
+										"fac_tot": 100.00,
+										"fac_est_fac": "A"
+									}
+								],
+								"pagination": {
+									"totalItems": 1,
+									"totalPages": 1,
+									"currentPage": 1
+								}
+							}
+						}
+					]
 				},
 				{
 					"name": "Obtener Pedido por Número",
@@ -477,17 +799,36 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/order/:fac_nro",
+							"raw": "{{base_url}}/api/order/VTA001",
 							"host": ["{{base_url}}"],
-							"path": ["api", "order", ":fac_nro"],
-							"variable": [
-								{
-									"key": "fac_nro",
-									"value": "VTA001"
-								}
-							]
+							"path": ["api", "order", "VTA001"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Detalle del Pedido",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"data": {
+									"fac_nro": "VTA001",
+									"fac_fec": "2024-03-20",
+									"nit_sec": "123456789",
+									"fac_tot": 100.00,
+									"fac_est_fac": "A",
+									"detalles": [
+										{
+											"art_sec": "ART001",
+											"kar_uni": 1,
+											"kar_pre_pub": 100.00
+										}
+									]
+								}
+							}
+						}
+					]
 				},
 				{
 					"name": "Crear Pedido",
@@ -497,23 +838,38 @@
 							{
 								"key": "x-access-token",
 								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
 							}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"nit_sec\": \"123456789\",\n    \"fac_tip_cod\": \"VTA\",\n    \"detalles\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"kar_uni\": 1,\n            \"kar_pre_pub\": 100\n        }\n    ]\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
+							"raw": "{\n    \"nit_sec\": \"123456789\",\n    \"fac_tip_cod\": \"VTA\",\n    \"detalles\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"kar_uni\": 1,\n            \"kar_pre_pub\": 100\n        }\n    ]\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/order",
 							"host": ["{{base_url}}"],
 							"path": ["api", "order"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Pedido Creado",
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Pedido creado exitosamente",
+								"data": {
+									"fac_nro": "VTA002",
+									"fac_tot": 100.00
+								}
+							}
+						}
+					]
 				},
 				{
 					"name": "Actualizar Pedido",
@@ -523,29 +879,34 @@
 							{
 								"key": "x-access-token",
 								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
 							}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"fac_est_fac\": \"A\",\n    \"detalles\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"kar_uni\": 2,\n            \"kar_pre_pub\": 100\n        }\n    ]\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
+							"raw": "{\n    \"fac_est_fac\": \"A\",\n    \"detalles\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"kar_uni\": 2,\n            \"kar_pre_pub\": 100\n        }\n    ]\n}"
 						},
 						"url": {
-							"raw": "{{base_url}}/api/order/:fac_nro",
+							"raw": "{{base_url}}/api/order/VTA001",
 							"host": ["{{base_url}}"],
-							"path": ["api", "order", ":fac_nro"],
-							"variable": [
-								{
-									"key": "fac_nro",
-									"value": "VTA001"
-								}
-							]
+							"path": ["api", "order", "VTA001"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Pedido Actualizado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Pedido actualizado exitosamente"
+							}
+						}
+					]
 				},
 				{
 					"name": "Anular Documento",
@@ -555,23 +916,34 @@
 							{
 								"key": "x-access-token",
 								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
 							}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"fac_nro\": \"VTA001\",\n    \"fac_tip_cod\": \"VTA\",\n    \"fac_obs\": \"Documento anulado\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
+							"raw": "{\n    \"fac_nro\": \"VTA001\",\n    \"fac_tip_cod\": \"VTA\",\n    \"fac_obs\": \"Documento anulado\"\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/order/anular",
 							"host": ["{{base_url}}"],
 							"path": ["api", "order", "anular"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Documento Anulado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Documento anulado exitosamente"
+							}
+						}
+					]
 				},
 				{
 					"name": "Confirmar Pedido",
@@ -584,17 +956,23 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/confirmOrder/:fac_nro_woo",
+							"raw": "{{base_url}}/api/confirmOrder/12345",
 							"host": ["{{base_url}}"],
-							"path": ["api", "confirmOrder", ":fac_nro_woo"],
-							"variable": [
-								{
-									"key": "fac_nro_woo",
-									"value": "12345"
-								}
-							]
+							"path": ["api", "confirmOrder", "12345"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Pedido Confirmado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Pedido confirmado exitosamente"
+							}
+						}
+					]
 				}
 			]
 		},
@@ -640,16 +1018,15 @@
 							{
 								"key": "x-access-token",
 								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
 							}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"nit_ide\": \"123456789\",\n    \"nit_nom\": \"Cliente de prueba\",\n    \"nit_dir\": \"Dirección de prueba\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
+							"raw": "{\n    \"nit_ide\": \"123456789\",\n    \"nit_nom\": \"Cliente de prueba\",\n    \"nit_dir\": \"Dirección de prueba\"\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/nits",
@@ -696,12 +1073,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"FechaDesde\": \"2024-01-01\",\n    \"FechaHasta\": \"2024-03-20\",\n    \"Estado\": \"pending\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
+							"raw": "{\n    \"FechaDesde\": \"2024-01-01\",\n    \"FechaHasta\": \"2024-03-20\",\n    \"Estado\": \"pending\"\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/woo/sync-orders",
@@ -721,15 +1093,9 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/updateWooStock/:art_cod",
+							"raw": "{{base_url}}/api/updateWooStock/ART001",
 							"host": ["{{base_url}}"],
-							"path": ["api", "updateWooStock", ":art_cod"],
-							"variable": [
-								{
-									"key": "art_cod",
-									"value": "ART001"
-								}
-							]
+							"path": ["api", "updateWooStock", "ART001"]
 						}
 					}
 				}
@@ -773,7 +1139,32 @@
 					}
 				},
 				{
-					"name": "Obtener Artículos",
+					"name": "Crear Ajuste de Inventario",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fac_nro\": \"AJU001\",\n    \"fac_fec\": \"2024-03-20\",\n    \"detalles\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"kar_uni\": 10,\n            \"kar_pre_pub\": 100\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inventory/adjustment",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventory", "adjustment"]
+						}
+					}
+				},
+				{
+					"name": "Obtener Ajuste de Inventario",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -783,32 +1174,304 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/articulos?nombre=rubyface&inv_gru_cod=9&PageNumber=1&PageSize=50",
+							"raw": "{{base_url}}/api/inventory/adjustment/AJU001",
 							"host": ["{{base_url}}"],
-							"path": ["api", "articulos"],
+							"path": ["api", "inventory", "adjustment", "AJU001"]
+						}
+					}
+				},
+				{
+					"name": "Actualizar Ajuste de Inventario",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"detalles\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"kar_uni\": 15,\n            \"kar_pre_pub\": 100\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inventory/adjustment/AJU001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventory", "adjustment", "AJU001"]
+						}
+					}
+				},
+				{
+					"name": "Comparar Inventarios",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inventory-comparison?page=1&limit=50&sortBy=diferencia&sortOrder=desc",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventory-comparison"],
 							"query": [
 								{
-									"key": "nombre",
-									"value": "rubyface"
-								},
-								{
-									"key": "inv_gru_cod",
-									"value": "9"
-								},
-								{
-									"key": "PageNumber",
+									"key": "page",
 									"value": "1"
 								},
 								{
-									"key": "PageSize",
+									"key": "limit",
 									"value": "50"
+								},
+								{
+									"key": "sortBy",
+									"value": "diferencia"
+								},
+								{
+									"key": "sortOrder",
+									"value": "desc"
 								}
 							]
 						}
 					}
 				},
 				{
-					"name": "Crear Artículo",
+					"name": "Obtener Diferencias de Inventario",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inventory-differences/differences",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventory-differences", "differences"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Kardex",
+			"item": [
+				{
+					"name": "Obtener Movimientos Kardex",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/kardex/ART001?startDate=2024-01-01&endDate=2024-03-20",
+							"host": ["{{base_url}}"],
+							"path": ["api", "kardex", "ART001"],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-03-20"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Inventario Conteo",
+			"item": [
+				{
+					"name": "Crear Conteo",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fecha_conteo\": \"2024-03-20\",\n    \"responsable\": \"Usuario Ejemplo\",\n    \"observaciones\": \"Conteo de prueba\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo"]
+						}
+					}
+				},
+				{
+					"name": "Listar Conteos",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo"]
+						}
+					}
+				},
+				{
+					"name": "Obtener Conteo Específico",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo", "1"]
+						}
+					}
+				},
+				{
+					"name": "Agregar Detalle a Conteo",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"conteo_id\": 1,\n    \"articulo_codigo\": \"ART001\",\n    \"cantidad_conteada\": 45\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo/detalle",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo", "detalle"]
+						}
+					}
+				},
+				{
+					"name": "Actualizar Estado de Conteo",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"estado\": \"finalizado\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo/1/estado",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo", "1", "estado"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Proveedores",
+			"item": [
+				{
+					"name": "Obtener Proveedor por ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/proveedor/123456789",
+							"host": ["{{base_url}}"],
+							"path": ["api", "proveedor", "123456789"]
+						}
+					}
+				},
+				{
+					"name": "Buscar Proveedores",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/proveedores?search=ejemplo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "proveedores"],
+							"query": [
+								{
+									"key": "search",
+									"value": "ejemplo"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Fotos de Productos",
+			"item": [
+				{
+					"name": "Obtener Fotos de Producto",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/productos/1/fotos",
+							"host": ["{{base_url}}"],
+							"path": ["api", "productos", "1", "fotos"]
+						}
+					}
+				},
+				{
+					"name": "Subir Foto Temporal",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -817,15 +1480,42 @@
 								"value": "{{token}}"
 							}
 						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "photo",
+									"type": "file",
+									"src": "/path/to/your/image.jpg"
+								}
+							]
+						},
 						"url": {
-							"raw": "{{base_url}}/api/crearArticulo",
+							"raw": "{{base_url}}/api/productos/1/fotos/temp",
 							"host": ["{{base_url}}"],
-							"path": ["api", "crearArticulo"]
+							"path": ["api", "productos", "1", "fotos", "temp"]
 						}
 					}
 				},
 				{
-					"name": "Editar Artículo",
+					"name": "Eliminar Foto",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/productos/1/fotos/uuid-1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "productos", "1", "fotos", "uuid-1"]
+						}
+					}
+				},
+				{
+					"name": "Establecer Foto Principal",
 					"request": {
 						"method": "PUT",
 						"header": [
@@ -835,16 +1525,16 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/editarArticulo",
+							"raw": "{{base_url}}/api/productos/1/fotos/uuid-1/principal",
 							"host": ["{{base_url}}"],
-							"path": ["api", "editarArticulo"]
+							"path": ["api", "productos", "1", "fotos", "uuid-1", "principal"]
 						}
 					}
 				},
 				{
-					"name": "Consultar Artículo por Código",
+					"name": "Sincronizar con WooCommerce",
 					"request": {
-						"method": "GET",
+						"method": "POST",
 						"header": [
 							{
 								"key": "x-access-token",
@@ -852,9 +1542,34 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/consultarArticuloByArtCod",
+							"raw": "{{base_url}}/api/productos/1/fotos/sync-woo",
 							"host": ["{{base_url}}"],
-							"path": ["api", "consultarArticuloByArtCod"]
+							"path": ["api", "productos", "1", "fotos", "sync-woo"]
+						}
+					}
+				},
+				{
+					"name": "Reordenar Fotos",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"photoOrder\": [\"uuid-2\", \"uuid-1\", \"uuid-3\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/productos/1/fotos/reordenar",
+							"host": ["{{base_url}}"],
+							"path": ["api", "productos", "1", "fotos", "reordenar"]
 						}
 					}
 				}
@@ -927,341 +1642,12 @@
 			]
 		},
 		{
-			"name": "Proveedores",
+			"name": "Documento Inventario",
 			"item": [
 				{
-					"name": "Obtener Proveedores",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/proveedores",
-							"host": ["{{base_url}}"],
-							"path": ["api", "proveedores"]
-						}
-					}
-				}
-			]
-		},
-		{
-			"name": "Kardex",
-			"item": [
-				{
-					"name": "Obtener Movimientos Kardex",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/kardex",
-							"host": ["{{base_url}}"],
-							"path": ["api", "kardex"]
-						}
-					}
-				}
-			]
-		},
-		{
-			"name": "Inventario Conteo",
-			"item": [
-				{
-					"name": "Obtener Conteos",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/inventario-conteo",
-							"host": ["{{base_url}}"],
-							"path": ["api", "inventario-conteo"]
-						}
-					}
-				}
-			]
-		},
-		{
-			"name": "Usuarios",
-			"item": [
-				{
-					"name": "Obtener Usuarios",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/users",
-							"host": ["{{base_url}}"],
-							"path": ["api", "users"]
-						}
-					}
-				}
-			]
-		},
-		{
-			"name": "Roles",
-			"item": [
-				{
-					"name": "Obtener Roles",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/roles",
-							"host": ["{{base_url}}"],
-							"path": ["api", "roles"]
-						}
-					}
-				}
-			]
-		},
-		{
-			"name": "Fotos de Productos",
-			"item": [
-				{
-					"name": "Obtener Fotos de Producto",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/productos/:productId/fotos",
-							"host": ["{{base_url}}"],
-							"path": ["api", "productos", ":productId", "fotos"],
-							"variable": [
-								{
-									"key": "productId",
-									"value": "1"
-								}
-							]
-						}
-					},
-					"response": [
-						{
-							"name": "Lista de Fotos",
-							"status": "OK",
-							"code": 200,
-							"_postman_previewlanguage": "json",
-							"body": {
-								"success": true,
-								"data": [
-									{
-										"id": "uuid-1",
-										"art_sec": "1",
-										"nombre": "foto1.jpg",
-										"url": "https://res.cloudinary.com/...",
-										"tipo": "image/jpeg",
-										"tamanio": 1024,
-										"fecha_creacion": "2024-03-20T10:00:00Z",
-										"estado": "woo",
-										"cloudinary_id": "products/1/temp/uuid-1",
-										"woo_photo_id": "123"
-									}
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "Subir Foto Temporal",
+					"name": "Actualizar Inventario por Documento",
 					"request": {
 						"method": "POST",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"body": {
-							"mode": "formdata",
-							"formdata": [
-								{
-									"key": "photo",
-									"type": "file",
-									"src": "/path/to/your/image.jpg"
-								}
-							]
-						},
-						"url": {
-							"raw": "{{base_url}}/api/productos/:productId/fotos/temp",
-							"host": ["{{base_url}}"],
-							"path": ["api", "productos", ":productId", "fotos", "temp"],
-							"variable": [
-								{
-									"key": "productId",
-									"value": "1"
-								}
-							]
-						}
-					},
-					"response": [
-						{
-							"name": "Foto Subida",
-							"status": "OK",
-							"code": 200,
-							"_postman_previewlanguage": "json",
-							"body": {
-								"success": true,
-								"data": {
-									"id": "uuid-1",
-									"art_sec": "1",
-									"nombre": "foto1.jpg",
-									"url": "https://res.cloudinary.com/...",
-									"tipo": "image/jpeg",
-									"tamanio": 1024,
-									"fecha_creacion": "2024-03-20T10:00:00Z",
-									"estado": "temp",
-									"cloudinary_id": "products/1/temp/uuid-1"
-								}
-							}
-						}
-					]
-				},
-				{
-					"name": "Eliminar Foto",
-					"request": {
-						"method": "DELETE",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/productos/:productId/fotos/:photoId",
-							"host": ["{{base_url}}"],
-							"path": ["api", "productos", ":productId", "fotos", ":photoId"],
-							"variable": [
-								{
-									"key": "productId",
-									"value": "1"
-								},
-								{
-									"key": "photoId",
-									"value": "uuid-1"
-								}
-							]
-						}
-					},
-					"response": [
-						{
-							"name": "Foto Eliminada",
-							"status": "OK",
-							"code": 200,
-							"_postman_previewlanguage": "json",
-							"body": {
-								"success": true,
-								"message": "Photo deleted successfully"
-							}
-						}
-					]
-				},
-				{
-					"name": "Establecer Foto Principal",
-					"request": {
-						"method": "PUT",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/productos/:productId/fotos/:photoId/principal",
-							"host": ["{{base_url}}"],
-							"path": ["api", "productos", ":productId", "fotos", ":photoId", "principal"],
-							"variable": [
-								{
-									"key": "productId",
-									"value": "1"
-								},
-								{
-									"key": "photoId",
-									"value": "uuid-1"
-								}
-							]
-						}
-					},
-					"response": [
-						{
-							"name": "Foto Principal Actualizada",
-							"status": "OK",
-							"code": 200,
-							"_postman_previewlanguage": "json",
-							"body": {
-								"success": true,
-								"message": "Main photo updated successfully"
-							}
-						}
-					]
-				},
-				{
-					"name": "Sincronizar con WooCommerce",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "x-access-token",
-								"value": "{{token}}"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/api/productos/:productId/fotos/sync-woo",
-							"host": ["{{base_url}}"],
-							"path": ["api", "productos", ":productId", "fotos", "sync-woo"],
-							"variable": [
-								{
-									"key": "productId",
-									"value": "1"
-								}
-							]
-						}
-					},
-					"response": [
-						{
-							"name": "Sincronización Completada",
-							"status": "OK",
-							"code": 200,
-							"_postman_previewlanguage": "json",
-							"body": {
-								"success": true,
-								"data": {
-									"success": ["uuid-1", "uuid-2"],
-									"errors": []
-								}
-							}
-						}
-					]
-				},
-				{
-					"name": "Reordenar Fotos",
-					"request": {
-						"method": "PUT",
 						"header": [
 							{
 								"key": "x-access-token",
@@ -1274,32 +1660,14 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"photoOrder\": [\"uuid-2\", \"uuid-1\", \"uuid-3\"]\n}"
+							"raw": "{\n    \"fac_nro\": \"VTA001\",\n    \"fac_tip_cod\": \"VTA\"\n}"
 						},
 						"url": {
-							"raw": "{{base_url}}/api/productos/:productId/fotos/reordenar",
+							"raw": "{{base_url}}/api/documento-inventario",
 							"host": ["{{base_url}}"],
-							"path": ["api", "productos", ":productId", "fotos", "reordenar"],
-							"variable": [
-								{
-									"key": "productId",
-									"value": "1"
-								}
-							]
+							"path": ["api", "documento-inventario"]
 						}
-					},
-					"response": [
-						{
-							"name": "Fotos Reordenadas",
-							"status": "OK",
-							"code": 200,
-							"_postman_previewlanguage": "json",
-							"body": {
-								"success": true,
-								"message": "Photos reordered successfully"
-							}
-						}
-					]
+					}
 				}
 			]
 		}

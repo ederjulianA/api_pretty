@@ -64,7 +64,78 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       const detail = detalles[i];
       const newKarSec = i + 1; // Asignar un número de línea secuencial
 
-      // Crear una nueva instancia de Request para cada insert
+      // 5.1 Usar información de precios y ofertas que viene desde syncWooOrders o calcular si no está disponible
+      let precioInfo;
+      
+      // Verificar si los campos de promociones están presentes en el detalle
+      if (detail.kar_pre_pub_detal !== undefined && detail.kar_pre_pub_mayor !== undefined && 
+          detail.kar_tiene_oferta !== undefined && detail.kar_codigo_promocion !== undefined) {
+        // Usar los valores que vienen desde syncWooOrders
+        precioInfo = {
+          precio_detal: detail.kar_pre_pub_detal || 0,
+          precio_mayor: detail.kar_pre_pub_mayor || 0,
+          precio_oferta: detail.kar_precio_oferta || null,
+          descuento_porcentaje: detail.kar_descuento_porcentaje || null,
+          codigo_promocion: detail.kar_codigo_promocion || null,
+          descripcion_promocion: detail.kar_descripcion_promocion || null,
+          tiene_oferta: detail.kar_tiene_oferta || 'N'
+        };
+        
+        console.log(`[UPDATE_ORDER] Usando información de promociones desde syncWooOrders para artículo ${detail.art_sec}:`, {
+          tiene_oferta: precioInfo.tiene_oferta,
+          codigo_promocion: precioInfo.codigo_promocion,
+          precio_oferta: precioInfo.precio_oferta,
+          descuento_porcentaje: precioInfo.descuento_porcentaje
+        });
+      } else {
+        // Calcular información de precios y ofertas del artículo (para casos no sincronizados desde WooCommerce)
+        const precioRequest = new sql.Request(transaction);
+        const precioQuery = `
+          SELECT 
+            ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
+            ISNULL(ad2.art_bod_pre, 0) AS precio_mayor,
+            pd.pro_det_precio_oferta AS precio_oferta,
+            pd.pro_det_descuento_porcentaje AS descuento_porcentaje,
+            p.pro_codigo AS codigo_promocion,
+            p.pro_descripcion AS descripcion_promocion,
+            CASE 
+                WHEN (pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                     OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0)
+                THEN 'S' 
+                ELSE 'N' 
+            END AS tiene_oferta
+          FROM dbo.articulos a
+          LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
+          LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+          LEFT JOIN dbo.promociones_detalle pd ON a.art_sec = pd.art_sec AND pd.pro_det_estado = 'A'
+          LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec 
+              AND p.pro_activa = 'S' 
+              AND @fac_fec BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+          WHERE a.art_sec = @art_sec
+        `;
+        
+        const precioResult = await precioRequest
+          .input('art_sec', sql.VarChar(30), detail.art_sec)
+          .input('fac_fec', sql.Date, fac_fec || new Date())
+          .query(precioQuery);
+        
+        precioInfo = precioResult.recordset[0] || {
+          precio_detal: 0,
+          precio_mayor: 0,
+          precio_oferta: null,
+          descuento_porcentaje: null,
+          codigo_promocion: null,
+          descripcion_promocion: null,
+          tiene_oferta: 'N'
+        };
+        
+        console.log(`[UPDATE_ORDER] Calculando información de promociones localmente para artículo ${detail.art_sec}:`, {
+          tiene_oferta: precioInfo.tiene_oferta,
+          codigo_promocion: precioInfo.codigo_promocion
+        });
+      }
+
+      // 5.2 Crear una nueva instancia de Request para cada insert
       const insertDetailRequest = new sql.Request(transaction);
       let kar_total = Number(detail.kar_uni) * Number(detail.kar_pre_pub);
       if (descuento > 0) {
@@ -82,11 +153,21 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
         .input('kar_total', sql.Decimal(17, 2), kar_total)
         .input('kar_kar_sec_ori', sql.Int, detail.kar_kar_sec_ori)
         .input('kar_fac_sec_ori', sql.Decimal(18, 0), detail.kar_fac_sec_ori)
+        // Campos de precios y ofertas
+        .input('kar_pre_pub_detal', sql.Decimal(17, 2), precioInfo.precio_detal)
+        .input('kar_pre_pub_mayor', sql.Decimal(17, 2), precioInfo.precio_mayor)
+        .input('kar_tiene_oferta', sql.Char(1), precioInfo.tiene_oferta)
+        .input('kar_precio_oferta', sql.Decimal(17, 2), precioInfo.precio_oferta)
+        .input('kar_descuento_porcentaje', sql.Decimal(5, 2), precioInfo.descuento_porcentaje)
+        .input('kar_codigo_promocion', sql.VarChar(20), precioInfo.codigo_promocion)
+        .input('kar_descripcion_promocion', sql.VarChar(200), precioInfo.descripcion_promocion)
         .query(`
           INSERT INTO dbo.facturakardes
-            (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori)
+            (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori,
+             kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion)
           VALUES
-            (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @kar_lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori)
+            (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @kar_lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori,
+             @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion)
         `);
 
       // Si existe kar_fac_sec_ori, actualizar fac_nro_origen en la tabla factura
@@ -265,22 +346,28 @@ const getOrder = async (fac_nro) => {
     const header = headerResult.recordset[0];
     const fac_sec = header.fac_sec;
 
-    // Consulta de los detalles, uniendo facturakardes, articulosdetalle y la vista vwExistencias
+    // Consulta de los detalles, usando los campos guardados en facturakardes
     const detailQuery = `
       SELECT 
         fd.*,
-        ad1.art_bod_pre AS precio_detal,
-        ad2.art_bod_pre AS precio_mayor,
+        -- Usar los precios guardados en facturakardes para consistencia histórica
+        fd.kar_pre_pub_detal AS precio_detal_original,
+        fd.kar_pre_pub_mayor AS precio_mayor_original,
+        -- Los precios con oferta ya están calculados en kar_pre_pub
+        fd.kar_pre_pub AS precio_detal,
+        fd.kar_pre_pub AS precio_mayor,
+        -- Información de oferta guardada
+        fd.kar_precio_oferta AS precio_oferta,
+        fd.kar_descuento_porcentaje AS descuento_porcentaje,
+        fd.kar_codigo_promocion AS codigo_promocion,
+        fd.kar_descripcion_promocion AS descripcion_promocion,
+        fd.kar_tiene_oferta AS tiene_oferta,
         vw.existencia,
         a.art_cod,
 		    a.art_nom,
         a.art_url_img_servi
       FROM dbo.facturakardes fd
       INNER JOIN dbo.articulos a ON fd.art_sec = a.art_sec
-      LEFT JOIN dbo.articulosdetalle ad1 
-        ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
-      LEFT JOIN dbo.articulosdetalle ad2 
-        ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
       LEFT JOIN dbo.vwExistencias vw 
         ON a.art_sec = vw.art_sec
       WHERE fd.fac_sec = @fac_sec
@@ -407,7 +494,78 @@ const createCompleteOrder = async ({
       const karSecResult = await detailRequest.query(karSecQuery);
       const NewKarSec = karSecResult.recordset[0].NewKarSec;
 
-      // 5.2 Insertar el detalle usando un Request nuevo
+      // 5.2 Usar información de precios y ofertas que viene desde syncWooOrders o calcular si no está disponible
+      let precioInfo;
+      
+      // Verificar si los campos de promociones están presentes en el detalle
+      if (detalle.kar_pre_pub_detal !== undefined && detalle.kar_pre_pub_mayor !== undefined && 
+          detalle.kar_tiene_oferta !== undefined && detalle.kar_codigo_promocion !== undefined) {
+        // Usar los valores que vienen desde syncWooOrders
+        precioInfo = {
+          precio_detal: detalle.kar_pre_pub_detal || 0,
+          precio_mayor: detalle.kar_pre_pub_mayor || 0,
+          precio_oferta: detalle.kar_precio_oferta || null,
+          descuento_porcentaje: detalle.kar_descuento_porcentaje || null,
+          codigo_promocion: detalle.kar_codigo_promocion || null,
+          descripcion_promocion: detalle.kar_descripcion_promocion || null,
+          tiene_oferta: detalle.kar_tiene_oferta || 'N'
+        };
+        
+        console.log(`[CREATE_ORDER] Usando información de promociones desde syncWooOrders para artículo ${detalle.art_sec}:`, {
+          tiene_oferta: precioInfo.tiene_oferta,
+          codigo_promocion: precioInfo.codigo_promocion,
+          precio_oferta: precioInfo.precio_oferta,
+          descuento_porcentaje: precioInfo.descuento_porcentaje
+        });
+      } else {
+        // Calcular información de precios y ofertas del artículo (para casos no sincronizados desde WooCommerce)
+        const precioRequest = new sql.Request(transaction);
+        const precioQuery = `
+          SELECT 
+            ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
+            ISNULL(ad2.art_bod_pre, 0) AS precio_mayor,
+            pd.pro_det_precio_oferta AS precio_oferta,
+            pd.pro_det_descuento_porcentaje AS descuento_porcentaje,
+            p.pro_codigo AS codigo_promocion,
+            p.pro_descripcion AS descripcion_promocion,
+            CASE 
+                WHEN (pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                     OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0)
+                THEN 'S' 
+                ELSE 'N' 
+            END AS tiene_oferta
+          FROM dbo.articulos a
+          LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
+          LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+          LEFT JOIN dbo.promociones_detalle pd ON a.art_sec = pd.art_sec AND pd.pro_det_estado = 'A'
+          LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec 
+              AND p.pro_activa = 'S' 
+              AND @fac_fec BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+          WHERE a.art_sec = @art_sec
+        `;
+        
+        const precioResult = await precioRequest
+          .input('art_sec', sql.VarChar(30), detalle.art_sec)
+          .input('fac_fec', sql.Date, fac_fec || new Date())
+          .query(precioQuery);
+        
+        precioInfo = precioResult.recordset[0] || {
+          precio_detal: 0,
+          precio_mayor: 0,
+          precio_oferta: null,
+          descuento_porcentaje: null,
+          codigo_promocion: null,
+          descripcion_promocion: null,
+          tiene_oferta: 'N'
+        };
+        
+        console.log(`[CREATE_ORDER] Calculando información de promociones localmente para artículo ${detalle.art_sec}:`, {
+          tiene_oferta: precioInfo.tiene_oferta,
+          codigo_promocion: precioInfo.codigo_promocion
+        });
+      }
+
+      // 5.3 Insertar el detalle usando un Request nuevo con los campos adicionales
       const insertRequest = new sql.Request(transaction);
       insertRequest.input('fac_sec', sql.Decimal(18, 0), NewFacSec);
       insertRequest.input('NewKarSec', sql.Int, NewKarSec);
@@ -419,6 +577,16 @@ const createCompleteOrder = async ({
       insertRequest.input('lis_pre_cod', sql.Int, lis_pre_cod);
       insertRequest.input('kar_kar_sec_ori', sql.Int, detalle.kar_kar_sec_ori);
       insertRequest.input('kar_fac_sec_ori', sql.Int, detalle.kar_fac_sec_ori);
+      
+      // Campos de precios y ofertas
+      insertRequest.input('kar_pre_pub_detal', sql.Decimal(17, 2), precioInfo.precio_detal);
+      insertRequest.input('kar_pre_pub_mayor', sql.Decimal(17, 2), precioInfo.precio_mayor);
+      insertRequest.input('kar_tiene_oferta', sql.Char(1), precioInfo.tiene_oferta);
+      insertRequest.input('kar_precio_oferta', sql.Decimal(17, 2), precioInfo.precio_oferta);
+      insertRequest.input('kar_descuento_porcentaje', sql.Decimal(5, 2), precioInfo.descuento_porcentaje);
+      insertRequest.input('kar_codigo_promocion', sql.VarChar(20), precioInfo.codigo_promocion);
+      insertRequest.input('kar_descripcion_promocion', sql.VarChar(200), precioInfo.descripcion_promocion);
+      
       let kar_total = Number(detalle.kar_uni) * Number(detalle.kar_pre_pub);
       if (descuento > 0) {
         kar_total = kar_total * (1 - (descuento / 100));
@@ -427,9 +595,11 @@ const createCompleteOrder = async ({
 
       const insertDetailQuery = `
         INSERT INTO dbo.facturakardes
-          (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori)
+          (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori,
+           kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion)
         VALUES
-          (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori)
+          (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori,
+           @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion)
       `;
       await insertRequest.query(insertDetailQuery);
 

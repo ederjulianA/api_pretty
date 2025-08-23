@@ -1,0 +1,22 @@
+{
+  "codigo": "PROMO001",
+  "descripcion": "Promoción de prueba - Fin de mes",
+  "fecha_inicio": "2024-01-15T00:00:00.000Z",
+  "fecha_fin": "2024-01-31T23:59:59.000Z",
+  "tipo": "OFERTA",
+  "observaciones": "Promoción especial de fin de mes para testing",
+  "articulos": [
+    {
+      "art_sec": "12345",
+      "precio_oferta": 12000,
+      "descuento_porcentaje": null,
+      "observaciones": "Precio especial de prueba"
+    },
+    {
+      "art_sec": "67890",
+      "precio_oferta": null,
+      "descuento_porcentaje": 15.5,
+      "observaciones": "15% de descuento de prueba"
+    }
+  ]
+} 

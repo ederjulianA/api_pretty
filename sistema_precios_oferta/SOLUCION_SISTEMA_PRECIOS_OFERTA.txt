@@ -1,0 +1,697 @@
+SOLUCIÓN SISTEMA DE PRECIOS EN OFERTA POR ARTÍCULO
+==================================================
+
+1. ANÁLISIS DE LA SITUACIÓN ACTUAL
+----------------------------------
+
+La tabla `articulosdetalle` ya cuenta con los campos necesarios para manejar ofertas:
+- `art_bod_fec_ini`: Fecha inicial de la oferta
+- `art_bod_fec_fin`: Fecha final de la oferta  
+- `art_promo`: Indicador de promoción (S/N)
+- `art_bod_pre_des`: Precio con descuento/oferta
+
+Estructura actual de la tabla:
+```sql
+CREATE TABLE [dbo].[articulosdetalle](
+    [art_sec] [varchar](30) NOT NULL,
+    [bod_sec] [varchar](16) NOT NULL,
+    [lis_pre_cod] [smallint] NOT NULL,
+    [art_bod_exi] [decimal](17, 2) NULL,
+    [art_bod_pre] [decimal](17, 2) NULL,
+    [art_bod_pre_des] [decimal](17, 2) NULL,  -- Precio en oferta
+    [art_bod_fec_ini] [datetime] NULL,        -- Fecha inicio oferta
+    [art_bod_fec_fin] [datetime] NULL,        -- Fecha fin oferta
+    [art_promo] [char](1) NULL,               -- Indicador promoción
+    [art_bod_cos_cat] [decimal](17, 2) NULL,
+    PRIMARY KEY CLUSTERED ([art_sec], [bod_sec], [lis_pre_cod])
+)
+```
+
+2. SOLUCIÓN PROPUESTA
+---------------------
+
+2.1. FUNCIÓN PARA CALCULAR PRECIO CON OFERTA
+--------------------------------------------
+
+Crear una función SQL que determine automáticamente si un artículo está en oferta y retorne el precio correspondiente:
+
+```sql
+CREATE FUNCTION dbo.fn_GetPrecioConOferta
+(
+    @art_sec VARCHAR(30),
+    @lis_pre_cod SMALLINT,
+    @fecha_consulta DATETIME = NULL
+)
+RETURNS DECIMAL(17, 2)
+AS
+BEGIN
+    DECLARE @precio_final DECIMAL(17, 2) = 0
+    DECLARE @fecha DATETIME = ISNULL(@fecha_consulta, GETDATE())
+    
+    SELECT @precio_final = 
+        CASE 
+            WHEN ad.art_promo = 'S' 
+                 AND ad.art_bod_fec_ini IS NOT NULL 
+                 AND ad.art_bod_fec_fin IS NOT NULL
+                 AND @fecha BETWEEN ad.art_bod_fec_ini AND ad.art_bod_fec_fin
+                 AND ad.art_bod_pre_des IS NOT NULL 
+                 AND ad.art_bod_pre_des > 0
+            THEN ad.art_bod_pre_des  -- Precio en oferta
+            ELSE ad.art_bod_pre      -- Precio normal
+        END
+    FROM dbo.articulosdetalle ad
+    WHERE ad.art_sec = @art_sec 
+      AND ad.lis_pre_cod = @lis_pre_cod
+      AND ad.bod_sec = '1'  -- Asumiendo bodega principal
+    
+    RETURN ISNULL(@precio_final, 0)
+END
+```
+
+2.2. VISTA PARA ARTÍCULOS CON PRECIOS ACTUALIZADOS
+--------------------------------------------------
+
+Crear una vista que incluya automáticamente los precios con oferta:
+
+```sql
+CREATE VIEW dbo.vwArticulosConPrecios
+AS
+SELECT
+    a.art_sec,
+    a.art_cod,
+    a.art_nom,
+    a.art_woo_id,
+    a.art_url_img_servi,
+    ig.inv_gru_cod,
+    ig.inv_gru_nom AS categoria,
+    isg.inv_sub_gru_cod,
+    isg.inv_sub_gru_nom AS sub_categoria,
+    -- Precio detal con oferta
+    dbo.fn_GetPrecioConOferta(a.art_sec, 1) AS precio_detal,
+    -- Precio mayor con oferta  
+    dbo.fn_GetPrecioConOferta(a.art_sec, 2) AS precio_mayor,
+    -- Indicadores de oferta
+    CASE 
+        WHEN ad1.art_promo = 'S' 
+             AND ad1.art_bod_fec_ini IS NOT NULL 
+             AND ad1.art_bod_fec_fin IS NOT NULL
+             AND GETDATE() BETWEEN ad1.art_bod_fec_ini AND ad1.art_bod_fec_fin
+        THEN 'S'
+        ELSE 'N'
+    END AS tiene_oferta_detal,
+    CASE 
+        WHEN ad2.art_promo = 'S' 
+             AND ad2.art_bod_fec_ini IS NOT NULL 
+             AND ad2.art_bod_fec_fin IS NOT NULL
+             AND GETDATE() BETWEEN ad2.art_bod_fec_ini AND ad2.art_bod_fec_fin
+        THEN 'S'
+        ELSE 'N'
+    END AS tiene_oferta_mayor,
+    -- Fechas de oferta
+    ad1.art_bod_fec_ini AS oferta_fecha_inicio_detal,
+    ad1.art_bod_fec_fin AS oferta_fecha_fin_detal,
+    ad2.art_bod_fec_ini AS oferta_fecha_inicio_mayor,
+    ad2.art_bod_fec_fin AS oferta_fecha_fin_mayor,
+    -- Precios originales
+    ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+    ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+    -- Precios de oferta
+    ISNULL(ad1.art_bod_pre_des, 0) AS precio_detal_oferta,
+    ISNULL(ad2.art_bod_pre_des, 0) AS precio_mayor_oferta,
+    -- Existencia
+    ISNULL(e.existencia, 0) AS existencia,
+    a.art_woo_sync_status,
+    a.art_woo_sync_message
+FROM dbo.articulos a
+    INNER JOIN dbo.inventario_subgrupo isg ON a.inv_sub_gru_cod = isg.inv_sub_gru_cod
+    INNER JOIN dbo.inventario_grupo ig ON isg.inv_gru_cod = ig.inv_gru_cod
+    LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+    LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+    LEFT JOIN dbo.vwExistencias e ON a.art_sec = e.art_sec
+```
+
+2.3. MODELO PARA GESTIÓN DE OFERTAS
+-----------------------------------
+
+Crear un nuevo modelo `ofertaModel.js`:
+
+```javascript
+// models/ofertaModel.js
+const { sql, poolPromise } = require('../db');
+
+// Crear oferta para un artículo
+const crearOferta = async (ofertaData) => {
+  const pool = await poolPromise;
+  const transaction = new sql.Transaction(pool);
+  
+  try {
+    await transaction.begin();
+    const request = new sql.Request(transaction);
+    
+    // Validar que el artículo existe
+    const articuloExists = await request
+      .input('art_sec', sql.VarChar(30), ofertaData.art_sec)
+      .query('SELECT COUNT(*) as count FROM dbo.articulos WHERE art_sec = @art_sec');
+    
+    if (articuloExists.recordset[0].count === 0) {
+      throw new Error('Artículo no encontrado');
+    }
+    
+    // Validar fechas
+    const fechaInicio = new Date(ofertaData.fecha_inicio);
+    const fechaFin = new Date(ofertaData.fecha_fin);
+    
+    if (fechaInicio >= fechaFin) {
+      throw new Error('La fecha de inicio debe ser menor a la fecha de fin');
+    }
+    
+    // Actualizar o insertar oferta para precio detal (lis_pre_cod = 1)
+    if (ofertaData.precio_detal_oferta) {
+      await request
+        .input('art_sec', sql.VarChar(30), ofertaData.art_sec)
+        .input('bod_sec', sql.VarChar(16), '1')
+        .input('lis_pre_cod', sql.SmallInt, 1)
+        .input('precio_oferta', sql.Decimal(17, 2), ofertaData.precio_detal_oferta)
+        .input('fecha_inicio', sql.DateTime, fechaInicio)
+        .input('fecha_fin', sql.DateTime, fechaFin)
+        .input('promo', sql.Char(1), 'S')
+        .query(`
+          MERGE dbo.articulosdetalle AS target
+          USING (SELECT @art_sec as art_sec, @bod_sec as bod_sec, @lis_pre_cod as lis_pre_cod) AS source
+          ON target.art_sec = source.art_sec 
+             AND target.bod_sec = source.bod_sec 
+             AND target.lis_pre_cod = source.lis_pre_cod
+          WHEN MATCHED THEN
+            UPDATE SET 
+              art_bod_pre_des = @precio_oferta,
+              art_bod_fec_ini = @fecha_inicio,
+              art_bod_fec_fin = @fecha_fin,
+              art_promo = @promo
+          WHEN NOT MATCHED THEN
+            INSERT (art_sec, bod_sec, lis_pre_cod, art_bod_pre_des, art_bod_fec_ini, art_bod_fec_fin, art_promo)
+            VALUES (@art_sec, @bod_sec, @lis_pre_cod, @precio_oferta, @fecha_inicio, @fecha_fin, @promo);
+        `);
+    }
+    
+    // Actualizar o insertar oferta para precio mayor (lis_pre_cod = 2)
+    if (ofertaData.precio_mayor_oferta) {
+      await request
+        .input('art_sec', sql.VarChar(30), ofertaData.art_sec)
+        .input('bod_sec', sql.VarChar(16), '1')
+        .input('lis_pre_cod', sql.SmallInt, 2)
+        .input('precio_oferta', sql.Decimal(17, 2), ofertaData.precio_mayor_oferta)
+        .input('fecha_inicio', sql.DateTime, fechaInicio)
+        .input('fecha_fin', sql.DateTime, fechaFin)
+        .input('promo', sql.Char(1), 'S')
+        .query(`
+          MERGE dbo.articulosdetalle AS target
+          USING (SELECT @art_sec as art_sec, @bod_sec as bod_sec, @lis_pre_cod as lis_pre_cod) AS source
+          ON target.art_sec = source.art_sec 
+             AND target.bod_sec = source.bod_sec 
+             AND target.lis_pre_cod = source.lis_pre_cod
+          WHEN MATCHED THEN
+            UPDATE SET 
+              art_bod_pre_des = @precio_oferta,
+              art_bod_fec_ini = @fecha_inicio,
+              art_bod_fec_fin = @fecha_fin,
+              art_promo = @promo
+          WHEN NOT MATCHED THEN
+            INSERT (art_sec, bod_sec, lis_pre_cod, art_bod_pre_des, art_bod_fec_ini, art_bod_fec_fin, art_promo)
+            VALUES (@art_sec, @bod_sec, @lis_pre_cod, @precio_oferta, @fecha_inicio, @fecha_fin, @promo);
+        `);
+    }
+    
+    await transaction.commit();
+    
+    return {
+      success: true,
+      message: 'Oferta creada exitosamente',
+      data: ofertaData
+    };
+    
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+};
+
+// Obtener ofertas activas
+const getOfertasActivas = async () => {
+  const pool = await poolPromise;
+  const result = await pool.request().query(`
+    SELECT 
+      a.art_sec,
+      a.art_cod,
+      a.art_nom,
+      ad.lis_pre_cod,
+      CASE ad.lis_pre_cod 
+        WHEN 1 THEN 'Detal'
+        WHEN 2 THEN 'Mayor'
+      END as tipo_precio,
+      ad.art_bod_pre as precio_original,
+      ad.art_bod_pre_des as precio_oferta,
+      ad.art_bod_fec_ini as fecha_inicio,
+      ad.art_bod_fec_fin as fecha_fin,
+      DATEDIFF(day, GETDATE(), ad.art_bod_fec_fin) as dias_restantes
+    FROM dbo.articulosdetalle ad
+    INNER JOIN dbo.articulos a ON ad.art_sec = a.art_sec
+    WHERE ad.art_promo = 'S'
+      AND ad.art_bod_fec_ini IS NOT NULL
+      AND ad.art_bod_fec_fin IS NOT NULL
+      AND GETDATE() BETWEEN ad.art_bod_fec_ini AND ad.art_bod_fec_fin
+      AND ad.bod_sec = '1'
+    ORDER BY ad.art_bod_fec_fin ASC
+  `);
+  
+  return result.recordset;
+};
+
+// Cancelar oferta
+const cancelarOferta = async (art_sec, lis_pre_cod) => {
+  const pool = await poolPromise;
+  const result = await pool.request()
+    .input('art_sec', sql.VarChar(30), art_sec)
+    .input('lis_pre_cod', sql.SmallInt, lis_pre_cod)
+    .input('bod_sec', sql.VarChar(16), '1')
+    .query(`
+      UPDATE dbo.articulosdetalle
+      SET art_promo = 'N',
+          art_bod_pre_des = NULL,
+          art_bod_fec_ini = NULL,
+          art_bod_fec_fin = NULL
+      WHERE art_sec = @art_sec 
+        AND lis_pre_cod = @lis_pre_cod
+        AND bod_sec = @bod_sec
+    `);
+    
+  return {
+    success: true,
+    message: 'Oferta cancelada exitosamente'
+  };
+};
+
+module.exports = {
+  crearOferta,
+  getOfertasActivas,
+  cancelarOferta
+};
+```
+
+2.4. CONTROLADOR PARA GESTIÓN DE OFERTAS
+----------------------------------------
+
+Crear un nuevo controlador `ofertaController.js`:
+
+```javascript
+// controllers/ofertaController.js
+const ofertaModel = require('../models/ofertaModel');
+
+// Crear nueva oferta
+const crearOferta = async (req, res) => {
+  try {
+    const {
+      art_sec,
+      precio_detal_oferta,
+      precio_mayor_oferta,
+      fecha_inicio,
+      fecha_fin
+    } = req.body;
+    
+    // Validaciones
+    if (!art_sec || !fecha_inicio || !fecha_fin) {
+      return res.status(400).json({
+        success: false,
+        error: 'art_sec, fecha_inicio y fecha_fin son requeridos'
+      });
+    }
+    
+    if (!precio_detal_oferta && !precio_mayor_oferta) {
+      return res.status(400).json({
+        success: false,
+        error: 'Debe especificar al menos un precio de oferta'
+      });
+    }
+    
+    const result = await ofertaModel.crearOferta({
+      art_sec,
+      precio_detal_oferta,
+      precio_mayor_oferta,
+      fecha_inicio,
+      fecha_fin
+    });
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('Error al crear oferta:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// Obtener ofertas activas
+const getOfertasActivas = async (req, res) => {
+  try {
+    const ofertas = await ofertaModel.getOfertasActivas();
+    res.json({
+      success: true,
+      ofertas
+    });
+  } catch (error) {
+    console.error('Error al obtener ofertas:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// Cancelar oferta
+const cancelarOferta = async (req, res) => {
+  try {
+    const { art_sec, lis_pre_cod } = req.params;
+    
+    if (!art_sec || !lis_pre_cod) {
+      return res.status(400).json({
+        success: false,
+        error: 'art_sec y lis_pre_cod son requeridos'
+      });
+    }
+    
+    const result = await ofertaModel.cancelarOferta(art_sec, parseInt(lis_pre_cod));
+    res.json(result);
+    
+  } catch (error) {
+    console.error('Error al cancelar oferta:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+module.exports = {
+  crearOferta,
+  getOfertasActivas,
+  cancelarOferta
+};
+```
+
+2.5. RUTAS PARA GESTIÓN DE OFERTAS
+----------------------------------
+
+Crear un nuevo archivo de rutas `ofertaRoutes.js`:
+
+```javascript
+// routes/ofertaRoutes.js
+const express = require('express');
+const router = express.Router();
+const ofertaController = require('../controllers/ofertaController');
+const authMiddleware = require('../middlewares/auth');
+
+// Rutas protegidas por autenticación
+router.use(authMiddleware);
+
+// Crear nueva oferta
+router.post('/crear', ofertaController.crearOferta);
+
+// Obtener ofertas activas
+router.get('/activas', ofertaController.getOfertasActivas);
+
+// Cancelar oferta
+router.delete('/cancelar/:art_sec/:lis_pre_cod', ofertaController.cancelarOferta);
+
+module.exports = router;
+```
+
+2.6. ACTUALIZACIÓN DEL MODELO DE ARTÍCULOS
+------------------------------------------
+
+Modificar `articulosModel.js` para usar la nueva función de precios con oferta:
+
+```javascript
+// En getArticulos, reemplazar la consulta actual por:
+const query = `
+  SELECT
+    a.art_sec,
+    a.art_cod,
+    a.art_woo_id,
+    a.art_nom,
+    a.art_url_img_servi,
+    ig.inv_gru_cod,
+    ig.inv_gru_nom AS categoria,
+    isg.inv_sub_gru_cod,
+    isg.inv_sub_gru_nom AS sub_categoria,
+    -- Usar función para precio con oferta
+    dbo.fn_GetPrecioConOferta(a.art_sec, 1) AS precio_detal,
+    dbo.fn_GetPrecioConOferta(a.art_sec, 2) AS precio_mayor,
+    -- Indicadores de oferta
+    CASE 
+      WHEN ad1.art_promo = 'S' 
+           AND ad1.art_bod_fec_ini IS NOT NULL 
+           AND ad1.art_bod_fec_fin IS NOT NULL
+           AND GETDATE() BETWEEN ad1.art_bod_fec_ini AND ad1.art_bod_fec_fin
+      THEN 'S'
+      ELSE 'N'
+    END AS tiene_oferta_detal,
+    CASE 
+      WHEN ad2.art_promo = 'S' 
+           AND ad2.art_bod_fec_ini IS NOT NULL 
+           AND ad2.art_bod_fec_fin IS NOT NULL
+           AND GETDATE() BETWEEN ad2.art_bod_fec_ini AND ad2.art_bod_fec_fin
+      THEN 'S'
+      ELSE 'N'
+    END AS tiene_oferta_mayor,
+    ISNULL(e.existencia, 0) AS existencia,
+    a.art_woo_sync_status,
+    a.art_woo_sync_message
+  FROM dbo.articulos a
+    INNER JOIN dbo.inventario_subgrupo isg ON a.inv_sub_gru_cod = isg.inv_sub_gru_cod
+    INNER JOIN dbo.inventario_grupo ig ON isg.inv_gru_cod = ig.inv_gru_cod
+    LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+    LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+    LEFT JOIN dbo.vwExistencias e ON a.art_sec = e.art_sec
+  WHERE 1 = 1
+    AND (@codigo IS NULL OR a.art_cod LIKE @codigo+'%')
+    AND (@nombre IS NULL OR a.art_nom LIKE '%' + @nombre + '%')
+    AND (@inv_gru_cod IS NULL OR ig.inv_gru_cod = @inv_gru_cod)
+    AND (@inv_sub_gru_cod IS NULL OR isg.inv_sub_gru_cod = @inv_sub_gru_cod)
+    AND (
+           @tieneExistencia IS NULL 
+           OR (@tieneExistencia = 1 AND ISNULL(e.existencia, 0) > 0)
+           OR (@tieneExistencia = 0 AND ISNULL(e.existencia, 0) = 0)
+        )
+  ORDER BY a.art_nom
+  OFFSET (@PageNumber - 1) * @PageSize ROWS
+  FETCH NEXT @PageSize ROWS ONLY
+  OPTION (RECOMPILE);
+`;
+```
+
+2.7. ACTUALIZACIÓN DE OTROS CONTROLADORES
+-----------------------------------------
+
+Actualizar todos los controladores que consulten precios para usar la nueva función:
+
+- `orderController.js`
+- `salesController.js`
+- `syncWooOrdersController.js`
+- `wooSyncController.js`
+
+3. IMPLEMENTACIÓN PASO A PASO
+-----------------------------
+
+3.1. PASO 1: Crear la función SQL
+```sql
+-- Ejecutar el script de la función fn_GetPrecioConOferta
+```
+
+3.2. PASO 2: Crear la vista
+```sql
+-- Ejecutar el script de la vista vwArticulosConPrecios
+```
+
+3.3. PASO 3: Crear archivos del modelo
+```bash
+# Crear ofertaModel.js
+# Crear ofertaController.js
+# Crear ofertaRoutes.js
+```
+
+3.4. PASO 4: Actualizar app.js
+```javascript
+// Agregar la nueva ruta
+const ofertaRoutes = require('./routes/ofertaRoutes');
+app.use('/api/ofertas', ofertaRoutes);
+```
+
+3.5. PASO 5: Actualizar modelos existentes
+```javascript
+// Actualizar articulosModel.js
+// Actualizar otros modelos que consulten precios
+```
+
+3.6. PASO 6: Actualizar WooCommerce
+```javascript
+// Modificar la sincronización para incluir precios de oferta
+// Actualizar el precio en WooCommerce cuando hay oferta activa
+```
+
+4. ENDPOINTS DE LA API
+---------------------
+
+4.1. CREAR OFERTA
+```
+POST /api/ofertas/crear
+{
+  "art_sec": "12345",
+  "precio_detal_oferta": 15000,
+  "precio_mayor_oferta": 12000,
+  "fecha_inicio": "2024-01-15T00:00:00.000Z",
+  "fecha_fin": "2024-01-31T23:59:59.000Z"
+}
+```
+
+4.2. OBTENER OFERTAS ACTIVAS
+```
+GET /api/ofertas/activas
+```
+
+4.3. CANCELAR OFERTA
+```
+DELETE /api/ofertas/cancelar/12345/1
+```
+
+5. BENEFICIOS DE LA SOLUCIÓN
+---------------------------
+
+5.1. AUTOMATIZACIÓN
+- Los precios se calculan automáticamente según las fechas de oferta
+- No requiere intervención manual para activar/desactivar ofertas
+
+5.2. FLEXIBILIDAD
+- Permite ofertas independientes para precio detal y mayor
+- Fechas personalizables por oferta
+- Fácil gestión y cancelación de ofertas
+
+5.3. INTEGRACIÓN
+- Se integra con el sistema existente sin cambios mayores
+- Compatible con WooCommerce
+- Mantiene la estructura actual de la base de datos
+
+5.4. ESCALABILIDAD
+- Fácil agregar nuevas funcionalidades (descuentos por cantidad, etc.)
+- Preparado para futuras expansiones
+
+6. CONSIDERACIONES ADICIONALES
+-----------------------------
+
+6.1. PERFORMANCE
+- La función SQL está optimizada con índices existentes
+- Se recomienda monitorear el rendimiento en consultas masivas
+
+6.2. SEGURIDAD
+- Todas las rutas están protegidas por autenticación
+- Validaciones de datos en frontend y backend
+
+6.3. MANTENIMIENTO
+- Crear job para limpiar ofertas expiradas
+- Logs de auditoría para cambios en ofertas
+
+6.4. TESTING
+- Crear tests unitarios para la función de cálculo de precios
+- Tests de integración para los endpoints
+- Validar comportamiento con fechas límite
+
+7. SCRIPT DE IMPLEMENTACIÓN
+---------------------------
+
+```sql
+-- Script completo de implementación
+-- 1. Crear función
+CREATE FUNCTION dbo.fn_GetPrecioConOferta
+(
+    @art_sec VARCHAR(30),
+    @lis_pre_cod SMALLINT,
+    @fecha_consulta DATETIME = NULL
+)
+RETURNS DECIMAL(17, 2)
+AS
+BEGIN
+    DECLARE @precio_final DECIMAL(17, 2) = 0
+    DECLARE @fecha DATETIME = ISNULL(@fecha_consulta, GETDATE())
+    
+    SELECT @precio_final = 
+        CASE 
+            WHEN ad.art_promo = 'S' 
+                 AND ad.art_bod_fec_ini IS NOT NULL 
+                 AND ad.art_bod_fec_fin IS NOT NULL
+                 AND @fecha BETWEEN ad.art_bod_fec_ini AND ad.art_bod_fec_fin
+                 AND ad.art_bod_pre_des IS NOT NULL 
+                 AND ad.art_bod_pre_des > 0
+            THEN ad.art_bod_pre_des
+            ELSE ad.art_bod_pre
+        END
+    FROM dbo.articulosdetalle ad
+    WHERE ad.art_sec = @art_sec 
+      AND ad.lis_pre_cod = @lis_pre_cod
+      AND ad.bod_sec = '1'
+    
+    RETURN ISNULL(@precio_final, 0)
+END
+GO
+
+-- 2. Crear vista
+CREATE VIEW dbo.vwArticulosConPrecios
+AS
+SELECT
+    a.art_sec,
+    a.art_cod,
+    a.art_nom,
+    a.art_woo_id,
+    a.art_url_img_servi,
+    ig.inv_gru_cod,
+    ig.inv_gru_nom AS categoria,
+    isg.inv_sub_gru_cod,
+    isg.inv_sub_gru_nom AS sub_categoria,
+    dbo.fn_GetPrecioConOferta(a.art_sec, 1) AS precio_detal,
+    dbo.fn_GetPrecioConOferta(a.art_sec, 2) AS precio_mayor,
+    CASE 
+        WHEN ad1.art_promo = 'S' 
+             AND ad1.art_bod_fec_ini IS NOT NULL 
+             AND ad1.art_bod_fec_fin IS NOT NULL
+             AND GETDATE() BETWEEN ad1.art_bod_fec_ini AND ad1.art_bod_fec_fin
+        THEN 'S'
+        ELSE 'N'
+    END AS tiene_oferta_detal,
+    CASE 
+        WHEN ad2.art_promo = 'S' 
+             AND ad2.art_bod_fec_ini IS NOT NULL 
+             AND ad2.art_bod_fec_fin IS NOT NULL
+             AND GETDATE() BETWEEN ad2.art_bod_fec_ini AND ad2.art_bod_fec_fin
+        THEN 'S'
+        ELSE 'N'
+    END AS tiene_oferta_mayor,
+    ad1.art_bod_fec_ini AS oferta_fecha_inicio_detal,
+    ad1.art_bod_fec_fin AS oferta_fecha_fin_detal,
+    ad2.art_bod_fec_ini AS oferta_fecha_inicio_mayor,
+    ad2.art_bod_fec_fin AS oferta_fecha_fin_mayor,
+    ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+    ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+    ISNULL(ad1.art_bod_pre_des, 0) AS precio_detal_oferta,
+    ISNULL(ad2.art_bod_pre_des, 0) AS precio_mayor_oferta,
+    ISNULL(e.existencia, 0) AS existencia,
+    a.art_woo_sync_status,
+    a.art_woo_sync_message
+FROM dbo.articulos a
+    INNER JOIN dbo.inventario_subgrupo isg ON a.inv_sub_gru_cod = isg.inv_sub_gru_cod
+    INNER JOIN dbo.inventario_grupo ig ON isg.inv_gru_cod = ig.inv_gru_cod
+    LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+    LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+    LEFT JOIN dbo.vwExistencias e ON a.art_sec = e.art_sec
+GO
+```
+
+Esta solución proporciona un sistema completo y robusto para manejar precios en oferta, aprovechando la estructura existente de la base de datos y manteniendo la compatibilidad con el sistema actual. 

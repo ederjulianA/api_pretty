@@ -1,0 +1,729 @@
+SOLUCIÓN SISTEMA DE PRECIOS EN OFERTA - VERSIÓN 2
+=================================================
+
+ANÁLISIS DEL REQUERIMIENTO
+--------------------------
+
+El requerimiento especifica que:
+- Se debe implementar un sistema de precio en oferta por artículo
+- El precio en oferta debe ser inferior tanto al precio detal como al mayor
+- Se debe poder parametrizar el precio en oferta y el período (fecha inicial, fecha final)
+- Este precio se debe tener en cuenta en todas las consultas donde se calcule el precio del artículo
+
+PROBLEMA CON LA ESTRUCTURA ACTUAL
+---------------------------------
+
+La tabla `articulosdetalle` actual NO puede manejar esta restricción porque:
+1. Cada registro maneja un solo tipo de precio (detal o mayor)
+2. No hay relación entre los precios de detal y mayor
+3. No se puede validar que el precio de oferta sea menor que ambos precios normales
+
+SOLUCIÓN PROPUESTA: NUEVA ESTRUCTURA
+-----------------------------------
+
+1. CREAR TABLA ESPECÍFICA PARA OFERTAS
+--------------------------------------
+
+```sql
+-- Crear tabla para ofertas de artículos
+CREATE TABLE [dbo].[articulos_ofertas](
+    [ofe_sec] [decimal](18, 0) IDENTITY(1,1) NOT NULL,
+    [art_sec] [varchar](30) NOT NULL,
+    [ofe_precio] [decimal](17, 2) NOT NULL,           -- Precio único en oferta
+    [ofe_fecha_inicio] [datetime] NOT NULL,
+    [ofe_fecha_fin] [datetime] NOT NULL,
+    [ofe_activa] [char](1) DEFAULT 'S',               -- S/N
+    [ofe_observaciones] [varchar](500) NULL,
+    [ofe_fecha_creacion] [datetime] DEFAULT GETDATE(),
+    [ofe_usuario_creacion] [varchar](50) NULL,
+    [ofe_fecha_modificacion] [datetime] NULL,
+    [ofe_usuario_modificacion] [varchar](50) NULL,
+    PRIMARY KEY CLUSTERED ([ofe_sec] ASC)
+);
+
+-- Índices para optimización
+CREATE NONCLUSTERED INDEX IDX_ArticulosOfertas_ArtSec
+ON dbo.articulos_ofertas (art_sec);
+
+CREATE NONCLUSTERED INDEX IDX_ArticulosOfertas_Fechas
+ON dbo.articulos_ofertas (ofe_fecha_inicio, ofe_fecha_fin, ofe_activa);
+
+-- Índice único para evitar ofertas duplicadas por artículo
+CREATE UNIQUE NONCLUSTERED INDEX IDX_ArticulosOfertas_ArtSec_Unico
+ON dbo.articulos_ofertas (art_sec) WHERE ofe_activa = 'S';
+
+-- Foreign key a la tabla articulos
+ALTER TABLE [dbo].[articulos_ofertas] 
+ADD CONSTRAINT [FK_ArticulosOfertas_Articulos] 
+FOREIGN KEY([art_sec]) REFERENCES [dbo].[articulos] ([art_sec]);
+```
+
+2. FUNCIÓN PARA CALCULAR PRECIO CON OFERTA
+------------------------------------------
+
+```sql
+CREATE FUNCTION dbo.fn_GetPrecioConOferta
+(
+    @art_sec VARCHAR(30),
+    @lis_pre_cod SMALLINT,
+    @fecha_consulta DATETIME = NULL
+)
+RETURNS DECIMAL(17, 2)
+AS
+BEGIN
+    DECLARE @precio_final DECIMAL(17, 2) = 0
+    DECLARE @fecha DATETIME = ISNULL(@fecha_consulta, GETDATE())
+    DECLARE @precio_oferta DECIMAL(17, 2) = NULL
+    
+    -- Obtener precio de oferta activa
+    SELECT @precio_oferta = ofe_precio
+    FROM dbo.articulos_ofertas
+    WHERE art_sec = @art_sec 
+      AND ofe_activa = 'S'
+      AND @fecha BETWEEN ofe_fecha_inicio AND ofe_fecha_fin
+    
+    -- Si hay oferta activa, usar precio de oferta
+    IF @precio_oferta IS NOT NULL AND @precio_oferta > 0
+    BEGIN
+        SET @precio_final = @precio_oferta
+    END
+    ELSE
+    BEGIN
+        -- Usar precio normal según el tipo
+        SELECT @precio_final = ISNULL(art_bod_pre, 0)
+        FROM dbo.articulosdetalle
+        WHERE art_sec = @art_sec 
+          AND lis_pre_cod = @lis_pre_cod
+          AND bod_sec = '1'
+    END
+    
+    RETURN @precio_final
+END
+```
+
+3. FUNCIÓN PARA VALIDAR PRECIO DE OFERTA
+----------------------------------------
+
+```sql
+CREATE FUNCTION dbo.fn_ValidarPrecioOferta
+(
+    @art_sec VARCHAR(30),
+    @precio_oferta DECIMAL(17, 2)
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT 
+        CASE 
+            WHEN @precio_oferta <= 0 THEN 'El precio de oferta debe ser mayor a 0'
+            WHEN @precio_oferta >= precio_detal THEN 'El precio de oferta debe ser menor al precio detal'
+            WHEN @precio_oferta >= precio_mayor THEN 'El precio de oferta debe ser menor al precio mayor'
+            ELSE 'OK'
+        END AS validacion,
+        precio_detal,
+        precio_mayor
+    FROM (
+        SELECT 
+            ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
+            ISNULL(ad2.art_bod_pre, 0) AS precio_mayor
+        FROM dbo.articulos a
+        LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+        LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+        WHERE a.art_sec = @art_sec
+    ) AS precios
+)
+```
+
+4. MODELO PARA GESTIÓN DE OFERTAS
+---------------------------------
+
+```javascript
+// models/ofertaModel.js
+const { sql, poolPromise } = require('../db');
+
+// Crear oferta para un artículo
+const crearOferta = async (ofertaData) => {
+  const pool = await poolPromise;
+  const transaction = new sql.Transaction(pool);
+  
+  try {
+    await transaction.begin();
+    const request = new sql.Request(transaction);
+    
+    // Validar que el artículo existe
+    const articuloExists = await request
+      .input('art_sec', sql.VarChar(30), ofertaData.art_sec)
+      .query('SELECT COUNT(*) as count FROM dbo.articulos WHERE art_sec = @art_sec');
+    
+    if (articuloExists.recordset[0].count === 0) {
+      throw new Error('Artículo no encontrado');
+    }
+    
+    // Validar fechas
+    const fechaInicio = new Date(ofertaData.fecha_inicio);
+    const fechaFin = new Date(ofertaData.fecha_fin);
+    
+    if (fechaInicio >= fechaFin) {
+      throw new Error('La fecha de inicio debe ser menor a la fecha de fin');
+    }
+    
+    // Validar precio de oferta
+    const validacionResult = await request
+      .input('art_sec', sql.VarChar(30), ofertaData.art_sec)
+      .input('precio_oferta', sql.Decimal(17, 2), ofertaData.precio_oferta)
+      .query(`
+        SELECT validacion, precio_detal, precio_mayor
+        FROM dbo.fn_ValidarPrecioOferta(@art_sec, @precio_oferta)
+      `);
+    
+    if (validacionResult.recordset[0].validacion !== 'OK') {
+      throw new Error(validacionResult.recordset[0].validacion);
+    }
+    
+    // Desactivar oferta anterior si existe
+    await request
+      .input('art_sec', sql.VarChar(30), ofertaData.art_sec)
+      .query(`
+        UPDATE dbo.articulos_ofertas
+        SET ofe_activa = 'N',
+            ofe_fecha_modificacion = GETDATE(),
+            ofe_usuario_modificacion = @usuario
+        WHERE art_sec = @art_sec AND ofe_activa = 'S'
+      `);
+    
+    // Crear nueva oferta
+    await request
+      .input('art_sec', sql.VarChar(30), ofertaData.art_sec)
+      .input('precio_oferta', sql.Decimal(17, 2), ofertaData.precio_oferta)
+      .input('fecha_inicio', sql.DateTime, fechaInicio)
+      .input('fecha_fin', sql.DateTime, fechaFin)
+      .input('observaciones', sql.VarChar(500), ofertaData.observaciones || null)
+      .input('usuario', sql.VarChar(50), ofertaData.usuario || 'SISTEMA')
+      .query(`
+        INSERT INTO dbo.articulos_ofertas 
+        (art_sec, ofe_precio, ofe_fecha_inicio, ofe_fecha_fin, ofe_observaciones, ofe_usuario_creacion)
+        VALUES (@art_sec, @precio_oferta, @fecha_inicio, @fecha_fin, @observaciones, @usuario)
+      `);
+    
+    await transaction.commit();
+    
+    return {
+      success: true,
+      message: 'Oferta creada exitosamente',
+      data: {
+        art_sec: ofertaData.art_sec,
+        precio_oferta: ofertaData.precio_oferta,
+        fecha_inicio: fechaInicio,
+        fecha_fin: fechaFin,
+        validacion: validacionResult.recordset[0]
+      }
+    };
+    
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+};
+
+// Obtener ofertas activas
+const getOfertasActivas = async () => {
+  const pool = await poolPromise;
+  const result = await pool.request().query(`
+    SELECT 
+      ao.ofe_sec,
+      ao.art_sec,
+      a.art_cod,
+      a.art_nom,
+      ao.ofe_precio as precio_oferta,
+      ao.ofe_fecha_inicio,
+      ao.ofe_fecha_fin,
+      DATEDIFF(day, GETDATE(), ao.ofe_fecha_fin) as dias_restantes,
+      ao.ofe_observaciones,
+      -- Precios originales para comparación
+      ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+      ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+      -- Porcentajes de descuento
+      CASE 
+        WHEN ISNULL(ad1.art_bod_pre, 0) > 0 
+        THEN ROUND(((ad1.art_bod_pre - ao.ofe_precio) / ad1.art_bod_pre) * 100, 2)
+        ELSE 0 
+      END AS descuento_detal,
+      CASE 
+        WHEN ISNULL(ad2.art_bod_pre, 0) > 0 
+        THEN ROUND(((ad2.art_bod_pre - ao.ofe_precio) / ad2.art_bod_pre) * 100, 2)
+        ELSE 0 
+      END AS descuento_mayor
+    FROM dbo.articulos_ofertas ao
+    INNER JOIN dbo.articulos a ON ao.art_sec = a.art_sec
+    LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+    LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+    WHERE ao.ofe_activa = 'S'
+      AND ao.ofe_fecha_inicio IS NOT NULL
+      AND ao.ofe_fecha_fin IS NOT NULL
+      AND GETDATE() BETWEEN ao.ofe_fecha_inicio AND ao.ofe_fecha_fin
+    ORDER BY ao.ofe_fecha_fin ASC
+  `);
+  
+  return result.recordset;
+};
+
+// Cancelar oferta
+const cancelarOferta = async (art_sec, usuario = 'SISTEMA') => {
+  const pool = await poolPromise;
+  const result = await pool.request()
+    .input('art_sec', sql.VarChar(30), art_sec)
+    .input('usuario', sql.VarChar(50), usuario)
+    .query(`
+      UPDATE dbo.articulos_ofertas
+      SET ofe_activa = 'N',
+          ofe_fecha_modificacion = GETDATE(),
+          ofe_usuario_modificacion = @usuario
+      WHERE art_sec = @art_sec AND ofe_activa = 'S'
+    `);
+    
+  return {
+    success: true,
+    message: 'Oferta cancelada exitosamente',
+    registros_afectados: result.rowsAffected[0]
+  };
+};
+
+// Obtener oferta por artículo
+const getOfertaPorArticulo = async (art_sec) => {
+  const pool = await poolPromise;
+  const result = await pool.request()
+    .input('art_sec', sql.VarChar(30), art_sec)
+    .query(`
+      SELECT 
+        ao.*,
+        a.art_cod,
+        a.art_nom,
+        ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+        ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original
+      FROM dbo.articulos_ofertas ao
+      INNER JOIN dbo.articulos a ON ao.art_sec = a.art_sec
+      LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+      LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+      WHERE ao.art_sec = @art_sec AND ao.ofe_activa = 'S'
+    `);
+  
+  return result.recordset.length > 0 ? result.recordset[0] : null;
+};
+
+module.exports = {
+  crearOferta,
+  getOfertasActivas,
+  cancelarOferta,
+  getOfertaPorArticulo
+};
+```
+
+5. CONTROLADOR PARA GESTIÓN DE OFERTAS
+--------------------------------------
+
+```javascript
+// controllers/ofertaController.js
+const ofertaModel = require('../models/ofertaModel');
+
+// Crear nueva oferta
+const crearOferta = async (req, res) => {
+  try {
+    const {
+      art_sec,
+      precio_oferta,
+      fecha_inicio,
+      fecha_fin,
+      observaciones
+    } = req.body;
+    
+    // Validaciones básicas
+    if (!art_sec || !precio_oferta || !fecha_inicio || !fecha_fin) {
+      return res.status(400).json({
+        success: false,
+        error: 'art_sec, precio_oferta, fecha_inicio y fecha_fin son requeridos'
+      });
+    }
+    
+    if (precio_oferta <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'El precio de oferta debe ser mayor a 0'
+      });
+    }
+    
+    const result = await ofertaModel.crearOferta({
+      art_sec,
+      precio_oferta,
+      fecha_inicio,
+      fecha_fin,
+      observaciones,
+      usuario: req.user?.username || 'SISTEMA'
+    });
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('Error al crear oferta:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// Obtener ofertas activas
+const getOfertasActivas = async (req, res) => {
+  try {
+    const ofertas = await ofertaModel.getOfertasActivas();
+    res.json({
+      success: true,
+      ofertas,
+      total: ofertas.length
+    });
+  } catch (error) {
+    console.error('Error al obtener ofertas:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// Cancelar oferta
+const cancelarOferta = async (req, res) => {
+  try {
+    const { art_sec } = req.params;
+    
+    if (!art_sec) {
+      return res.status(400).json({
+        success: false,
+        error: 'art_sec es requerido'
+      });
+    }
+    
+    const result = await ofertaModel.cancelarOferta(art_sec, req.user?.username || 'SISTEMA');
+    res.json(result);
+    
+  } catch (error) {
+    console.error('Error al cancelar oferta:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// Obtener oferta por artículo
+const getOfertaPorArticulo = async (req, res) => {
+  try {
+    const { art_sec } = req.params;
+    
+    if (!art_sec) {
+      return res.status(400).json({
+        success: false,
+        error: 'art_sec es requerido'
+      });
+    }
+    
+    const oferta = await ofertaModel.getOfertaPorArticulo(art_sec);
+    
+    if (!oferta) {
+      return res.status(404).json({
+        success: false,
+        error: 'No se encontró oferta activa para este artículo'
+      });
+    }
+    
+    res.json({
+      success: true,
+      oferta
+    });
+    
+  } catch (error) {
+    console.error('Error al obtener oferta:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+module.exports = {
+  crearOferta,
+  getOfertasActivas,
+  cancelarOferta,
+  getOfertaPorArticulo
+};
+```
+
+6. RUTAS PARA GESTIÓN DE OFERTAS
+--------------------------------
+
+```javascript
+// routes/ofertaRoutes.js
+const express = require('express');
+const router = express.Router();
+const ofertaController = require('../controllers/ofertaController');
+const authMiddleware = require('../middlewares/auth');
+
+// Rutas protegidas por autenticación
+router.use(authMiddleware);
+
+// Crear nueva oferta
+router.post('/crear', ofertaController.crearOferta);
+
+// Obtener ofertas activas
+router.get('/activas', ofertaController.getOfertasActivas);
+
+// Obtener oferta por artículo
+router.get('/articulo/:art_sec', ofertaController.getOfertaPorArticulo);
+
+// Cancelar oferta
+router.delete('/cancelar/:art_sec', ofertaController.cancelarOferta);
+
+module.exports = router;
+```
+
+7. ACTUALIZACIÓN DEL MODELO DE ARTÍCULOS
+----------------------------------------
+
+```javascript
+// En articulosModel.js, actualizar getArticulos:
+const getArticulos = async ({ codigo, nombre, inv_gru_cod, inv_sub_gru_cod, tieneExistencia, PageNumber, PageSize }) => {
+  try {
+    const pool = await poolPromise;
+
+    const query = `
+      SELECT
+        a.art_sec,
+        a.art_cod,
+        a.art_woo_id,
+        a.art_nom,
+        a.art_url_img_servi,
+        ig.inv_gru_cod,
+        ig.inv_gru_nom AS categoria,
+        isg.inv_sub_gru_cod,
+        isg.inv_sub_gru_nom AS sub_categoria,
+        -- Usar función para precio con oferta
+        dbo.fn_GetPrecioConOferta(a.art_sec, 1) AS precio_detal,
+        dbo.fn_GetPrecioConOferta(a.art_sec, 2) AS precio_mayor,
+        -- Indicador de oferta
+        CASE 
+          WHEN ao.ofe_sec IS NOT NULL 
+               AND ao.ofe_activa = 'S'
+               AND GETDATE() BETWEEN ao.ofe_fecha_inicio AND ao.ofe_fecha_fin
+          THEN 'S'
+          ELSE 'N'
+        END AS tiene_oferta,
+        -- Información de oferta
+        ao.ofe_precio AS precio_oferta,
+        ao.ofe_fecha_inicio AS oferta_fecha_inicio,
+        ao.ofe_fecha_fin AS oferta_fecha_fin,
+        -- Precios originales
+        ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+        ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+        -- Porcentajes de descuento
+        CASE 
+          WHEN ISNULL(ad1.art_bod_pre, 0) > 0 AND ao.ofe_precio IS NOT NULL
+          THEN ROUND(((ad1.art_bod_pre - ao.ofe_precio) / ad1.art_bod_pre) * 100, 2)
+          ELSE 0 
+        END AS descuento_detal,
+        CASE 
+          WHEN ISNULL(ad2.art_bod_pre, 0) > 0 AND ao.ofe_precio IS NOT NULL
+          THEN ROUND(((ad2.art_bod_pre - ao.ofe_precio) / ad2.art_bod_pre) * 100, 2)
+          ELSE 0 
+        END AS descuento_mayor,
+        ISNULL(e.existencia, 0) AS existencia,
+        a.art_woo_sync_status,
+        a.art_woo_sync_message
+      FROM dbo.articulos a
+        INNER JOIN dbo.inventario_subgrupo isg ON a.inv_sub_gru_cod = isg.inv_sub_gru_cod
+        INNER JOIN dbo.inventario_grupo ig ON isg.inv_gru_cod = ig.inv_gru_cod
+        LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+        LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+        LEFT JOIN dbo.articulos_ofertas ao ON a.art_sec = ao.art_sec AND ao.ofe_activa = 'S'
+        LEFT JOIN dbo.vwExistencias e ON a.art_sec = e.art_sec
+      WHERE 1 = 1
+        AND (@codigo IS NULL OR a.art_cod LIKE @codigo+'%')
+        AND (@nombre IS NULL OR a.art_nom LIKE '%' + @nombre + '%')
+        AND (@inv_gru_cod IS NULL OR ig.inv_gru_cod = @inv_gru_cod)
+        AND (@inv_sub_gru_cod IS NULL OR isg.inv_sub_gru_cod = @inv_sub_gru_cod)
+        AND (
+               @tieneExistencia IS NULL 
+               OR (@tieneExistencia = 1 AND ISNULL(e.existencia, 0) > 0)
+               OR (@tieneExistencia = 0 AND ISNULL(e.existencia, 0) = 0)
+            )
+      ORDER BY a.art_nom
+      OFFSET (@PageNumber - 1) * @PageSize ROWS
+      FETCH NEXT @PageSize ROWS ONLY
+      OPTION (RECOMPILE);
+    `;
+
+    // ... resto del código igual
+  } catch (error) {
+    throw error;
+  }
+};
+```
+
+8. ENDPOINTS DE LA API
+----------------------
+
+8.1. CREAR OFERTA
+```
+POST /api/ofertas/crear
+{
+  "art_sec": "12345",
+  "precio_oferta": 12000,
+  "fecha_inicio": "2024-01-15T00:00:00.000Z",
+  "fecha_fin": "2024-01-31T23:59:59.000Z",
+  "observaciones": "Oferta especial de fin de mes"
+}
+```
+
+8.2. OBTENER OFERTAS ACTIVAS
+```
+GET /api/ofertas/activas
+```
+
+8.3. OBTENER OFERTA POR ARTÍCULO
+```
+GET /api/ofertas/articulo/12345
+```
+
+8.4. CANCELAR OFERTA
+```
+DELETE /api/ofertas/cancelar/12345
+```
+
+9. BENEFICIOS DE ESTA SOLUCIÓN
+------------------------------
+
+9.1. VALIDACIÓN AUTOMÁTICA
+- ✅ El precio de oferta debe ser menor que ambos precios normales
+- ✅ Validación en tiempo real al crear ofertas
+- ✅ Prevención de errores de configuración
+
+9.2. SIMPLICIDAD
+- ✅ Un solo precio de oferta por artículo
+- ✅ Aplica automáticamente para ambos tipos de precio
+- ✅ Fácil de entender y mantener
+
+9.3. FLEXIBILIDAD
+- ✅ Fechas personalizables
+- ✅ Observaciones y auditoría
+- ✅ Fácil extensión para nuevas funcionalidades
+
+9.4. INTEGRACIÓN
+- ✅ No afecta la estructura existente
+- ✅ Compatible con WooCommerce
+- ✅ Funciona con todos los controladores existentes
+
+10. SCRIPT DE IMPLEMENTACIÓN COMPLETO
+------------------------------------
+
+```sql
+-- 1. Crear tabla de ofertas
+CREATE TABLE [dbo].[articulos_ofertas](
+    [ofe_sec] [decimal](18, 0) IDENTITY(1,1) NOT NULL,
+    [art_sec] [varchar](30) NOT NULL,
+    [ofe_precio] [decimal](17, 2) NOT NULL,
+    [ofe_fecha_inicio] [datetime] NOT NULL,
+    [ofe_fecha_fin] [datetime] NOT NULL,
+    [ofe_activa] [char](1) DEFAULT 'S',
+    [ofe_observaciones] [varchar](500) NULL,
+    [ofe_fecha_creacion] [datetime] DEFAULT GETDATE(),
+    [ofe_usuario_creacion] [varchar](50) NULL,
+    [ofe_fecha_modificacion] [datetime] NULL,
+    [ofe_usuario_modificacion] [varchar](50) NULL,
+    PRIMARY KEY CLUSTERED ([ofe_sec] ASC)
+);
+
+-- 2. Crear índices
+CREATE NONCLUSTERED INDEX IDX_ArticulosOfertas_ArtSec
+ON dbo.articulos_ofertas (art_sec);
+
+CREATE NONCLUSTERED INDEX IDX_ArticulosOfertas_Fechas
+ON dbo.articulos_ofertas (ofe_fecha_inicio, ofe_fecha_fin, ofe_activa);
+
+CREATE UNIQUE NONCLUSTERED INDEX IDX_ArticulosOfertas_ArtSec_Unico
+ON dbo.articulos_ofertas (art_sec) WHERE ofe_activa = 'S';
+
+-- 3. Crear foreign key
+ALTER TABLE [dbo].[articulos_ofertas] 
+ADD CONSTRAINT [FK_ArticulosOfertas_Articulos] 
+FOREIGN KEY([art_sec]) REFERENCES [dbo].[articulos] ([art_sec]);
+
+-- 4. Crear función de validación
+CREATE FUNCTION dbo.fn_ValidarPrecioOferta
+(
+    @art_sec VARCHAR(30),
+    @precio_oferta DECIMAL(17, 2)
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT 
+        CASE 
+            WHEN @precio_oferta <= 0 THEN 'El precio de oferta debe ser mayor a 0'
+            WHEN @precio_oferta >= precio_detal THEN 'El precio de oferta debe ser menor al precio detal'
+            WHEN @precio_oferta >= precio_mayor THEN 'El precio de oferta debe ser menor al precio mayor'
+            ELSE 'OK'
+        END AS validacion,
+        precio_detal,
+        precio_mayor
+    FROM (
+        SELECT 
+            ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
+            ISNULL(ad2.art_bod_pre, 0) AS precio_mayor
+        FROM dbo.articulos a
+        LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+        LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+        WHERE a.art_sec = @art_sec
+    ) AS precios
+);
+
+-- 5. Crear función de precio con oferta
+CREATE FUNCTION dbo.fn_GetPrecioConOferta
+(
+    @art_sec VARCHAR(30),
+    @lis_pre_cod SMALLINT,
+    @fecha_consulta DATETIME = NULL
+)
+RETURNS DECIMAL(17, 2)
+AS
+BEGIN
+    DECLARE @precio_final DECIMAL(17, 2) = 0
+    DECLARE @fecha DATETIME = ISNULL(@fecha_consulta, GETDATE())
+    DECLARE @precio_oferta DECIMAL(17, 2) = NULL
+    
+    -- Obtener precio de oferta activa
+    SELECT @precio_oferta = ofe_precio
+    FROM dbo.articulos_ofertas
+    WHERE art_sec = @art_sec 
+      AND ofe_activa = 'S'
+      AND @fecha BETWEEN ofe_fecha_inicio AND ofe_fecha_fin
+    
+    -- Si hay oferta activa, usar precio de oferta
+    IF @precio_oferta IS NOT NULL AND @precio_oferta > 0
+    BEGIN
+        SET @precio_final = @precio_oferta
+    END
+    ELSE
+    BEGIN
+        -- Usar precio normal según el tipo
+        SELECT @precio_final = ISNULL(art_bod_pre, 0)
+        FROM dbo.articulosdetalle
+        WHERE art_sec = @art_sec 
+          AND lis_pre_cod = @lis_pre_cod
+          AND bod_sec = '1'
+    END
+    
+    RETURN @precio_final
+END
+GO
+```
+
+Esta solución proporciona un sistema robusto y validado para manejar precios en oferta, garantizando que el precio de oferta sea siempre inferior tanto al precio detal como al mayor, tal como se requiere. 

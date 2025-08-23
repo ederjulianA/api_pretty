@@ -44,6 +44,17 @@ const validateArticulo = async ({ art_cod, art_woo_id }) => {
   }
 };
 const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null) => {
+  console.log(`[UPDATE_WOO_PRODUCT] Iniciando actualización en WooCommerce`, {
+    art_woo_id,
+    art_cod,
+    art_nom,
+    precio_detal,
+    precio_mayor,
+    actualiza_fecha,
+    fac_fec,
+    timestamp: new Date().toISOString()
+  });
+  
   try {
     const api = new WooCommerceRestApi({
       url: process.env.WC_URL,
@@ -119,6 +130,8 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
         );
       `);
 
+    console.log(`[UPDATE_WOO_PRODUCT] Actualización completada exitosamente en WooCommerce para ${art_cod}`);
+    
     return {
       success: true,
       status: response.status,
@@ -193,6 +206,7 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
       console.error('Error guardando log de error:', logError);
     }
 
+    console.error(`[UPDATE_WOO_PRODUCT] Error al actualizar producto en WooCommerce para ${art_cod}:`, error.message);
     throw new Error(`Error al actualizar producto en WooCommerce: ${error.message}`);
   }
 };
@@ -213,8 +227,38 @@ WITH ArticulosBase AS (
         ig.inv_gru_nom AS categoria,
         isg.inv_sub_gru_cod,
         isg.inv_sub_gru_nom AS sub_categoria,
-        ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
-        ISNULL(ad2.art_bod_pre, 0) AS precio_mayor,
+        -- Precios originales
+        ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+        ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+        -- Precios con oferta aplicada (usando la promoción más prioritaria)
+        CASE 
+            WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0 
+            THEN oferta_prioritaria.pro_det_precio_oferta 
+            WHEN oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0 
+            THEN ISNULL(ad1.art_bod_pre, 0) * (1 - (oferta_prioritaria.pro_det_descuento_porcentaje / 100))
+            ELSE ISNULL(ad1.art_bod_pre, 0) 
+        END AS precio_detal,
+        CASE 
+            WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0 
+            THEN oferta_prioritaria.pro_det_precio_oferta 
+            WHEN oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0 
+            THEN ISNULL(ad2.art_bod_pre, 0) * (1 - (oferta_prioritaria.pro_det_descuento_porcentaje / 100))
+            ELSE ISNULL(ad2.art_bod_pre, 0) 
+        END AS precio_mayor,
+        -- Información de oferta (de la promoción más prioritaria)
+        oferta_prioritaria.pro_det_precio_oferta AS precio_oferta,
+        oferta_prioritaria.pro_det_descuento_porcentaje AS descuento_porcentaje,
+        oferta_prioritaria.pro_fecha_inicio,
+        oferta_prioritaria.pro_fecha_fin,
+        oferta_prioritaria.pro_codigo AS codigo_promocion,
+        oferta_prioritaria.pro_descripcion AS descripcion_promocion,
+        CASE 
+            WHEN oferta_prioritaria.pro_sec IS NOT NULL 
+                 AND ((oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0) 
+                      OR (oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0))
+            THEN 'S' 
+            ELSE 'N' 
+        END AS tiene_oferta,
         ISNULL(e.existencia, 0) AS existencia,
         a.art_woo_sync_status,
         a.art_woo_sync_message
@@ -229,6 +273,36 @@ WITH ArticulosBase AS (
             ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
         LEFT JOIN dbo.vwExistencias e
             ON a.art_sec = e.art_sec
+        -- Subquery para obtener la promoción más prioritaria por artículo
+        LEFT JOIN (
+            SELECT 
+                pd.art_sec,
+                pd.pro_det_precio_oferta,
+                pd.pro_det_descuento_porcentaje,
+                p.pro_sec,
+                p.pro_fecha_inicio,
+                p.pro_fecha_fin,
+                p.pro_codigo,
+                p.pro_descripcion,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pd.art_sec 
+                    ORDER BY 
+                        -- Prioridad 1: Precio de oferta (más alto primero)
+                        ISNULL(pd.pro_det_precio_oferta, 0) DESC,
+                        -- Prioridad 2: Descuento porcentual (más alto primero)
+                        ISNULL(pd.pro_det_descuento_porcentaje, 0) DESC,
+                        -- Prioridad 3: Fecha de inicio (más reciente primero)
+                        p.pro_fecha_inicio DESC
+                ) as rn
+            FROM dbo.promociones_detalle pd
+            INNER JOIN dbo.promociones p
+                ON pd.pro_sec = p.pro_sec 
+                AND p.pro_activa = 'S'
+                AND GETDATE() BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+            WHERE pd.pro_det_estado = 'A'
+        ) oferta_prioritaria
+            ON a.art_sec = oferta_prioritaria.art_sec 
+            AND oferta_prioritaria.rn = 1
     WHERE 1 = 1
       AND (@codigo IS NULL OR a.art_cod LIKE @codigo+'%')
       AND (@nombre IS NULL OR a.art_nom LIKE '%' + @nombre + '%')
@@ -537,7 +611,19 @@ const getArticuloByArtCod = async (art_cod) => {
     if (result.recordset.length === 0) {
       throw new Error("Artículo no encontrado.");
     }
-    return result.recordset[0];
+
+    const articulo = result.recordset[0];
+    
+    // Obtener precios usando precioUtils
+    const { obtenerPreciosArticulo } = require('../utils/precioUtils');
+    const precios = await obtenerPreciosArticulo(articulo.art_sec);
+    
+    // Combinar la información del artículo con los precios
+    return {
+      ...articulo,
+      precio_detal: precios.precio_detal,
+      precio_mayor: precios.precio_mayor
+    };
 
   } catch (error) {
     throw error;
@@ -554,8 +640,38 @@ const getArticulo = async (art_sec) => {
         g.inv_gru_cod,
         s.inv_sub_gru_cod,
         a.art_woo_id,
-        ad1.art_bod_pre AS precio_detal,
-        ad2.art_bod_pre AS precio_mayor,
+        -- Precios originales
+        ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+        ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+        -- Precios con oferta aplicada (usando la promoción más prioritaria)
+        CASE 
+            WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0 
+            THEN oferta_prioritaria.pro_det_precio_oferta 
+            WHEN oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0 
+            THEN ISNULL(ad1.art_bod_pre, 0) * (1 - (oferta_prioritaria.pro_det_descuento_porcentaje / 100))
+            ELSE ISNULL(ad1.art_bod_pre, 0) 
+        END AS precio_detal,
+        CASE 
+            WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0 
+            THEN oferta_prioritaria.pro_det_precio_oferta 
+            WHEN oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0 
+            THEN ISNULL(ad2.art_bod_pre, 0) * (1 - (oferta_prioritaria.pro_det_descuento_porcentaje / 100))
+            ELSE ISNULL(ad2.art_bod_pre, 0) 
+        END AS precio_mayor,
+        -- Información de oferta (de la promoción más prioritaria)
+        oferta_prioritaria.pro_det_precio_oferta AS precio_oferta,
+        oferta_prioritaria.pro_det_descuento_porcentaje AS descuento_porcentaje,
+        oferta_prioritaria.pro_fecha_inicio,
+        oferta_prioritaria.pro_fecha_fin,
+        oferta_prioritaria.pro_codigo AS codigo_promocion,
+        oferta_prioritaria.pro_descripcion AS descripcion_promocion,
+        CASE 
+            WHEN oferta_prioritaria.pro_sec IS NOT NULL 
+                 AND ((oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0) 
+                      OR (oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0))
+            THEN 'S' 
+            ELSE 'N' 
+        END AS tiene_oferta,
         a.art_woo_sync_status,
         a.art_woo_sync_message
         FROM dbo.articulos a
@@ -565,6 +681,36 @@ const getArticulo = async (art_sec) => {
         ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
         LEFT JOIN dbo.articulosdetalle ad2 
         ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+        -- Subquery para obtener la promoción más prioritaria por artículo
+        LEFT JOIN (
+            SELECT 
+                pd.art_sec,
+                pd.pro_det_precio_oferta,
+                pd.pro_det_descuento_porcentaje,
+                p.pro_sec,
+                p.pro_fecha_inicio,
+                p.pro_fecha_fin,
+                p.pro_codigo,
+                p.pro_descripcion,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pd.art_sec 
+                    ORDER BY 
+                        -- Prioridad 1: Precio de oferta (más alto primero)
+                        ISNULL(pd.pro_det_precio_oferta, 0) DESC,
+                        -- Prioridad 2: Descuento porcentual (más alto primero)
+                        ISNULL(pd.pro_det_descuento_porcentaje, 0) DESC,
+                        -- Prioridad 3: Fecha de inicio (más reciente primero)
+                        p.pro_fecha_inicio DESC
+                ) as rn
+            FROM dbo.promociones_detalle pd
+            INNER JOIN dbo.promociones p
+                ON pd.pro_sec = p.pro_sec 
+                AND p.pro_activa = 'S'
+                AND GETDATE() BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+            WHERE pd.pro_det_estado = 'A'
+        ) oferta_prioritaria
+            ON a.art_sec = oferta_prioritaria.art_sec 
+            AND oferta_prioritaria.rn = 1
         WHERE a.art_sec = @art_sec
     `;
     const result = await pool.request()
@@ -582,10 +728,22 @@ const getArticulo = async (art_sec) => {
 
 const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, fac_fec = null }) => {
   let transaction;
+  
+  console.log(`[UPDATE_ARTICULO] Iniciando actualización para artículo ${id_articulo}`, {
+    art_cod,
+    art_nom,
+    art_woo_id,
+    precio_detal,
+    precio_mayor,
+    timestamp: new Date().toISOString()
+  });
+  
   try {
     const pool = await poolPromise;
     transaction = new sql.Transaction(pool);
     await transaction.begin();
+    
+    console.log(`[UPDATE_ARTICULO] Transacción iniciada para artículo ${id_articulo}`);
 
     const request = new sql.Request(transaction);
 
@@ -649,6 +807,7 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
     }
 
     await transaction.commit();
+    console.log(`[UPDATE_ARTICULO] Transacción confirmada para artículo ${id_articulo}`);
 
     // Actualización en WooCommerce
     try {
@@ -666,6 +825,8 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
           WHERE art_sec = @id_articulo
         `);
 
+      console.log(`[UPDATE_ARTICULO] Actualización completada exitosamente para artículo ${id_articulo}`);
+      
       return { 
         message: "Artículo actualizado exitosamente.",
         wooCommerce: {
@@ -675,6 +836,12 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
         }
       };
     } catch (wooError) {
+      console.error(`[UPDATE_ARTICULO] Error en WooCommerce para artículo ${id_articulo}:`, {
+        message: wooError.message,
+        stack: wooError.stack,
+        timestamp: new Date().toISOString()
+      });
+      
       // Actualizar estado de sincronización con error
       await pool.request()
         .input('id_articulo', sql.Decimal(18, 0), id_articulo)
@@ -701,11 +868,18 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       };
     }
   } catch (error) {
+    console.error(`[UPDATE_ARTICULO] Error en updateArticulo para artículo ${id_articulo}:`, {
+      message: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+    
     if (transaction) {
       try {
         await transaction.rollback();
+        console.log(`[UPDATE_ARTICULO] Rollback completado para artículo ${id_articulo}`);
       } catch (rollbackError) {
-        console.error("Error en rollback:", rollbackError);
+        console.error(`[UPDATE_ARTICULO] Error en rollback para artículo ${id_articulo}:`, rollbackError);
       }
     }
     throw error;

@@ -1,0 +1,864 @@
+ARQUITECTURA SERVICIO DE PRECIOS GLOBAL - API PRETTY
+====================================================
+
+ANÁLISIS DEL PROBLEMA
+---------------------
+
+El sistema actual presenta los siguientes desafíos:
+1. **Duplicación de código**: La lógica de precios se repite en múltiples controladores
+2. **Inconsistencia**: Diferentes implementaciones pueden generar resultados distintos
+3. **Mantenimiento complejo**: Cambios en lógica de precios requieren modificar múltiples archivos
+4. **Testing difícil**: No hay forma centralizada de testear la lógica de precios
+5. **Escalabilidad limitada**: Agregar nuevas funcionalidades (caché, validaciones) es complejo
+
+REQUERIMIENTOS DEL NUEVO SISTEMA
+--------------------------------
+
+1. **Centralización**: Un solo punto de verdad para la lógica de precios
+2. **Consistencia**: Mismos resultados en toda la aplicación
+3. **Escalabilidad**: Fácil agregar nuevas funcionalidades
+4. **Testing**: Fácil mock y testing de la lógica
+5. **Performance**: Optimización centralizada (caché, consultas)
+6. **Mantenibilidad**: Cambios en un solo lugar
+7. **Compatibilidad**: No romper funcionalidad existente
+
+ARQUITECTURA PROPUESTA
+----------------------
+
+1. SERVICIO DE PRECIOS (SINGLE RESPONSIBILITY PRINCIPLE)
+--------------------------------------------------------
+
+```javascript
+// services/precioService.js
+class PrecioService {
+  constructor(precioRepository, logger = null) {
+    this.precioRepository = precioRepository;
+    this.logger = logger;
+  }
+
+  /**
+   * Obtiene todos los precios de un artículo (detal, mayor, oferta)
+   * @param {string} art_sec - Código del artículo
+   * @param {Date} fecha_consulta - Fecha para calcular precios (default: hoy)
+   * @returns {Object} Objeto con todos los precios y información de oferta
+   */
+  async getPreciosArticulo(art_sec, fecha_consulta = null) {
+    try {
+      this.logger?.info(`Obteniendo precios para artículo: ${art_sec}`);
+      
+      const precios = await this.precioRepository.getPreciosCompletos(art_sec, fecha_consulta);
+      
+      const resultado = {
+        art_sec,
+        precio_detal: precios.precio_detal,
+        precio_mayor: precios.precio_mayor,
+        precio_oferta: precios.precio_oferta,
+        tiene_oferta: precios.tiene_oferta,
+        precio_final_detal: precios.precio_final_detal,
+        precio_final_mayor: precios.precio_final_mayor,
+        descuento_detal: precios.descuento_detal,
+        descuento_mayor: precios.descuento_mayor,
+        oferta_info: precios.oferta_info,
+        fecha_consulta: fecha_consulta || new Date()
+      };
+
+      this.logger?.info(`Precios obtenidos exitosamente para: ${art_sec}`);
+      return resultado;
+      
+    } catch (error) {
+      this.logger?.error(`Error obteniendo precios para ${art_sec}: ${error.message}`);
+      throw new Error(`Error al obtener precios: ${error.message}`);
+    }
+  }
+
+  /**
+   * Obtiene precios para múltiples artículos de forma optimizada
+   * @param {Array} articulos - Array de códigos de artículos
+   * @param {Date} fecha_consulta - Fecha para calcular precios
+   * @returns {Object} Objeto con precios indexados por art_sec
+   */
+  async getPreciosMultiplesArticulos(articulos, fecha_consulta = null) {
+    try {
+      this.logger?.info(`Obteniendo precios para ${articulos.length} artículos`);
+      
+      const precios = {};
+      
+      // Procesar en lotes para optimizar performance
+      const lotes = this.chunkArray(articulos, 50);
+      
+      for (const lote of lotes) {
+        const preciosLote = await this.precioRepository.getPreciosMultiples(lote, fecha_consulta);
+        Object.assign(precios, preciosLote);
+      }
+      
+      this.logger?.info(`Precios obtenidos para ${Object.keys(precios).length} artículos`);
+      return precios;
+      
+    } catch (error) {
+      this.logger?.error(`Error obteniendo precios múltiples: ${error.message}`);
+      throw new Error(`Error al obtener precios múltiples: ${error.message}`);
+    }
+  }
+
+  /**
+   * Valida si un precio de oferta es válido para un artículo
+   * @param {string} art_sec - Código del artículo
+   * @param {number} precio_oferta - Precio de oferta a validar
+   * @returns {Object} Resultado de validación
+   */
+  async validarPrecioOferta(art_sec, precio_oferta) {
+    try {
+      const precios = await this.precioRepository.getPreciosCompletos(art_sec);
+      
+      const validacion = {
+        es_valido: false,
+        errores: [],
+        precios_originales: {
+          detal: precios.precio_detal,
+          mayor: precios.precio_mayor
+        }
+      };
+
+      if (precio_oferta <= 0) {
+        validacion.errores.push('El precio de oferta debe ser mayor a 0');
+      }
+
+      if (precio_oferta >= precios.precio_detal) {
+        validacion.errores.push('El precio de oferta debe ser menor al precio detal');
+      }
+
+      if (precio_oferta >= precios.precio_mayor) {
+        validacion.errores.push('El precio de oferta debe ser menor al precio mayor');
+      }
+
+      validacion.es_valido = validacion.errores.length === 0;
+      
+      return validacion;
+      
+    } catch (error) {
+      throw new Error(`Error validando precio de oferta: ${error.message}`);
+    }
+  }
+
+  /**
+   * Utilidad para dividir arrays en lotes
+   * @private
+   */
+  chunkArray(array, size) {
+    const chunks = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+  }
+}
+
+module.exports = PrecioService;
+```
+
+2. REPOSITORIO DE PRECIOS (DEPENDENCY INVERSION PRINCIPLE)
+----------------------------------------------------------
+
+```javascript
+// repositories/precioRepository.js
+const { sql, poolPromise } = require('../db');
+
+class PrecioRepository {
+  constructor(pool) {
+    this.pool = pool;
+  }
+
+  /**
+   * Obtiene precios completos de un artículo incluyendo ofertas
+   * @param {string} art_sec - Código del artículo
+   * @param {Date} fecha_consulta - Fecha para calcular precios
+   * @returns {Object} Objeto con todos los precios
+   */
+  async getPreciosCompletos(art_sec, fecha_consulta = null) {
+    const fecha = fecha_consulta || new Date();
+    
+    const result = await this.pool.request()
+      .input('art_sec', sql.VarChar(30), art_sec)
+      .input('fecha', sql.DateTime, fecha)
+      .query(`
+        SELECT 
+          a.art_sec,
+          -- Precios originales
+          ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+          ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+          -- Precios con oferta aplicada
+          dbo.fn_GetPrecioConOferta(a.art_sec, 1, @fecha) AS precio_final_detal,
+          dbo.fn_GetPrecioConOferta(a.art_sec, 2, @fecha) AS precio_final_mayor,
+          -- Información de oferta
+          ao.ofe_precio AS precio_oferta,
+          ao.ofe_fecha_inicio,
+          ao.ofe_fecha_fin,
+          ao.ofe_observaciones,
+          -- Indicadores
+          CASE 
+            WHEN ao.ofe_sec IS NOT NULL 
+                 AND ao.ofe_activa = 'S'
+                 AND @fecha BETWEEN ao.ofe_fecha_inicio AND ao.ofe_fecha_fin
+            THEN 'S'
+            ELSE 'N'
+          END AS tiene_oferta,
+          -- Descuentos calculados
+          CASE 
+            WHEN ISNULL(ad1.art_bod_pre, 0) > 0 AND ao.ofe_precio IS NOT NULL
+            THEN ROUND(((ad1.art_bod_pre - ao.ofe_precio) / ad1.art_bod_pre) * 100, 2)
+            ELSE 0 
+          END AS descuento_detal,
+          CASE 
+            WHEN ISNULL(ad2.art_bod_pre, 0) > 0 AND ao.ofe_precio IS NOT NULL
+            THEN ROUND(((ad2.art_bod_pre - ao.ofe_precio) / ad2.art_bod_pre) * 100, 2)
+            ELSE 0 
+          END AS descuento_mayor
+        FROM dbo.articulos a
+        LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+        LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+        LEFT JOIN dbo.articulos_ofertas ao ON a.art_sec = ao.art_sec AND ao.ofe_activa = 'S'
+        WHERE a.art_sec = @art_sec
+      `);
+
+    if (result.recordset.length === 0) {
+      throw new Error('Artículo no encontrado');
+    }
+
+    const data = result.recordset[0];
+    
+    return {
+      precio_detal: data.precio_detal_original,
+      precio_mayor: data.precio_mayor_original,
+      precio_oferta: data.precio_oferta,
+      tiene_oferta: data.tiene_oferta === 'S',
+      precio_final_detal: data.precio_final_detal,
+      precio_final_mayor: data.precio_final_mayor,
+      descuento_detal: data.descuento_detal,
+      descuento_mayor: data.descuento_mayor,
+      oferta_info: data.tiene_oferta === 'S' ? {
+        precio: data.precio_oferta,
+        fecha_inicio: data.ofe_fecha_inicio,
+        fecha_fin: data.ofe_fecha_fin,
+        observaciones: data.ofe_observaciones
+      } : null
+    };
+  }
+
+  /**
+   * Obtiene precios para múltiples artículos de forma optimizada
+   * @param {Array} articulos - Array de códigos de artículos
+   * @param {Date} fecha_consulta - Fecha para calcular precios
+   * @returns {Object} Objeto con precios indexados por art_sec
+   */
+  async getPreciosMultiples(articulos, fecha_consulta = null) {
+    if (!articulos || articulos.length === 0) {
+      return {};
+    }
+
+    const fecha = fecha_consulta || new Date();
+    const artSecList = articulos.map(art => `'${art}'`).join(',');
+    
+    const result = await this.pool.request()
+      .input('fecha', sql.DateTime, fecha)
+      .query(`
+        SELECT 
+          a.art_sec,
+          -- Precios originales
+          ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+          ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+          -- Precios con oferta aplicada
+          dbo.fn_GetPrecioConOferta(a.art_sec, 1, @fecha) AS precio_final_detal,
+          dbo.fn_GetPrecioConOferta(a.art_sec, 2, @fecha) AS precio_final_mayor,
+          -- Información de oferta
+          ao.ofe_precio AS precio_oferta,
+          ao.ofe_fecha_inicio,
+          ao.ofe_fecha_fin,
+          ao.ofe_observaciones,
+          -- Indicadores
+          CASE 
+            WHEN ao.ofe_sec IS NOT NULL 
+                 AND ao.ofe_activa = 'S'
+                 AND @fecha BETWEEN ao.ofe_fecha_inicio AND ao.ofe_fecha_fin
+            THEN 'S'
+            ELSE 'N'
+          END AS tiene_oferta,
+          -- Descuentos calculados
+          CASE 
+            WHEN ISNULL(ad1.art_bod_pre, 0) > 0 AND ao.ofe_precio IS NOT NULL
+            THEN ROUND(((ad1.art_bod_pre - ao.ofe_precio) / ad1.art_bod_pre) * 100, 2)
+            ELSE 0 
+          END AS descuento_detal,
+          CASE 
+            WHEN ISNULL(ad2.art_bod_pre, 0) > 0 AND ao.ofe_precio IS NOT NULL
+            THEN ROUND(((ad2.art_bod_pre - ao.ofe_precio) / ad2.art_bod_pre) * 100, 2)
+            ELSE 0 
+          END AS descuento_mayor
+        FROM dbo.articulos a
+        LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+        LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+        LEFT JOIN dbo.articulos_ofertas ao ON a.art_sec = ao.art_sec AND ao.ofe_activa = 'S'
+        WHERE a.art_sec IN (${artSecList})
+      `);
+
+    const precios = {};
+    
+    result.recordset.forEach(data => {
+      precios[data.art_sec] = {
+        precio_detal: data.precio_detal_original,
+        precio_mayor: data.precio_mayor_original,
+        precio_oferta: data.precio_oferta,
+        tiene_oferta: data.tiene_oferta === 'S',
+        precio_final_detal: data.precio_final_detal,
+        precio_final_mayor: data.precio_final_mayor,
+        descuento_detal: data.descuento_detal,
+        descuento_mayor: data.descuento_mayor,
+        oferta_info: data.tiene_oferta === 'S' ? {
+          precio: data.precio_oferta,
+          fecha_inicio: data.ofe_fecha_inicio,
+          fecha_fin: data.ofe_fecha_fin,
+          observaciones: data.ofe_observaciones
+        } : null
+      };
+    });
+
+    return precios;
+  }
+}
+
+module.exports = PrecioRepository;
+```
+
+3. FACTORY PARA INYECCIÓN DE DEPENDENCIAS (DEPENDENCY INVERSION PRINCIPLE)
+---------------------------------------------------------------------------
+
+```javascript
+// factories/precioFactory.js
+const PrecioService = require('../services/precioService');
+const PrecioRepository = require('../repositories/precioRepository');
+const { poolPromise } = require('../db');
+
+class PrecioFactory {
+  /**
+   * Crea una instancia del servicio de precios con todas sus dependencias
+   * @param {Object} options - Opciones de configuración
+   * @returns {PrecioService} Instancia del servicio
+   */
+  static createPrecioService(options = {}) {
+    const {
+      logger = null,
+      enableCache = false,
+      cacheTTL = 300 // 5 minutos
+    } = options;
+
+    const precioRepository = new PrecioRepository(poolPromise);
+    
+    // Si se habilita caché, envolver el repositorio
+    const repositoryWithCache = enableCache 
+      ? this.createCachedRepository(precioRepository, cacheTTL)
+      : precioRepository;
+
+    return new PrecioService(repositoryWithCache, logger);
+  }
+
+  /**
+   * Crea un repositorio con caché (implementación futura)
+   * @private
+   */
+  static createCachedRepository(repository, ttl) {
+    // TODO: Implementar wrapper con caché
+    return repository;
+  }
+
+  /**
+   * Crea una instancia para testing con mock
+   * @param {Object} mockRepository - Repositorio mock para testing
+   * @returns {PrecioService} Instancia para testing
+   */
+  static createTestService(mockRepository) {
+    return new PrecioService(mockRepository);
+  }
+}
+
+module.exports = PrecioFactory;
+```
+
+4. MIDDLEWARE PARA INYECCIÓN AUTOMÁTICA (OPEN/CLOSED PRINCIPLE)
+----------------------------------------------------------------
+
+```javascript
+// middlewares/precioMiddleware.js
+const PrecioFactory = require('../factories/precioFactory');
+
+/**
+ * Middleware que inyecta el servicio de precios en el request
+ * @param {Object} options - Opciones de configuración del servicio
+ */
+const injectPrecioService = (options = {}) => {
+  const precioService = PrecioFactory.createPrecioService(options);
+  
+  return (req, res, next) => {
+    req.precioService = precioService;
+    next();
+  };
+};
+
+/**
+ * Middleware específico para rutas que requieren precios
+ */
+const requirePrecioService = (req, res, next) => {
+  if (!req.precioService) {
+    return res.status(500).json({
+      success: false,
+      error: 'Servicio de precios no disponible'
+    });
+  }
+  next();
+};
+
+module.exports = { 
+  injectPrecioService, 
+  requirePrecioService 
+};
+```
+
+5. INTERFACES Y TIPOS (INTERFACE SEGREGATION PRINCIPLE)
+-------------------------------------------------------
+
+```javascript
+// interfaces/IPrecioRepository.js
+/**
+ * Interfaz para el repositorio de precios
+ */
+class IPrecioRepository {
+  async getPreciosCompletos(art_sec, fecha_consulta) {
+    throw new Error('Método no implementado');
+  }
+
+  async getPreciosMultiples(articulos, fecha_consulta) {
+    throw new Error('Método no implementado');
+  }
+}
+
+module.exports = IPrecioRepository;
+```
+
+```javascript
+// interfaces/IPrecioService.js
+/**
+ * Interfaz para el servicio de precios
+ */
+class IPrecioService {
+  async getPreciosArticulo(art_sec, fecha_consulta) {
+    throw new Error('Método no implementado');
+  }
+
+  async getPreciosMultiplesArticulos(articulos, fecha_consulta) {
+    throw new Error('Método no implementado');
+  }
+
+  async validarPrecioOferta(art_sec, precio_oferta) {
+    throw new Error('Método no implementado');
+  }
+}
+
+module.exports = IPrecioService;
+```
+
+6. CONFIGURACIÓN EN LA APLICACIÓN PRINCIPAL
+-------------------------------------------
+
+```javascript
+// index.js (actualización)
+const { injectPrecioService } = require('./middlewares/precioMiddleware');
+
+// ... código existente ...
+
+// Configurar middleware de precios
+app.use(injectPrecioService({
+  logger: console, // o winston logger
+  enableCache: process.env.NODE_ENV === 'production',
+  cacheTTL: 300
+}));
+
+// ... resto del código ...
+```
+
+7. EJEMPLOS DE USO EN CONTROLADORES
+-----------------------------------
+
+### 7.1. Refactorización de articulosController.js
+
+```javascript
+// controllers/articulosController.js (refactorizado)
+const getArticulos = async (req, res) => {
+  try {
+    const { codigo, nombre, inv_gru_cod, inv_sub_gru_cod, tieneExistencia, PageNumber, PageSize } = req.query;
+    
+    // Obtener artículos básicos (sin precios)
+    const articulos = await articulosModel.getArticulosBasicos({
+      codigo, nombre, inv_gru_cod, inv_sub_gru_cod, tieneExistencia, PageNumber, PageSize
+    });
+
+    // Obtener códigos de artículos
+    const artSecs = articulos.map(art => art.art_sec);
+    
+    // Obtener precios usando el servicio
+    const precios = await req.precioService.getPreciosMultiplesArticulos(artSecs);
+
+    // Combinar información
+    const articulosConPrecios = articulos.map(articulo => ({
+      ...articulo,
+      ...precios[articulo.art_sec]
+    }));
+
+    res.json({
+      success: true,
+      data: articulosConPrecios,
+      total: articulos.length
+    });
+
+  } catch (error) {
+    console.error('Error en getArticulos:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+const getArticuloById = async (req, res) => {
+  try {
+    const { art_sec } = req.params;
+    
+    // Obtener datos básicos del artículo
+    const articulo = await articulosModel.getArticuloById(art_sec);
+    
+    if (!articulo) {
+      return res.status(404).json({
+        success: false,
+        error: 'Artículo no encontrado'
+      });
+    }
+
+    // Obtener precios usando el servicio
+    const precios = await req.precioService.getPreciosArticulo(art_sec);
+
+    // Combinar información
+    const resultado = {
+      ...articulo,
+      precios: precios
+    };
+
+    res.json({
+      success: true,
+      data: resultado
+    });
+
+  } catch (error) {
+    console.error('Error en getArticuloById:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+```
+
+### 7.2. Nuevo controlador específico para precios
+
+```javascript
+// controllers/precioController.js
+const getPreciosArticulo = async (req, res) => {
+  try {
+    const { art_sec } = req.params;
+    const { fecha } = req.query;
+    
+    const fechaConsulta = fecha ? new Date(fecha) : null;
+    const precios = await req.precioService.getPreciosArticulo(art_sec, fechaConsulta);
+
+    res.json({
+      success: true,
+      data: precios
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo precios:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+const validarPrecioOferta = async (req, res) => {
+  try {
+    const { art_sec, precio_oferta } = req.body;
+    
+    if (!art_sec || !precio_oferta) {
+      return res.status(400).json({
+        success: false,
+        error: 'art_sec y precio_oferta son requeridos'
+      });
+    }
+
+    const validacion = await req.precioService.validarPrecioOferta(art_sec, precio_oferta);
+
+    res.json({
+      success: true,
+      data: validacion
+    });
+
+  } catch (error) {
+    console.error('Error validando precio:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+module.exports = {
+  getPreciosArticulo,
+  validarPrecioOferta
+};
+```
+
+8. RUTAS PARA EL SERVICIO DE PRECIOS
+------------------------------------
+
+```javascript
+// routes/precioRoutes.js
+const express = require('express');
+const router = express.Router();
+const precioController = require('../controllers/precioController');
+const { requirePrecioService } = require('../middlewares/precioMiddleware');
+
+// Aplicar middleware de precios
+router.use(requirePrecioService);
+
+// Obtener precios de un artículo
+router.get('/articulo/:art_sec', precioController.getPreciosArticulo);
+
+// Validar precio de oferta
+router.post('/validar-oferta', precioController.validarPrecioOferta);
+
+module.exports = router;
+```
+
+9. TESTING Y MOCKING
+--------------------
+
+```javascript
+// tests/precioService.test.js
+const PrecioService = require('../services/precioService');
+
+// Mock del repositorio
+const mockRepository = {
+  getPreciosCompletos: jest.fn(),
+  getPreciosMultiples: jest.fn()
+};
+
+describe('PrecioService', () => {
+  let precioService;
+
+  beforeEach(() => {
+    precioService = new PrecioService(mockRepository);
+    jest.clearAllMocks();
+  });
+
+  test('getPreciosArticulo retorna precios correctos', async () => {
+    const mockPrecios = {
+      precio_detal: 1000,
+      precio_mayor: 800,
+      precio_oferta: 600,
+      tiene_oferta: true,
+      precio_final_detal: 600,
+      precio_final_mayor: 600,
+      descuento_detal: 40,
+      descuento_mayor: 25,
+      oferta_info: {
+        precio: 600,
+        fecha_inicio: new Date('2024-01-01'),
+        fecha_fin: new Date('2024-01-31')
+      }
+    };
+
+    mockRepository.getPreciosCompletos.mockResolvedValue(mockPrecios);
+
+    const resultado = await precioService.getPreciosArticulo('ART001');
+
+    expect(resultado).toEqual({
+      art_sec: 'ART001',
+      ...mockPrecios,
+      fecha_consulta: expect.any(Date)
+    });
+  });
+
+  test('validarPrecioOferta valida correctamente', async () => {
+    mockRepository.getPreciosCompletos.mockResolvedValue({
+      precio_detal: 1000,
+      precio_mayor: 800
+    });
+
+    const validacion = await precioService.validarPrecioOferta('ART001', 600);
+
+    expect(validacion.es_valido).toBe(true);
+    expect(validacion.errores).toHaveLength(0);
+  });
+});
+```
+
+10. PLAN DE IMPLEMENTACIÓN GRADUAL
+----------------------------------
+
+### Fase 1: Implementación Base (Semana 1)
+- [ ] Crear estructura de carpetas (services, repositories, factories, interfaces)
+- [ ] Implementar PrecioRepository con consultas SQL optimizadas
+- [ ] Implementar PrecioService con lógica de negocio
+- [ ] Crear PrecioFactory para inyección de dependencias
+- [ ] Implementar middleware de inyección
+- [ ] Crear tests unitarios básicos
+
+### Fase 2: Integración Inicial (Semana 2)
+- [ ] Configurar middleware en index.js
+- [ ] Refactorizar articulosController.js (métodos críticos)
+- [ ] Crear precioController.js para endpoints específicos
+- [ ] Implementar rutas de precios
+- [ ] Testing de integración
+
+### Fase 3: Migración Completa (Semana 3)
+- [ ] Refactorizar todos los controladores que usan precios
+- [ ] Actualizar ofertaController.js para usar el servicio
+- [ ] Optimizar consultas múltiples
+- [ ] Implementar caché (opcional)
+- [ ] Testing completo
+
+### Fase 4: Optimización y Documentación (Semana 4)
+- [ ] Optimizar performance
+- [ ] Implementar logging detallado
+- [ ] Documentar API completa
+- [ ] Crear ejemplos de uso
+- [ ] Testing de carga
+
+11. BENEFICIOS DE ESTA ARQUITECTURA
+-----------------------------------
+
+### 11.1. Principios SOLID Aplicados
+- ✅ **SRP**: Servicio único responsable de precios
+- ✅ **OCP**: Extensible sin modificar código existente
+- ✅ **LSP**: Interfaz consistente para todos los precios
+- ✅ **ISP**: Interfaces específicas para cada responsabilidad
+- ✅ **DIP**: Depende de abstracciones, no implementaciones
+
+### 11.2. Escalabilidad
+- ✅ **Caché**: Fácil agregar caché de precios
+- ✅ **Validaciones**: Centralizadas en el servicio
+- ✅ **Logging**: Centralizado para auditoría
+- ✅ **Testing**: Fácil mock del repositorio
+- ✅ **Performance**: Consultas optimizadas y múltiples
+
+### 11.3. Mantenibilidad
+- ✅ **Un solo lugar** para lógica de precios
+- ✅ **Consistencia** en toda la aplicación
+- ✅ **Fácil debugging** de problemas de precios
+- ✅ **Documentación** centralizada
+- ✅ **Testing** completo y automatizado
+
+### 11.4. Impacto Mínimo
+- ✅ **Refactorización gradual** sin romper funcionalidad
+- ✅ **Compatibilidad** con código existente
+- ✅ **Testing** incremental
+- ✅ **Rollback** fácil si hay problemas
+
+12. CONSIDERACIONES DE PERFORMANCE
+----------------------------------
+
+### 12.1. Optimizaciones Implementadas
+- ✅ **Consultas múltiples** para reducir round-trips a BD
+- ✅ **Índices optimizados** en tablas de precios
+- ✅ **Lotes de procesamiento** para múltiples artículos
+- ✅ **Caché preparado** para implementación futura
+
+### 12.2. Métricas a Monitorear
+- ✅ **Tiempo de respuesta** de consultas de precios
+- ✅ **Uso de memoria** del servicio
+- ✅ **Hit rate** del caché (cuando se implemente)
+- ✅ **Errores** en consultas de precios
+
+13. DOCUMENTACIÓN DE API
+------------------------
+
+### 13.1. Endpoints de Precios
+
+#### GET /api/precios/articulo/:art_sec
+Obtiene todos los precios de un artículo específico.
+
+**Parámetros:**
+- `art_sec` (path): Código del artículo
+- `fecha` (query, opcional): Fecha para calcular precios (ISO 8601)
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "data": {
+    "art_sec": "ART001",
+    "precio_detal": 1000,
+    "precio_mayor": 800,
+    "precio_oferta": 600,
+    "tiene_oferta": true,
+    "precio_final_detal": 600,
+    "precio_final_mayor": 600,
+    "descuento_detal": 40,
+    "descuento_mayor": 25,
+    "oferta_info": {
+      "precio": 600,
+      "fecha_inicio": "2024-01-01T00:00:00.000Z",
+      "fecha_fin": "2024-01-31T23:59:59.000Z",
+      "observaciones": "Oferta especial"
+    },
+    "fecha_consulta": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+#### POST /api/precios/validar-oferta
+Valida si un precio de oferta es válido para un artículo.
+
+**Body:**
+```json
+{
+  "art_sec": "ART001",
+  "precio_oferta": 600
+}
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "data": {
+    "es_valido": true,
+    "errores": [],
+    "precios_originales": {
+      "detal": 1000,
+      "mayor": 800
+    }
+  }
+}
+```
+
+14. CONCLUSIÓN
+--------------
+
+Esta arquitectura proporciona una solución robusta, escalable y mantenible para el manejo centralizado de precios en el sistema API Pretty. 
+
+Los beneficios principales incluyen:
+- ✅ **Centralización** de la lógica de precios
+- ✅ **Consistencia** en toda la aplicación
+- ✅ **Escalabilidad** para futuras funcionalidades
+- ✅ **Testing** completo y automatizado
+- ✅ **Performance** optimizada
+- ✅ **Mantenibilidad** mejorada
+
+La implementación gradual permite minimizar el impacto en el sistema existente mientras se obtienen los beneficios de la nueva arquitectura. 

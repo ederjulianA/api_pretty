@@ -4,6 +4,14 @@ const { validateArticulo, createArticulo, getArticulo, updateArticulo, getArticu
 
 const updateArticuloEndpoint = async (req, res) => {
   try {
+    console.log(`[UPDATE_ARTICULO_ENDPOINT] Iniciando actualización`, {
+      method: req.method,
+      url: req.url,
+      params: req.params,
+      body: req.body,
+      timestamp: new Date().toISOString()
+    });
+    
     const { id_articulo } = req.params;
     const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha } = req.body;
 
@@ -14,6 +22,8 @@ const updateArticuloEndpoint = async (req, res) => {
       });
     }
 
+    console.log(`[UPDATE_ARTICULO_ENDPOINT] Llamando a updateArticulo para artículo ${id_articulo}`);
+    
     const result = await updateArticulo({
       id_articulo,
       art_cod,
@@ -26,9 +36,15 @@ const updateArticuloEndpoint = async (req, res) => {
       actualiza_fecha
     });
 
+    console.log(`[UPDATE_ARTICULO_ENDPOINT] Actualización completada para artículo ${id_articulo}`, result);
+    
     return res.json({ success: true, ...result });
   } catch (error) {
-    console.error(`Error en updateArticuloEndpoint: ${error.message}`);
+    console.error(`[UPDATE_ARTICULO_ENDPOINT] Error en updateArticuloEndpoint:`, {
+      message: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
     return res.status(500).json({ success: false, error: error.message });
   }
 };

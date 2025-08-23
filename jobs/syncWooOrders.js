@@ -94,6 +94,108 @@ const getArticuloInfo = async (art_cod) => {
   return result.recordset.length > 0 ? result.recordset[0].art_sec : null;
 }
 
+// Función auxiliar para obtener precios base de un artículo
+const getArticuloPreciosBase = async (art_sec) => {
+  const pool = await poolPromise;
+  const result = await pool.request()
+    .input("art_sec", sql.VarChar(30), art_sec)
+    .query(`
+      SELECT 
+        ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+        ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original
+      FROM dbo.articulos a
+      LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+      LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+      WHERE a.art_sec = @art_sec
+    `);
+  
+  if (result.recordset.length === 0) {
+    return { precio_detal_original: 0, precio_mayor_original: 0 };
+  }
+  
+  return result.recordset[0];
+}
+
+// Función para obtener información de promociones de un artículo en una fecha específica
+const getArticuloPromocionInfo = async (art_sec, fecha) => {
+  const pool = await poolPromise;
+  const result = await pool.request()
+    .input("art_sec", sql.VarChar(30), art_sec)
+    .input("fecha", sql.DateTime, fecha)
+    .query(`
+      SELECT 
+        a.art_sec,
+        a.art_cod,
+        a.art_nom,
+        -- Precios base
+        ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
+        ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+        -- Información de promoción
+        pd.pro_det_precio_oferta,
+        pd.pro_det_descuento_porcentaje,
+        p.pro_fecha_inicio,
+        p.pro_fecha_fin,
+        p.pro_codigo AS codigo_promocion,
+        p.pro_descripcion AS descripcion_promocion,
+        -- Determinar si tiene oferta activa
+        CASE
+            WHEN p.pro_sec IS NOT NULL
+                 AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0)
+                      OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
+            THEN 'S'
+            ELSE 'N'
+        END AS tiene_oferta
+      FROM dbo.articulos a
+      LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+      LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+      LEFT JOIN dbo.promociones_detalle pd ON a.art_sec = pd.art_sec AND pd.pro_det_estado = 'A'
+      LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec 
+        AND p.pro_activa = 'S'
+        AND @fecha BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+      WHERE a.art_sec = @art_sec
+    `);
+  
+  if (result.recordset.length === 0) {
+    // Si no se encuentra el artículo, devolver null
+    return null;
+  }
+  
+  const data = result.recordset[0];
+  
+  // Calcular precios finales
+  let precioFinalDetal = data.precio_detal_original;
+  let precioFinalMayor = data.precio_mayor_original;
+  
+  if (data.tiene_oferta === 'S') {
+    if (data.pro_det_precio_oferta && data.pro_det_precio_oferta > 0) {
+      precioFinalDetal = data.pro_det_precio_oferta;
+      precioFinalMayor = data.pro_det_precio_oferta;
+    } else if (data.pro_det_descuento_porcentaje && data.pro_det_descuento_porcentaje > 0) {
+      const factorDescuento = 1 - (data.pro_det_descuento_porcentaje / 100);
+      precioFinalDetal = data.precio_detal_original * factorDescuento;
+      precioFinalMayor = data.precio_mayor_original * factorDescuento;
+    }
+  }
+  
+  // Siempre devolver un objeto con los precios base, incluso cuando no hay promoción
+  return {
+    art_sec: data.art_sec,
+    art_cod: data.art_cod,
+    art_nom: data.art_nom,
+    precio_detal_original: data.precio_detal_original,
+    precio_mayor_original: data.precio_mayor_original,
+    precio_detal: precioFinalDetal,
+    precio_mayor: precioFinalMayor,
+    precio_oferta: data.pro_det_precio_oferta,
+    descuento_porcentaje: data.pro_det_descuento_porcentaje,
+    pro_fecha_inicio: data.pro_fecha_inicio,
+    pro_fecha_fin: data.pro_fecha_fin,
+    codigo_promocion: data.codigo_promocion,
+    descripcion_promocion: data.descripcion_promocion,
+    tiene_oferta: data.tiene_oferta
+  };
+};
+
 // Función auxiliar: determina si un pedido ya está facturado
 const checkIfOrderFactured = async (fac_sec) => {
   const pool = await poolPromise;
@@ -191,17 +293,80 @@ const syncWooOrders = async (status, after, before) => {
           const artStartTime = Date.now();
           const art_sec = await getArticuloInfo(item.sku);
           console.log(`[${new Date().toISOString()}] Tiempo búsqueda artículo ${item.sku}: ${Date.now() - artStartTime}ms`);
+          
+          // Obtener información de promociones del artículo en la fecha del pedido
+          const promocionInfo = art_sec ? await getArticuloPromocionInfo(art_sec, wooOrder.date_created) : null;
+          
+          // Obtener precios base del artículo (para casos donde no hay promoción o artículo no encontrado)
+          const preciosBase = art_sec ? await getArticuloPreciosBase(art_sec) : { precio_detal_original: 0, precio_mayor_original: 0 };
+          
+          if (promocionInfo && promocionInfo.tiene_oferta === 'S') {
+            console.log(`[${new Date().toISOString()}] Artículo ${item.sku} tiene promoción activa: ${promocionInfo.codigo_promocion}`);
+          }
+          
+          // Log detallado de la información de promociones
+          console.log(`[${new Date().toISOString()}] Información de promociones para ${item.sku}:`, {
+            art_sec: art_sec,
+            tiene_oferta: promocionInfo ? promocionInfo.tiene_oferta : 'N',
+            codigo_promocion: promocionInfo ? promocionInfo.codigo_promocion : null,
+            precio_oferta: promocionInfo ? promocionInfo.precio_oferta : null,
+            descuento_porcentaje: promocionInfo ? promocionInfo.descuento_porcentaje : null
+          });
+          
+          // Determinar los precios finales para facturakardes
+          let precioDetalFinal = 0;
+          let precioMayorFinal = 0;
+          
+          if (promocionInfo) {
+            // Si tenemos información de promociones, usar esos precios
+            precioDetalFinal = promocionInfo.precio_detal_original;
+            precioMayorFinal = promocionInfo.precio_mayor_original;
+          } else if (art_sec) {
+            // Si no hay promoción pero el artículo existe, usar precios base
+            precioDetalFinal = preciosBase.precio_detal_original;
+            precioMayorFinal = preciosBase.precio_mayor_original;
+          }
+          // Si no hay art_sec, los precios quedan en 0
+          
+          console.log(`[${new Date().toISOString()}] Precios finales para ${item.sku}:`, {
+            art_sec: art_sec,
+            precioDetalFinal: precioDetalFinal,
+            precioMayorFinal: precioMayorFinal,
+            tienePromocion: !!promocionInfo,
+            tieneArticulo: !!art_sec
+          });
+          
           return {
             art_sec,
             kar_uni: item.quantity,
             kar_pre_pub: (item.subtotal / item.quantity),
             kar_lis_pre_cod: null,
             kar_kar_sec_ori: null,
-            kar_fac_sec_ori: null
+            kar_fac_sec_ori: null,
+            // Información de promociones para facturakardes
+            kar_pre_pub_detal: precioDetalFinal,
+            kar_pre_pub_mayor: precioMayorFinal,
+            kar_tiene_oferta: promocionInfo ? promocionInfo.tiene_oferta : 'N',
+            kar_precio_oferta: promocionInfo ? promocionInfo.precio_oferta : null,
+            kar_descuento_porcentaje: promocionInfo ? promocionInfo.descuento_porcentaje : null,
+            kar_codigo_promocion: promocionInfo ? promocionInfo.codigo_promocion : null,
+            kar_descripcion_promocion: promocionInfo ? promocionInfo.descripcion_promocion : null
           };
         })
       );
       console.log(`[${new Date().toISOString()}] Tiempo total procesamiento detalles: ${Date.now() - detailsStartTime}ms`);
+      
+      // Log para verificar que los detalles incluyen información de promociones
+      const detallesConPromociones = detalles.filter(d => d.kar_tiene_oferta === 'S');
+      console.log(`[${new Date().toISOString()}] Detalles procesados: ${detalles.length}, con promociones: ${detallesConPromociones.length}`);
+      if (detallesConPromociones.length > 0) {
+        console.log(`[${new Date().toISOString()}] Artículos con promociones:`, detallesConPromociones.map(d => ({
+          art_sec: d.art_sec,
+          codigo_promocion: d.kar_codigo_promocion,
+          precio_oferta: d.kar_precio_oferta,
+          descuento_porcentaje: d.kar_descuento_porcentaje
+        })));
+      }
 
       // Medición tiempo verificación orden existente
       const checkOrderStartTime = Date.now();

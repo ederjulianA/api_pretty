@@ -1,0 +1,130 @@
+{
+  "info": {
+    "name": "API Academia - Sistema de Promociones",
+    "description": "Ejemplos para probar el endpoint de creación de promociones",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Crear Promoción - Ejemplo 1 (Descuento por Porcentaje)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer TU_TOKEN_JWT_AQUI"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"Oferta de Verano 2024\",\n  \"descripcion\": \"Descuentos especiales en productos de verano\",\n  \"fecha_inicio\": \"2024-06-01T00:00:00.000Z\",\n  \"fecha_fin\": \"2024-08-31T23:59:59.000Z\",\n  \"tipo_descuento\": \"porcentaje\",\n  \"valor_descuento\": 15.5,\n  \"activa\": true,\n  \"articulos\": [\n    {\n      \"codigo_articulo\": \"ART001\",\n      \"precio_promocion\": 85000,\n      \"stock_disponible\": 50\n    },\n    {\n      \"codigo_articulo\": \"ART002\",\n      \"precio_promocion\": 120000,\n      \"stock_disponible\": 30\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/promociones",
+          "host": ["{{base_url}}"],
+          "path": ["api", "promociones"]
+        },
+        "description": "Ejemplo de creación de promoción con descuento por porcentaje"
+      }
+    },
+    {
+      "name": "Crear Promoción - Ejemplo 2 (Descuento por Monto Fijo)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer TU_TOKEN_JWT_AQUI"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"Liquidación de Inventario\",\n  \"descripcion\": \"Precios especiales para liquidar stock\",\n  \"fecha_inicio\": \"2024-12-01T00:00:00.000Z\",\n  \"fecha_fin\": \"2024-12-31T23:59:59.000Z\",\n  \"tipo_descuento\": \"monto_fijo\",\n  \"valor_descuento\": 25000,\n  \"activa\": true,\n  \"articulos\": [\n    {\n      \"codigo_articulo\": \"ART003\",\n      \"precio_promocion\": 75000,\n      \"stock_disponible\": 25\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/promociones",
+          "host": ["{{base_url}}"],
+          "path": ["api", "promociones"]
+        },
+        "description": "Ejemplo de creación de promoción con descuento por monto fijo"
+      }
+    },
+    {
+      "name": "Crear Promoción - Ejemplo 3 (Precio Especial)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer TU_TOKEN_JWT_AQUI"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"Black Friday 2024\",\n  \"descripcion\": \"Los mejores precios del año\",\n  \"fecha_inicio\": \"2024-11-29T00:00:00.000Z\",\n  \"fecha_fin\": \"2024-11-30T23:59:59.000Z\",\n  \"tipo_descuento\": \"precio_especial\",\n  \"valor_descuento\": 0,\n  \"activa\": true,\n  \"articulos\": [\n    {\n      \"codigo_articulo\": \"ART004\",\n      \"precio_promocion\": 95000,\n      \"stock_disponible\": 100\n    },\n    {\n      \"codigo_articulo\": \"ART005\",\n      \"precio_promocion\": 180000,\n      \"stock_disponible\": 75\n    },\n    {\n      \"codigo_articulo\": \"ART006\",\n      \"precio_promocion\": 65000,\n      \"stock_disponible\": 200\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/promociones",
+          "host": ["{{base_url}}"],
+          "path": ["api", "promociones"]
+        },
+        "description": "Ejemplo de creación de promoción con precio especial"
+      }
+    },
+    {
+      "name": "Obtener Todas las Promociones",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer TU_TOKEN_JWT_AQUI"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/promociones",
+          "host": ["{{base_url}}"],
+          "path": ["api", "promociones"]
+        },
+        "description": "Obtener todas las promociones activas"
+      }
+    },
+    {
+      "name": "Obtener Promoción por ID",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer TU_TOKEN_JWT_AQUI"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/promociones/1",
+          "host": ["{{base_url}}"],
+          "path": ["api", "promociones", "1"]
+        },
+        "description": "Obtener una promoción específica por su ID"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ]
+} 

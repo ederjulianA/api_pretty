@@ -1,0 +1,316 @@
+ANÁLISIS DE ENDPOINTS QUE CONSULTAN PRECIOS
+============================================
+
+Este documento identifica todos los endpoints del proyecto que consultan la tabla `articulosdetalle` 
+para obtener precios (`art_bod_pre`), y que necesitarán ser actualizados para usar el nuevo 
+sistema de precios con ofertas.
+
+1. ENDPOINTS PRINCIPALES QUE CONSULTAN PRECIOS
+---------------------------------------------
+
+1.1. ARTÍCULOS - GET /api/articulos
+-----------------------------------
+**Archivo:** `routes/articulosRoutes.js` → `controllers/articulosController.js` → `models/articulosModel.js`
+
+**Endpoint:** `GET /api/articulos`
+**Función:** `getArticulos()`
+
+**Consulta actual:**
+```sql
+SELECT
+    a.art_sec,
+    a.art_cod,
+    a.art_woo_id,
+    a.art_nom,
+    a.art_url_img_servi,
+    ig.inv_gru_cod,
+    ig.inv_gru_nom AS categoria,
+    isg.inv_sub_gru_cod,
+    isg.inv_sub_gru_nom AS sub_categoria,
+    ISNULL(ad1.art_bod_pre, 0) AS precio_detal,      -- ← CONSULTA PRECIO
+    ISNULL(ad2.art_bod_pre, 0) AS precio_mayor,      -- ← CONSULTA PRECIO
+    ISNULL(e.existencia, 0) AS existencia,
+    a.art_woo_sync_status,
+    a.art_woo_sync_message
+FROM dbo.articulos a
+    INNER JOIN dbo.inventario_subgrupo isg ON a.inv_sub_gru_cod = isg.inv_sub_gru_cod
+    INNER JOIN dbo.inventario_grupo ig ON isg.inv_gru_cod = ig.inv_gru_cod
+    LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
+    LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+    LEFT JOIN dbo.vwExistencias e ON a.art_sec = e.art_sec
+```
+
+**Parámetros de consulta:**
+- `codigo` - Filtro por código de artículo
+- `nombre` - Filtro por nombre
+- `inv_gru_cod` - Filtro por categoría
+- `inv_sub_gru_cod` - Filtro por subcategoría
+- `tieneExistencia` - Filtro por existencia
+- `PageNumber` - Número de página
+- `PageSize` - Tamaño de página
+
+**Estado:** ✅ REQUIERE ACTUALIZACIÓN
+
+1.2. ARTÍCULO INDIVIDUAL - GET /api/articulos/:id_articulo
+---------------------------------------------------------
+**Archivo:** `routes/articulosRoutes.js` → `controllers/articulosController.js` → `models/articulosModel.js`
+
+**Endpoint:** `GET /api/articulos/:id_articulo`
+**Función:** `getArticulo()`
+
+**Consulta actual:**
+```sql
+SELECT 
+    a.art_sec,
+    a.art_cod,
+    a.art_nom,
+    g.inv_gru_cod,
+    s.inv_sub_gru_cod,
+    a.art_woo_id,
+    ad1.art_bod_pre AS precio_detal,      -- ← CONSULTA PRECIO
+    ad2.art_bod_pre AS precio_mayor,      -- ← CONSULTA PRECIO
+    a.art_woo_sync_status,
+    a.art_woo_sync_message
+FROM dbo.articulos a
+    LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
+    left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
+    LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
+    LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+WHERE a.art_sec = @art_sec
+```
+
+**Estado:** ✅ REQUIERE ACTUALIZACIÓN
+
+1.3. ARTÍCULO POR CÓDIGO - GET /api/articulos/articulo/:art_cod
+---------------------------------------------------------------
+**Archivo:** `routes/articulosRoutes.js` → `controllers/articulosController.js` → `models/articulosModel.js`
+
+**Endpoint:** `GET /api/articulos/articulo/:art_cod`
+**Función:** `getArticuloByArtCod()`
+
+**Consulta actual:**
+```sql
+SELECT 
+    a.art_sec, 
+    a.art_cod, 
+    a.art_nom, 
+    e.existencia,
+    a.art_woo_sync_status,
+    a.art_woo_sync_message
+FROM dbo.articulos a
+    left join dbo.vwExistencias e on e.art_sec = a.art_sec
+WHERE a.art_cod = @art_cod
+```
+
+**Estado:** ❌ NO CONSULTA PRECIOS (solo información básica)
+
+2. ENDPOINTS DE PEDIDOS/ÓRDENES
+-------------------------------
+
+2.1. OBTENER PEDIDO - GET /api/order/:fac_nro
+---------------------------------------------
+**Archivo:** `routes/orderRoutes.js` → `controllers/orderController.js` → `models/orderModel.js`
+
+**Endpoint:** `GET /api/order/:fac_nro`
+**Función:** `getOrder()`
+
+**Consulta actual:**
+```sql
+SELECT 
+    fd.*,
+    ad1.art_bod_pre AS precio_detal,      -- ← CONSULTA PRECIO
+    ad2.art_bod_pre AS precio_mayor,      -- ← CONSULTA PRECIO
+    vw.existencia,
+    a.art_cod,
+    a.art_nom,
+    a.art_url_img_servi
+FROM dbo.facturakardes fd
+    INNER JOIN dbo.articulos a ON fd.art_sec = a.art_sec
+    LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
+    LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+    LEFT JOIN dbo.vwExistencias vw ON a.art_sec = vw.art_sec
+WHERE fd.fac_sec = @fac_sec
+```
+
+**Estado:** ✅ REQUIERE ACTUALIZACIÓN
+
+2.2. LISTAR PEDIDOS - GET /api/order
+------------------------------------
+**Archivo:** `routes/orderRoutes.js` → `controllers/orderController.js` → `models/orderModel.js`
+
+**Endpoint:** `GET /api/order`
+**Función:** `getOrdenes()`
+
+**Estado:** ❌ NO CONSULTA PRECIOS (solo información de encabezados)
+
+3. ENDPOINTS DE SINCRONIZACIÓN WOOCOMMERCE
+-----------------------------------------
+
+3.1. SINCRONIZAR PRODUCTOS WOO - POST /api/woo/sync
+--------------------------------------------------
+**Archivo:** `routes/wooSyncRoutes.js` → `controllers/wooSyncController.js`
+
+**Endpoint:** `POST /api/woo/sync`
+**Función:** `syncWooProducts()`
+
+**Consulta actual:**
+```sql
+-- Actualiza precios en ArticuloHook basado en precios de WooCommerce
+UPDATE ArticuloHook 
+SET ArtHookDetal = @ArtHookDetal,    -- ← PRECIO DETAL
+    ArtHookMayor = @ArtHookMayor     -- ← PRECIO MAYOR
+WHERE ArtHookCod = @ArtHookCod
+```
+
+**Estado:** ✅ REQUIERE ACTUALIZACIÓN (para considerar ofertas al sincronizar)
+
+3.2. SINCRONIZAR PEDIDOS WOO - POST /api/sync-orders
+---------------------------------------------------
+**Archivo:** `routes/syncWooOrdersRoutes.js` → `controllers/syncWooOrdersController.js`
+
+**Endpoint:** `POST /api/sync-orders`
+**Función:** `syncWooOrders()`
+
+**Estado:** ❌ NO CONSULTA PRECIOS DIRECTAMENTE (usa precios de WooCommerce)
+
+4. JOBS Y PROCESOS EN SEGUNDO PLANO
+-----------------------------------
+
+4.1. JOB SINCRONIZACIÓN PEDIDOS WOO
+-----------------------------------
+**Archivo:** `jobs/syncWooOrders.js`
+
+**Función:** `getWholesalePrice()`
+
+**Consulta actual:**
+```sql
+SELECT art_bod_pre 
+FROM dbo.articulosdetalle 
+WHERE art_sec = @art_sec AND lis_pre_cod = 2
+```
+
+**Estado:** ✅ REQUIERE ACTUALIZACIÓN
+
+4.2. JOB ACTUALIZACIÓN STOCK WOO
+--------------------------------
+**Archivo:** `jobs/updateWooOrderStatusAndStock.js`
+
+**Estado:** ❌ NO CONSULTA PRECIOS
+
+5. ENDPOINTS QUE NO CONSULTAN PRECIOS
+------------------------------------
+
+5.1. VENTAS - GET /api/sales
+----------------------------
+**Archivo:** `routes/salesRoutes.js` → `controllers/salesController.js`
+
+**Estado:** ❌ NO CONSULTA PRECIOS (solo resúmenes de ventas)
+
+5.2. KARDEX - GET /api/kardex/:art_cod
+-------------------------------------
+**Archivo:** `routes/kardexRoutes.js` → `models/kardexModel.js`
+
+**Estado:** ❌ NO CONSULTA PRECIOS (solo movimientos de inventario)
+
+5.3. VALIDAR ARTÍCULO - GET /api/articulos/validar
+-------------------------------------------------
+**Archivo:** `routes/articulosRoutes.js` → `controllers/articulosController.js`
+
+**Estado:** ❌ NO CONSULTA PRECIOS (solo verifica existencia)
+
+6. RESUMEN DE ENDPOINTS A ACTUALIZAR
+-----------------------------------
+
+### ✅ ENDPOINTS CRÍTICOS (requieren actualización inmediata):
+
+1. **GET /api/articulos** - Lista principal de artículos
+2. **GET /api/articulos/:id_articulo** - Artículo individual
+3. **GET /api/order/:fac_nro** - Detalle de pedido
+4. **POST /api/woo/sync** - Sincronización de productos WooCommerce
+5. **jobs/syncWooOrders.js** - Job de sincronización de pedidos
+
+### ❌ ENDPOINTS QUE NO REQUIEREN CAMBIOS:
+
+1. **GET /api/articulos/articulo/:art_cod** - Solo información básica
+2. **GET /api/order** - Solo encabezados de pedidos
+3. **POST /api/sync-orders** - Usa precios de WooCommerce
+4. **GET /api/sales** - Solo resúmenes
+5. **GET /api/kardex/:art_cod** - Solo movimientos
+6. **GET /api/articulos/validar** - Solo validación
+
+7. PLAN DE ACTUALIZACIÓN
+------------------------
+
+### FASE 1: Actualizar consultas principales
+1. Modificar `models/articulosModel.js` - función `getArticulos()`
+2. Modificar `models/articulosModel.js` - función `getArticulo()`
+3. Modificar `models/orderModel.js` - función `getOrder()`
+
+### FASE 2: Actualizar sincronización WooCommerce
+1. Modificar `controllers/wooSyncController.js` - función `syncWooProducts()`
+2. Modificar `jobs/syncWooOrders.js` - función `getWholesalePrice()`
+
+### FASE 3: Crear nuevos endpoints de ofertas
+1. Crear `models/ofertaModel.js`
+2. Crear `controllers/ofertaController.js`
+3. Crear `routes/ofertaRoutes.js`
+4. Actualizar `app.js` para incluir nuevas rutas
+
+### FASE 4: Testing y validación
+1. Probar todos los endpoints actualizados
+2. Validar que los precios con oferta se muestren correctamente
+3. Verificar integración con WooCommerce
+
+8. IMPACTO DE LOS CAMBIOS
+-------------------------
+
+### Positivo:
+- ✅ Precios automáticos con ofertas
+- ✅ Validación de precios de oferta
+- ✅ Integración completa del sistema
+- ✅ Mantenimiento de compatibilidad
+
+### Consideraciones:
+- ⚠️ Cambios en respuestas de API (nuevos campos)
+- ⚠️ Posible impacto en frontend
+- ⚠️ Necesidad de testing exhaustivo
+- ⚠️ Documentación de nuevos endpoints
+
+9. FUNCIONES SQL A CREAR
+------------------------
+
+### Función principal:
+```sql
+CREATE FUNCTION dbo.fn_GetPrecioConOferta
+(
+    @art_sec VARCHAR(30),
+    @lis_pre_cod SMALLINT,
+    @fecha_consulta DATETIME = NULL
+)
+RETURNS DECIMAL(17, 2)
+```
+
+### Función de validación:
+```sql
+CREATE FUNCTION dbo.fn_ValidarPrecioOferta
+(
+    @art_sec VARCHAR(30),
+    @precio_oferta DECIMAL(17, 2)
+)
+RETURNS TABLE
+```
+
+### Nueva tabla:
+```sql
+CREATE TABLE [dbo].[articulos_ofertas](
+    [ofe_sec] [decimal](18, 0) IDENTITY(1,1) NOT NULL,
+    [art_sec] [varchar](30) NOT NULL,
+    [ofe_precio] [decimal](17, 2) NOT NULL,
+    [ofe_fecha_inicio] [datetime] NOT NULL,
+    [ofe_fecha_fin] [datetime] NOT NULL,
+    [ofe_activa] [char](1) DEFAULT 'S',
+    -- ... otros campos
+)
+```
+
+Este análisis proporciona una guía completa para implementar el sistema de precios en oferta en todos los endpoints relevantes del proyecto. 
