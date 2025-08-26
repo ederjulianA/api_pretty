@@ -103,27 +103,77 @@ const createClient = async (clientData) => {
  * @returns {Promise<{exists: boolean, fac_sec: number, isInvoiced: boolean}>} - Información del pedido
  */
 const validateOrder = async (wooOrderNumber) => {
-    const pool = await poolPromise;
-    const result = await pool.request()
-        .input('wooOrderNumber', sql.NVarChar(50), wooOrderNumber)
-        .query(`
-            SELECT f.fac_sec,
-                   CASE WHEN EXISTS (
-                       SELECT 1 FROM dbo.facturakardes k 
-                       WHERE k.kar_fac_sec_ori = f.fac_sec
-                       AND k.kar_nat = '-'
-                       AND k.kar_uni > 0
-                   ) THEN 1 ELSE 0 END as isInvoiced
-            FROM dbo.factura f
-            WHERE TRIM(f.fac_nro_woo) = TRIM(@wooOrderNumber)
-            AND f.fac_tip_cod = 'COT'
-        `);
+    const startTime = Date.now();
+    console.log(`[${new Date().toISOString()}] 🔍 Iniciando validación de pedido: ${wooOrderNumber}`);
     
-    return {
-        exists: result.recordset.length > 0,
-        fac_sec: result.recordset.length > 0 ? result.recordset[0].fac_sec : null,
-        isInvoiced: result.recordset.length > 0 ? result.recordset[0].isInvoiced === 1 : false
-    };
+    try {
+        const pool = await poolPromise;
+        
+        // Primera consulta: verificar si existe el pedido (más simple)
+        const orderStartTime = Date.now();
+        const orderResult = await pool.request()
+            .input('wooOrderNumber', sql.NVarChar(50), wooOrderNumber)
+            .query(`
+                SELECT fac_sec, fac_tip_cod
+                FROM dbo.factura 
+                WHERE TRIM(fac_nro_woo) = TRIM(@wooOrderNumber)
+                AND fac_tip_cod = 'COT'
+            `);
+        
+        const orderTime = Date.now() - orderStartTime;
+        console.log(`[${new Date().toISOString()}] ✅ Consulta de pedido completada en ${orderTime}ms`);
+        
+        if (orderResult.recordset.length === 0) {
+            console.log(`[${new Date().toISOString()}] 📋 Pedido no encontrado`);
+            return {
+                exists: false,
+                fac_sec: null,
+                isInvoiced: false
+            };
+        }
+        
+        const facSec = orderResult.recordset[0].fac_sec;
+        console.log(`[${new Date().toISOString()}] 📋 Pedido encontrado con fac_sec: ${facSec}`);
+        
+        // Segunda consulta: verificar si está facturado (separada para mejor performance)
+        const invoiceStartTime = Date.now();
+        const invoiceResult = await pool.request()
+            .input('fac_sec', sql.Int, facSec)
+            .query(`
+                SELECT COUNT(*) as invoice_count
+                FROM dbo.facturakardes k
+                WHERE k.kar_fac_sec_ori = @fac_sec
+                AND k.kar_nat = '-'
+                AND k.kar_uni > 0
+            `);
+        
+        const invoiceTime = Date.now() - invoiceStartTime;
+        console.log(`[${new Date().toISOString()}] ✅ Consulta de facturación completada en ${invoiceTime}ms`);
+        
+        const isInvoiced = invoiceResult.recordset[0].invoice_count > 0;
+        const totalTime = Date.now() - startTime;
+        
+        console.log(`[${new Date().toISOString()}] ✅ Validación de pedido completada en ${totalTime}ms:`, {
+            exists: true,
+            fac_sec: facSec,
+            isInvoiced: isInvoiced
+        });
+        
+        return {
+            exists: true,
+            fac_sec: facSec,
+            isInvoiced: isInvoiced
+        };
+        
+    } catch (error) {
+        const totalTime = Date.now() - startTime;
+        console.error(`[${new Date().toISOString()}] ❌ Error en validateOrder después de ${totalTime}ms:`, {
+            error: error.message,
+            stack: error.stack,
+            wooOrderNumber: wooOrderNumber
+        });
+        throw error;
+    }
 };
 
 /**
@@ -876,20 +926,39 @@ export const syncWooOrders = async (req, res) => {
                 // Validar pedido
                 console.log(`[${new Date().toISOString()}] 🔍 Validando si el pedido ya existe...`);
                 const orderValidationStartTime = Date.now();
+                let orderValidation; // Declarar fuera del try
                 
-                const orderValidation = await validateOrder(orderData.number);
-                const orderValidationTime = Date.now() - orderValidationStartTime;
-                
-                console.log(`[${new Date().toISOString()}] 📋 Validación de pedido completada en ${orderValidationTime}ms:`, {
-                    exists: orderValidation.exists,
-                    fac_sec: orderValidation.fac_sec,
-                    isInvoiced: orderValidation.isInvoiced
-                });
-                
-                if (orderValidation.exists && orderValidation.isInvoiced) {
-                    console.log(`[${new Date().toISOString()}] ⚠️ Pedido ya facturado, no se puede modificar`);
-                    addMessage(messages, `Pedido ${orderData.number} Ya facturado, no se puede modificar`);
-                    continue;
+                try {
+                    // Timeout específico para validateOrder (30 segundos máximo)
+                    const validationPromise = validateOrder(orderData.number);
+                    const validationTimeoutPromise = new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error(`Timeout en validación de pedido ${orderData.number}`)), 30000);
+                    });
+                    
+                    orderValidation = await Promise.race([validationPromise, validationTimeoutPromise]);
+                    const orderValidationTime = Date.now() - orderValidationStartTime;
+                    
+                    console.log(`[${new Date().toISOString()}] 📋 Validación de pedido completada en ${orderValidationTime}ms:`, {
+                        exists: orderValidation.exists,
+                        fac_sec: orderValidation.fac_sec,
+                        isInvoiced: orderValidation.isInvoiced
+                    });
+                    
+                    if (orderValidation.exists && orderValidation.isInvoiced) {
+                        console.log(`[${new Date().toISOString()}] ⚠️ Pedido ya facturado, no se puede modificar`);
+                        addMessage(messages, `Pedido ${orderData.number} Ya facturado, no se puede modificar`);
+                        continue;
+                    }
+                    
+                } catch (validationError) {
+                    const validationErrorTime = Date.now() - orderValidationStartTime;
+                    console.error(`[${new Date().toISOString()}] ❌ Error en validación de pedido después de ${validationErrorTime}ms:`, {
+                        error: validationError.message,
+                        orderNumber: orderData.number
+                    });
+                    
+                    addMessage(messages, `Error validando pedido ${orderData.number}: ${validationError.message}`);
+                    continue; // Continuar con el siguiente pedido
                 }
 
                 // Procesar pedido
