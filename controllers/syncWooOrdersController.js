@@ -10,10 +10,15 @@ const wooCommerce = new WooCommerceRestApi({
     consumerKey: process.env.WC_CONSUMER_KEY,
     consumerSecret: process.env.WC_CONSUMER_SECRET,
     version: "wc/v3",
-    timeout: 8000,
+    timeout: 60000, // Aumentar a 60 segundos
     axiosConfig: {
         headers: {
             'Content-Type': 'application/json',
+        },
+        timeout: 60000, // Timeout adicional en axios
+        maxRedirects: 5,
+        validateStatus: function (status) {
+            return status >= 200 && status < 300; // Solo aceptar códigos 2xx
         }
     }
 });
@@ -750,12 +755,34 @@ export const syncWooOrders = async (req, res) => {
         const wooStartTime = Date.now();
         console.log(`[${new Date().toISOString()}] 📡 Enviando petición a WooCommerce API...`);
         
+        // Función para reintentar la petición a WooCommerce
+        const retryWooCommerceRequest = async (retryCount = 0, maxRetries = 3) => {
+            try {
+                const response = await wooCommerce.get('orders', {
+                    after: afterDate,
+                    before: beforeDate,
+                    status: Estado
+                });
+                return response;
+            } catch (error) {
+                if (retryCount < maxRetries && (error.code === 'ECONNABORTED' || error.message.includes('timeout'))) {
+                    const waitTime = Math.pow(2, retryCount) * 2000; // Backoff exponencial: 2s, 4s, 8s
+                    console.log(`[${new Date().toISOString()}] ⚠️ Timeout en intento ${retryCount + 1}/${maxRetries}, reintentando en ${waitTime}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                    return retryWooCommerceRequest(retryCount + 1, maxRetries);
+                }
+                throw error;
+            }
+        };
+        
         try {
-            const response = await wooCommerce.get('orders', {
-                after: afterDate,
-                before: beforeDate,
-                status: Estado
+            // Timeout específico para la petición a WooCommerce (90 segundos máximo)
+            const wooRequestPromise = retryWooCommerceRequest();
+            const wooTimeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Timeout: La petición a WooCommerce tardó más de 90 segundos')), 90000);
             });
+            
+            const response = await Promise.race([wooRequestPromise, wooTimeoutPromise]);
 
             const wooResponseTime = Date.now() - wooStartTime;
             console.log(`[${new Date().toISOString()}] ✅ WooCommerce API response recibida en ${wooResponseTime}ms`);
@@ -846,155 +873,174 @@ export const syncWooOrders = async (req, res) => {
         // Procesar cada pedido
         console.log(`[${new Date().toISOString()}] 🔄 Iniciando procesamiento de ${orders.length} pedidos...`);
         
-        for (let i = 0; i < orders.length; i++) {
-            const order = orders[i];
-            const orderStartTime = Date.now();
+        // Procesar en lotes más pequeños si hay muchos pedidos
+        const BATCH_SIZE = 10; // Procesar máximo 10 pedidos por lote
+        const totalBatches = Math.ceil(orders.length / BATCH_SIZE);
+        
+        for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+            const startIndex = batchIndex * BATCH_SIZE;
+            const endIndex = Math.min(startIndex + BATCH_SIZE, orders.length);
+            const currentBatch = orders.slice(startIndex, endIndex);
             
-            console.log(`\n[${new Date().toISOString()}] 🔄 Procesando pedido ${i + 1}/${orders.length}: #${order.number}`);
-            addMessage(messages, `Validando Pedido Woocommerce #${order.number}`);
-
-            try {
-                // Extraer datos del pedido
-                const orderData = {
-                    number: order.number,
-                    email: order.billing.email,
-                    firstName: order.billing.first_name,
-                    lastName: order.billing.last_name,
-                    phone: order.billing.phone,
-                    address: order.billing.address_1,
-                    dateCreated: order.date_created,
-                    lineItems: order.line_items,
-                    metaData: order.meta_data,
-                    observations: order.coupon_lines.length > 0 
-                        ? `Cupón de descuento (${order.coupon_lines[0].code.trim()})`
-                        : ''
-                };
-
-                console.log(`[${new Date().toISOString()}] 📋 Datos extraídos del pedido:`, {
-                    number: orderData.number,
-                    email: orderData.email,
-                    firstName: orderData.firstName,
-                    lastName: orderData.lastName,
-                    phone: orderData.phone,
-                    city: order.billing.city,
-                    lineItemsCount: orderData.lineItems?.length || 0,
-                    hasCoupon: order.coupon_lines.length > 0
-                });
-
-                // Buscar NIT en meta_data
-                const nitMeta = order.meta_data.find(meta => meta.key === 'cc_o_nit');
-                const nitIde = nitMeta ? nitMeta.value : '';
-                console.log(`[${new Date().toISOString()}] 🆔 NIT encontrado en meta_data: ${nitIde}`);
-
-                // Validar/Crear cliente
-                console.log(`[${new Date().toISOString()}] 👤 Validando cliente por email: ${orderData.email}`);
-                const clientStartTime = Date.now();
+            console.log(`\n[${new Date().toISOString()}] 📦 Procesando lote ${batchIndex + 1}/${totalBatches} (pedidos ${startIndex + 1}-${endIndex} de ${orders.length})`);
+            
+            for (let i = 0; i < currentBatch.length; i++) {
+                const order = currentBatch[i];
+                const globalIndex = startIndex + i;
+                const orderStartTime = Date.now();
                 
-                const clientValidation = await validateClientByEmail(orderData.email);
-                let nitSec;
+                console.log(`\n[${new Date().toISOString()}] 🔄 Procesando pedido ${globalIndex + 1}/${orders.length}: #${order.number}`);
+                addMessage(messages, `Validando Pedido Woocommerce #${order.number}`);
 
-                if (!clientValidation.exists) {
-                    console.log(`[${new Date().toISOString()}] 🆕 Cliente no existe, creando nuevo cliente...`);
-                    addMessage(messages, `Cliente con Identificación ${nitIde} no existe, Creando...`);
-                    
-                    const cityStartTime = Date.now();
-                    const cityCode = await findCity(order.billing.city);
-                    const cityTime = Date.now() - cityStartTime;
-                    console.log(`[${new Date().toISOString()}] 🏙️ Ciudad procesada en ${cityTime}ms: ${order.billing.city} -> ${cityCode}`);
-                    
-                    const createClientStartTime = Date.now();
-                    nitSec = await createClient({
-                        nit_ide: nitIde,
-                        nit_nom: `${orderData.firstName} ${orderData.lastName}`,
-                        nit_tel: orderData.phone,
-                        nit_email: orderData.email,
-                        nit_dir: orderData.address,
-                        nit_ciudad: order.billing.city,
-                        ciu_cod: cityCode
-                    });
-                    const createClientTime = Date.now() - createClientStartTime;
-                    console.log(`[${new Date().toISOString()}] ✅ Cliente creado en ${createClientTime}ms con nit_sec: ${nitSec}`);
-                } else {
-                    nitSec = clientValidation.nit_sec;
-                    console.log(`[${new Date().toISOString()}] ✅ Cliente existente encontrado con nit_sec: ${nitSec}`);
-                    addMessage(messages, `Cliente con Identificación ${nitIde} ya existe, Actualizando...`);
-                }
-                
-                const clientTime = Date.now() - clientStartTime;
-                console.log(`[${new Date().toISOString()}] ✅ Cliente procesado en ${clientTime}ms`);
-
-                // Validar pedido
-                console.log(`[${new Date().toISOString()}] 🔍 Validando si el pedido ya existe...`);
-                const orderValidationStartTime = Date.now();
-                let orderValidation; // Declarar fuera del try
-                
                 try {
-                    // Timeout específico para validateOrder (30 segundos máximo)
-                    const validationPromise = validateOrder(orderData.number);
-                    const validationTimeoutPromise = new Promise((_, reject) => {
-                        setTimeout(() => reject(new Error(`Timeout en validación de pedido ${orderData.number}`)), 30000);
+                    // Extraer datos del pedido
+                    const orderData = {
+                        number: order.number,
+                        email: order.billing.email,
+                        firstName: order.billing.first_name,
+                        lastName: order.billing.last_name,
+                        phone: order.billing.phone,
+                        address: order.billing.address_1,
+                        dateCreated: order.date_created,
+                        lineItems: order.line_items,
+                        metaData: order.meta_data,
+                        observations: order.coupon_lines.length > 0 
+                            ? `Cupón de descuento (${order.coupon_lines[0].code.trim()})`
+                            : ''
+                    };
+
+                    console.log(`[${new Date().toISOString()}] 📋 Datos extraídos del pedido:`, {
+                        number: orderData.number,
+                        email: orderData.email,
+                        firstName: orderData.firstName,
+                        lastName: orderData.lastName,
+                        phone: orderData.phone,
+                        city: order.billing.city,
+                        lineItemsCount: orderData.lineItems?.length || 0,
+                        hasCoupon: order.coupon_lines.length > 0
                     });
+
+                    // Buscar NIT en meta_data
+                    const nitMeta = order.meta_data.find(meta => meta.key === 'cc_o_nit');
+                    const nitIde = nitMeta ? nitMeta.value : '';
+                    console.log(`[${new Date().toISOString()}] 🆔 NIT encontrado en meta_data: ${nitIde}`);
+
+                    // Validar/Crear cliente
+                    console.log(`[${new Date().toISOString()}] 👤 Validando cliente por email: ${orderData.email}`);
+                    const clientStartTime = Date.now();
                     
-                    orderValidation = await Promise.race([validationPromise, validationTimeoutPromise]);
-                    const orderValidationTime = Date.now() - orderValidationStartTime;
-                    
-                    console.log(`[${new Date().toISOString()}] 📋 Validación de pedido completada en ${orderValidationTime}ms:`, {
-                        exists: orderValidation.exists,
-                        fac_sec: orderValidation.fac_sec,
-                        isInvoiced: orderValidation.isInvoiced
-                    });
-                    
-                    if (orderValidation.exists && orderValidation.isInvoiced) {
-                        console.log(`[${new Date().toISOString()}] ⚠️ Pedido ya facturado, no se puede modificar`);
-                        addMessage(messages, `Pedido ${orderData.number} Ya facturado, no se puede modificar`);
-                        continue;
+                    const clientValidation = await validateClientByEmail(orderData.email);
+                    let nitSec;
+
+                    if (!clientValidation.exists) {
+                        console.log(`[${new Date().toISOString()}] 🆕 Cliente no existe, creando nuevo cliente...`);
+                        addMessage(messages, `Cliente con Identificación ${nitIde} no existe, Creando...`);
+                        
+                        const cityStartTime = Date.now();
+                        const cityCode = await findCity(order.billing.city);
+                        const cityTime = Date.now() - cityStartTime;
+                        console.log(`[${new Date().toISOString()}] 🏙️ Ciudad procesada en ${cityTime}ms: ${order.billing.city} -> ${cityCode}`);
+                        
+                        const createClientStartTime = Date.now();
+                        nitSec = await createClient({
+                            nit_ide: nitIde,
+                            nit_nom: `${orderData.firstName} ${orderData.lastName}`,
+                            nit_tel: orderData.phone,
+                            nit_email: orderData.email,
+                            nit_dir: orderData.address,
+                            nit_ciudad: order.billing.city,
+                            ciu_cod: cityCode
+                        });
+                        const createClientTime = Date.now() - createClientStartTime;
+                        console.log(`[${new Date().toISOString()}] ✅ Cliente creado en ${createClientTime}ms con nit_sec: ${nitSec}`);
+                    } else {
+                        nitSec = clientValidation.nit_sec;
+                        console.log(`[${new Date().toISOString()}] ✅ Cliente existente encontrado con nit_sec: ${nitSec}`);
+                        addMessage(messages, `Cliente con Identificación ${nitIde} ya existe, Actualizando...`);
                     }
                     
-                } catch (validationError) {
-                    const validationErrorTime = Date.now() - orderValidationStartTime;
-                    console.error(`[${new Date().toISOString()}] ❌ Error en validación de pedido después de ${validationErrorTime}ms:`, {
-                        error: validationError.message,
-                        orderNumber: orderData.number
+                    const clientTime = Date.now() - clientStartTime;
+                    console.log(`[${new Date().toISOString()}] ✅ Cliente procesado en ${clientTime}ms`);
+
+                    // Validar pedido
+                    console.log(`[${new Date().toISOString()}] 🔍 Validando si el pedido ya existe...`);
+                    const orderValidationStartTime = Date.now();
+                    let orderValidation; // Declarar fuera del try
+                    
+                    try {
+                        // Timeout específico para validateOrder (30 segundos máximo)
+                        const validationPromise = validateOrder(orderData.number);
+                        const validationTimeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error(`Timeout en validación de pedido ${orderData.number}`)), 30000);
+                        });
+                        
+                        orderValidation = await Promise.race([validationPromise, validationTimeoutPromise]);
+                        const orderValidationTime = Date.now() - orderValidationStartTime;
+                        
+                        console.log(`[${new Date().toISOString()}] 📋 Validación de pedido completada en ${orderValidationTime}ms:`, {
+                            exists: orderValidation.exists,
+                            fac_sec: orderValidation.fac_sec,
+                            isInvoiced: orderValidation.isInvoiced
+                        });
+                        
+                        if (orderValidation.exists && orderValidation.isInvoiced) {
+                            console.log(`[${new Date().toISOString()}] ⚠️ Pedido ya facturado, no se puede modificar`);
+                            addMessage(messages, `Pedido ${orderData.number} Ya facturado, no se puede modificar`);
+                            continue;
+                        }
+                        
+                    } catch (validationError) {
+                        const validationErrorTime = Date.now() - orderValidationStartTime;
+                        console.error(`[${new Date().toISOString()}] ❌ Error en validación de pedido después de ${validationErrorTime}ms:`, {
+                            error: validationError.message,
+                            orderNumber: orderData.number
+                        });
+                        
+                        addMessage(messages, `Error validando pedido ${orderData.number}: ${validationError.message}`);
+                        continue; // Continuar con el siguiente pedido
+                    }
+
+                    // Procesar pedido
+                    const processOrderStartTime = Date.now();
+                    
+                    if (orderValidation.exists) {
+                        console.log(`[${new Date().toISOString()}] 🔄 Actualizando pedido existente...`);
+                        addMessage(messages, `Actualizando Pedido ${orderData.number}`);
+                        
+                        await updateOrder(orderData, orderValidation.fac_sec, usuario);
+                        const updateTime = Date.now() - processOrderStartTime;
+                        console.log(`[${new Date().toISOString()}] ✅ Pedido actualizado en ${updateTime}ms`);
+                    } else {
+                        console.log(`[${new Date().toISOString()}] 🆕 Creando nuevo pedido...`);
+                        addMessage(messages, `Creando Pedido ${orderData.number}`);
+                        
+                        await createOrder(orderData, nitSec, usuario);
+                        const createTime = Date.now() - processOrderStartTime;
+                        console.log(`[${new Date().toISOString()}] ✅ Pedido creado en ${createTime}ms`);
+                    }
+                    
+                    const orderTotalTime = Date.now() - orderStartTime;
+                    console.log(`[${new Date().toISOString()}] ✅ Pedido #${orderData.number} procesado completamente en ${orderTotalTime}ms`);
+                    
+                    addMessage(messages, `Pedido #${orderData.number} actualizado exitosamente`);
+                    
+                } catch (orderError) {
+                    const orderErrorTime = Date.now() - orderStartTime;
+                    console.error(`[${new Date().toISOString()}] ❌ Error procesando pedido #${order.number} después de ${orderErrorTime}ms:`, {
+                        error: orderError.message,
+                        stack: orderError.stack,
+                        orderNumber: order.number
                     });
                     
-                    addMessage(messages, `Error validando pedido ${orderData.number}: ${validationError.message}`);
+                    addMessage(messages, `Error procesando pedido #${order.number}: ${orderError.message}`);
                     continue; // Continuar con el siguiente pedido
                 }
-
-                // Procesar pedido
-                const processOrderStartTime = Date.now();
-                
-                if (orderValidation.exists) {
-                    console.log(`[${new Date().toISOString()}] 🔄 Actualizando pedido existente...`);
-                    addMessage(messages, `Actualizando Pedido ${orderData.number}`);
-                    
-                    await updateOrder(orderData, orderValidation.fac_sec, usuario);
-                    const updateTime = Date.now() - processOrderStartTime;
-                    console.log(`[${new Date().toISOString()}] ✅ Pedido actualizado en ${updateTime}ms`);
-                } else {
-                    console.log(`[${new Date().toISOString()}] 🆕 Creando nuevo pedido...`);
-                    addMessage(messages, `Creando Pedido ${orderData.number}`);
-                    
-                    await createOrder(orderData, nitSec, usuario);
-                    const createTime = Date.now() - processOrderStartTime;
-                    console.log(`[${new Date().toISOString()}] ✅ Pedido creado en ${createTime}ms`);
-                }
-                
-                const orderTotalTime = Date.now() - orderStartTime;
-                console.log(`[${new Date().toISOString()}] ✅ Pedido #${orderData.number} procesado completamente en ${orderTotalTime}ms`);
-                
-                addMessage(messages, `Pedido #${orderData.number} actualizado exitosamente`);
-                
-            } catch (orderError) {
-                const orderErrorTime = Date.now() - orderStartTime;
-                console.error(`[${new Date().toISOString()}] ❌ Error procesando pedido #${order.number} después de ${orderErrorTime}ms:`, {
-                    error: orderError.message,
-                    stack: orderError.stack,
-                    orderNumber: order.number
-                });
-                
-                addMessage(messages, `Error procesando pedido #${order.number}: ${orderError.message}`);
-                continue; // Continuar con el siguiente pedido
+            }
+            
+            // Pausa entre lotes para no sobrecargar la base de datos
+            if (batchIndex < totalBatches - 1) {
+                console.log(`[${new Date().toISOString()}] ⏸️ Pausa de 3 segundos entre lotes...`);
+                await new Promise(resolve => setTimeout(resolve, 3000));
             }
         }
 
