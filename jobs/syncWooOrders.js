@@ -230,196 +230,373 @@ const extractNitSec = async (wooOrder) => {
 const syncWooOrders = async (status, after, before) => {
   const messages = [];
   const startTime = Date.now();
+  const BATCH_SIZE = 20; // Procesar solo 20 pedidos a la vez
+  
   try {
     console.log(`[${new Date().toISOString()}] Iniciando sincronización de pedidos`);
+    console.log(`[${new Date().toISOString()}] Parámetros de búsqueda:`, { status, after, before, BATCH_SIZE });
+    
     const orderStatus = status && status.trim() !== "" ? status.trim() : "on-hold";
 
-    const params = { per_page: 100, status: orderStatus };
+    const params = { per_page: BATCH_SIZE, status: orderStatus };
     if (after && after.trim() !== "") params.after = after.trim();
     if (before && before.trim() !== "") params.before = before.trim();
+    
+    console.log(`[${new Date().toISOString()}] Parámetros enviados a WooCommerce API:`, params);
 
     // Medición tiempo respuesta WooCommerce
     const wooStartTime = Date.now();
-    const response = await wcApi.get("orders", params);
-    const orders = response.data;
-    console.log(`[${new Date().toISOString()}] WooCommerce API response time: ${Date.now() - wooStartTime}ms - Orders found: ${orders.length}`);
-    messages.push(`Se encontraron ${orders.length} pedidos en WooCommerce`);
+    console.log(`[${new Date().toISOString()}] 🔄 Enviando petición a WooCommerce API...`);
+    
+    try {
+      const response = await wcApi.get("orders", params);
+      const wooResponseTime = Date.now() - wooStartTime;
+      
+      console.log(`[${new Date().toISOString()}] ✅ WooCommerce API response recibida en ${wooResponseTime}ms`);
+      console.log(`[${new Date().toISOString()}] 📊 Headers de respuesta:`, {
+        'x-wp-total': response.headers['x-wp-total'],
+        'x-wp-totalpages': response.headers['x-wp-totalpages'],
+        'content-type': response.headers['content-type'],
+        'status': response.status
+      });
+      
+      const orders = response.data;
+      console.log(`[${new Date().toISOString()}] 📦 Pedidos recibidos: ${orders.length}`);
+      
+      // Log detallado del primer pedido para verificar estructura
+      if (orders.length > 0) {
+        console.log(`[${new Date().toISOString()}] 🔍 Estructura del primer pedido:`, {
+          number: orders[0].number,
+          status: orders[0].status,
+          date_created: orders[0].date_created,
+          total: orders[0].total,
+          line_items_count: orders[0].line_items?.length || 0,
+          billing: {
+            email: orders[0].billing?.email,
+            first_name: orders[0].billing?.first_name,
+            last_name: orders[0].billing?.last_name,
+            city: orders[0].billing?.city
+          },
+          meta_data_count: orders[0].meta_data?.length || 0,
+          coupon_lines_count: orders[0].coupon_lines?.length || 0
+        });
+        
+        // Log de meta_data para debugging
+        if (orders[0].meta_data && orders[0].meta_data.length > 0) {
+          console.log(`[${new Date().toISOString()}] 🏷️ Meta data del primer pedido:`, 
+            orders[0].meta_data.map(meta => ({ key: meta.key, value: meta.value }))
+          );
+        }
+      }
+      
+      messages.push(`Se encontraron ${orders.length} pedidos en WooCommerce`);
+      messages.push(`Tiempo de respuesta WooCommerce: ${wooResponseTime}ms`);
 
-    // Procesar cada orden
-    for (const wooOrder of orders) {
+    } catch (wooError) {
+      const wooErrorTime = Date.now() - wooStartTime;
+      console.error(`[${new Date().toISOString()}] ❌ Error en WooCommerce API después de ${wooErrorTime}ms:`, {
+        message: wooError.message,
+        code: wooError.code,
+        status: wooError.response?.status,
+        statusText: wooError.response?.statusText,
+        data: wooError.response?.data,
+        headers: wooError.response?.headers
+      });
+      
+      messages.push(`Error en WooCommerce API: ${wooError.message}`);
+      throw wooError;
+    }
+
+    // Procesar cada orden con timeout individual
+    for (let i = 0; i < orders.length; i++) {
+      const wooOrder = orders[i];
       const orderStartTime = Date.now();
       const fac_nro_woo = wooOrder.number.trim().toLowerCase();
-      console.log(`\n[${new Date().toISOString()}] Iniciando procesamiento de pedido ${fac_nro_woo}`);
-
-      // Medición tiempo búsqueda/creación cliente
-      const clientStartTime = Date.now();
-      let nit_sec = await extractNitSec(wooOrder);
-      let nitIde = "";
-      if (wooOrder.meta_data && Array.isArray(wooOrder.meta_data)) {
-        const metaNit = wooOrder.meta_data.find(meta => meta.key === "cc_o_nit");
-        if (metaNit && metaNit.value) nitIde = metaNit.value;
-      }
-      nit_sec = await getNitSec(nitIde);
-      const ciu_cod = await getCiuCod(wooOrder.billing.city);
-      console.log(`[${new Date().toISOString()}] Tiempo búsqueda cliente: ${Date.now() - clientStartTime}ms`);
-
-      // Medición tiempo creación cliente si es necesario
-      if (!nit_sec) {
-        const createClientStartTime = Date.now();
-        const newCustomer = {
-          nit_ide: nitIde,
-          nit_nom: `${wooOrder.billing.first_name} ${wooOrder.billing.last_name}`.trim(),
-          nit_tel: wooOrder.billing.phone || '',
-          nit_dir: wooOrder.billing.address_1,
-          nit_email: wooOrder.billing.email,
-          ciu_cod: ciu_cod || ''
-        };
-
-        try {
-          const ObjetoNit_sec = await createNit(newCustomer);
-          nit_sec = ObjetoNit_sec.nit_sec;
-          console.log(`[${new Date().toISOString()}] Tiempo creación cliente: ${Date.now() - createClientStartTime}ms`);
-        } catch (error) {
-          console.error(`[${new Date().toISOString()}] Error creación cliente: ${error.message}`);
-          messages.push(`Error creando cliente para ${wooOrder.billing.email}. Se omite el pedido ${fac_nro_woo}`);
-          continue;
-        }
-      }
-
-      // Medición tiempo procesamiento detalles
-      const detailsStartTime = Date.now();
-      const detalles = await Promise.all(
-        wooOrder.line_items.map(async (item) => {
-          const artStartTime = Date.now();
-          const art_sec = await getArticuloInfo(item.sku);
-          console.log(`[${new Date().toISOString()}] Tiempo búsqueda artículo ${item.sku}: ${Date.now() - artStartTime}ms`);
-          
-          // Obtener información de promociones del artículo en la fecha del pedido
-          const promocionInfo = art_sec ? await getArticuloPromocionInfo(art_sec, wooOrder.date_created) : null;
-          
-          // Obtener precios base del artículo (para casos donde no hay promoción o artículo no encontrado)
-          const preciosBase = art_sec ? await getArticuloPreciosBase(art_sec) : { precio_detal_original: 0, precio_mayor_original: 0 };
-          
-          if (promocionInfo && promocionInfo.tiene_oferta === 'S') {
-            console.log(`[${new Date().toISOString()}] Artículo ${item.sku} tiene promoción activa: ${promocionInfo.codigo_promocion}`);
-          }
-          
-          // Log detallado de la información de promociones
-          console.log(`[${new Date().toISOString()}] Información de promociones para ${item.sku}:`, {
-            art_sec: art_sec,
-            tiene_oferta: promocionInfo ? promocionInfo.tiene_oferta : 'N',
-            codigo_promocion: promocionInfo ? promocionInfo.codigo_promocion : null,
-            precio_oferta: promocionInfo ? promocionInfo.precio_oferta : null,
-            descuento_porcentaje: promocionInfo ? promocionInfo.descuento_porcentaje : null
-          });
-          
-          // Determinar los precios finales para facturakardes
-          let precioDetalFinal = 0;
-          let precioMayorFinal = 0;
-          
-          if (promocionInfo) {
-            // Si tenemos información de promociones, usar esos precios
-            precioDetalFinal = promocionInfo.precio_detal_original;
-            precioMayorFinal = promocionInfo.precio_mayor_original;
-          } else if (art_sec) {
-            // Si no hay promoción pero el artículo existe, usar precios base
-            precioDetalFinal = preciosBase.precio_detal_original;
-            precioMayorFinal = preciosBase.precio_mayor_original;
-          }
-          // Si no hay art_sec, los precios quedan en 0
-          
-          console.log(`[${new Date().toISOString()}] Precios finales para ${item.sku}:`, {
-            art_sec: art_sec,
-            precioDetalFinal: precioDetalFinal,
-            precioMayorFinal: precioMayorFinal,
-            tienePromocion: !!promocionInfo,
-            tieneArticulo: !!art_sec
-          });
-          
-          return {
-            art_sec,
-            kar_uni: item.quantity,
-            kar_pre_pub: (item.subtotal / item.quantity),
-            kar_lis_pre_cod: null,
-            kar_kar_sec_ori: null,
-            kar_fac_sec_ori: null,
-            // Información de promociones para facturakardes
-            kar_pre_pub_detal: precioDetalFinal,
-            kar_pre_pub_mayor: precioMayorFinal,
-            kar_tiene_oferta: promocionInfo ? promocionInfo.tiene_oferta : 'N',
-            kar_precio_oferta: promocionInfo ? promocionInfo.precio_oferta : null,
-            kar_descuento_porcentaje: promocionInfo ? promocionInfo.descuento_porcentaje : null,
-            kar_codigo_promocion: promocionInfo ? promocionInfo.codigo_promocion : null,
-            kar_descripcion_promocion: promocionInfo ? promocionInfo.descripcion_promocion : null
-          };
-        })
-      );
-      console.log(`[${new Date().toISOString()}] Tiempo total procesamiento detalles: ${Date.now() - detailsStartTime}ms`);
       
-      // Log para verificar que los detalles incluyen información de promociones
-      const detallesConPromociones = detalles.filter(d => d.kar_tiene_oferta === 'S');
-      console.log(`[${new Date().toISOString()}] Detalles procesados: ${detalles.length}, con promociones: ${detallesConPromociones.length}`);
-      if (detallesConPromociones.length > 0) {
-        console.log(`[${new Date().toISOString()}] Artículos con promociones:`, detallesConPromociones.map(d => ({
-          art_sec: d.art_sec,
-          codigo_promocion: d.kar_codigo_promocion,
-          precio_oferta: d.kar_precio_oferta,
-          descuento_porcentaje: d.kar_descuento_porcentaje
-        })));
-      }
+      console.log(`\n[${new Date().toISOString()}] 🔄 Procesando pedido ${i + 1}/${orders.length}: ${fac_nro_woo}`);
+      console.log(`[${new Date().toISOString()}] 📋 Información del pedido:`, {
+        status: wooOrder.status,
+        total: wooOrder.total,
+        currency: wooOrder.currency,
+        payment_method: wooOrder.payment_method,
+        payment_method_title: wooOrder.payment_method_title,
+        line_items: wooOrder.line_items?.map(item => ({
+          sku: item.sku,
+          name: item.name,
+          quantity: item.quantity,
+          total: item.total,
+          subtotal: item.subtotal
+        }))
+      });
 
-      // Medición tiempo verificación orden existente
-      const checkOrderStartTime = Date.now();
-      const existingOrder = await checkOrderExists(fac_nro_woo);
-      const totalMayor = existingOrder ? await getWholesaleTotalByOrder(existingOrder.fac_nro) : 0;
-      console.log(`[${new Date().toISOString()}] Tiempo verificación orden existente: ${Date.now() - checkOrderStartTime}ms`);
-
-      // Medición tiempo actualización/creación orden
-      const saveOrderStartTime = Date.now();
-      if (existingOrder) {
-        const isFactured = await checkIfOrderFactured(existingOrder.fac_sec);
-        if (!isFactured) {
-          await updateOrder({
-            fac_nro: existingOrder.fac_nro,
-            fac_tip_cod: existingOrder.fac_tip_cod,
-            fac_nro_woo,
-            nit_sec: existingOrder.nit_sec,
-            fac_obs: wooOrder.coupon_lines?.length ? `Cupón: ${wooOrder.coupon_lines.map(c => c.code).join(", ")}` : "",
-            fac_fec: wooOrder.date_created,
-            fac_est_fac: 'A',
-            detalles,
-            descuento: wooOrder.coupon_lines?.[0]?.meta_data?.find(m => m.key === "coupon_data")?.value?.amount || 0
-          });
-          console.log(`[${new Date().toISOString()}] Tiempo actualización orden: ${Date.now() - saveOrderStartTime}ms`);
-        }
-      } else {
-        await createCompleteOrder({
-          nit_sec,
-          fac_usu_cod_cre: wooOrder.customer_id?.toString() || '',
-          fac_tip_cod: "COT",
-          fac_nro_woo,
-          fac_obs: wooOrder.coupon_lines?.length ? `Cupón: ${wooOrder.coupon_lines.map(c => c.code).join(", ")}` : "",
-          detalles,
-          descuento: wooOrder.coupon_lines?.[0]?.meta_data?.find(m => m.key === "coupon_data")?.value?.amount || 0,
-          fac_fec: wooOrder.date_created,
-          lis_pre_cod: totalMayor > 100000 ? 2 : 1
+      try {
+        // Timeout individual para cada pedido (2 minutos máximo)
+        const orderPromise = processOrder(wooOrder, messages);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error(`Timeout procesando pedido ${fac_nro_woo}`)), 120000);
         });
-        console.log(`[${new Date().toISOString()}] Tiempo creación orden: ${Date.now() - saveOrderStartTime}ms`);
-      }
 
-      console.log(`[${new Date().toISOString()}] Tiempo total procesamiento pedido ${fac_nro_woo}: ${Date.now() - orderStartTime}ms\n`);
+        await Promise.race([orderPromise, timeoutPromise]);
+        
+        const orderTotalTime = Date.now() - orderStartTime;
+        console.log(`[${new Date().toISOString()}] ✅ Pedido ${fac_nro_woo} procesado exitosamente en ${orderTotalTime}ms\n`);
+        
+      } catch (orderError) {
+        const orderErrorTime = Date.now() - orderStartTime;
+        console.error(`[${new Date().toISOString()}] ❌ Error procesando pedido ${fac_nro_woo} después de ${orderErrorTime}ms:`, {
+          error: orderError.message,
+          stack: orderError.stack
+        });
+        messages.push(`Error procesando pedido ${fac_nro_woo}: ${orderError.message}`);
+        continue; // Continuar con el siguiente pedido
+      }
     }
 
     const totalTime = Date.now() - startTime;
-    console.log(`[${new Date().toISOString()}] Sincronización completada. Tiempo total: ${totalTime}ms`);
+    console.log(`[${new Date().toISOString()}] 🎉 Sincronización completada. Tiempo total: ${totalTime}ms`);
+    console.log(`[${new Date().toISOString()}] 📈 Resumen:`, {
+      total_orders: orders.length,
+      total_time: totalTime,
+      average_time_per_order: Math.round(totalTime / orders.length),
+      messages_count: messages.length
+    });
+    
     messages.push(`Sincronización completada en ${totalTime}ms`);
     return messages;
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`[${new Date().toISOString()}] Error en sincronización después de ${totalTime}ms:`, error);
+    console.error(`[${new Date().toISOString()}] 💥 Error fatal en sincronización después de ${totalTime}ms:`, {
+      error: error.message,
+      stack: error.stack,
+      total_time: totalTime
+    });
     messages.push(`Error en sincronización: ${error.message}`);
     return messages;
   }
+};
+
+// Función auxiliar para procesar un pedido individual
+const processOrder = async (wooOrder, messages) => {
+  const orderStartTime = Date.now();
+  const fac_nro_woo = wooOrder.number.trim().toLowerCase();
+  
+  console.log(`[${new Date().toISOString()}] 🚀 Iniciando procesamiento detallado del pedido ${fac_nro_woo}`);
+  
+  // Medición tiempo búsqueda/creación cliente
+  const clientStartTime = Date.now();
+  console.log(`[${new Date().toISOString()}] 👤 Buscando cliente por email: ${wooOrder.billing.email}`);
+  
+  let nit_sec = await extractNitSec(wooOrder);
+  let nitIde = "";
+  if (wooOrder.meta_data && Array.isArray(wooOrder.meta_data)) {
+    const metaNit = wooOrder.meta_data.find(meta => meta.key === "cc_o_nit");
+    if (metaNit && metaNit.value) nitIde = metaNit.value;
+    console.log(`[${new Date().toISOString()}] 🆔 NIT encontrado en meta_data: ${nitIde}`);
+  }
+  
+  nit_sec = await getNitSec(nitIde);
+  const ciu_cod = await getCiuCod(wooOrder.billing.city);
+  
+  const clientTime = Date.now() - clientStartTime;
+  console.log(`[${new Date().toISOString()}] ✅ Cliente procesado en ${clientTime}ms:`, {
+    nit_sec: nit_sec,
+    nit_ide: nitIde,
+    ciu_cod: ciu_cod,
+    email: wooOrder.billing.email
+  });
+
+  // Medición tiempo creación cliente si es necesario
+  if (!nit_sec) {
+    const createClientStartTime = Date.now();
+    console.log(`[${new Date().toISOString()}] 🆕 Cliente no encontrado, creando nuevo cliente...`);
+    
+    const newCustomer = {
+      nit_ide: nitIde,
+      nit_nom: `${wooOrder.billing.first_name} ${wooOrder.billing.last_name}`.trim(),
+      nit_tel: wooOrder.billing.phone || '',
+      nit_dir: wooOrder.billing.address_1,
+      nit_email: wooOrder.billing.email,
+      ciu_cod: ciu_cod || ''
+    };
+    
+    console.log(`[${new Date().toISOString()}] 📝 Datos del nuevo cliente:`, newCustomer);
+
+    try {
+      const ObjetoNit_sec = await createNit(newCustomer);
+      nit_sec = ObjetoNit_sec.nit_sec;
+      const createClientTime = Date.now() - createClientStartTime;
+      console.log(`[${new Date().toISOString()}] ✅ Nuevo cliente creado en ${createClientTime}ms con nit_sec: ${nit_sec}`);
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] ❌ Error creación cliente: ${error.message}`);
+      messages.push(`Error creando cliente para ${wooOrder.billing.email}. Se omite el pedido ${fac_nro_woo}`);
+      throw error;
+    }
+  }
+
+  // Medición tiempo procesamiento detalles
+  const detailsStartTime = Date.now();
+  console.log(`[${new Date().toISOString()}] 📦 Procesando ${wooOrder.line_items?.length || 0} artículos del pedido...`);
+  
+  const detalles = await Promise.all(
+    wooOrder.line_items.map(async (item, index) => {
+      const artStartTime = Date.now();
+      console.log(`[${new Date().toISOString()}] 🔍 Procesando artículo ${index + 1}/${wooOrder.line_items.length}: ${item.sku}`);
+      
+      const art_sec = await getArticuloInfo(item.sku);
+      const artTime = Date.now() - artStartTime;
+      console.log(`[${new Date().toISOString()}] ✅ Artículo ${item.sku} procesado en ${artTime}ms:`, {
+        art_sec: art_sec,
+        name: item.name,
+        quantity: item.quantity,
+        subtotal: item.subtotal
+      });
+      
+      // Obtener información de promociones del artículo en la fecha del pedido
+      let promocionInfo = null;
+      if (art_sec) {
+        const promocionStartTime = Date.now();
+        promocionInfo = await getArticuloPromocionInfo(art_sec, wooOrder.date_created);
+        const promocionTime = Date.now() - promocionStartTime;
+        console.log(`[${new Date().toISOString()}] 🎯 Información de promociones obtenida en ${promocionTime}ms:`, {
+          tiene_oferta: promocionInfo?.tiene_oferta,
+          codigo_promocion: promocionInfo?.codigo_promocion,
+          precio_oferta: promocionInfo?.precio_oferta,
+          descuento_porcentaje: promocionInfo?.descuento_porcentaje
+        });
+      }
+      
+      // Obtener precios base del artículo (para casos donde no hay promoción o artículo no encontrado)
+      let preciosBase = { precio_detal_original: 0, precio_mayor_original: 0 };
+      if (art_sec) {
+        const preciosStartTime = Date.now();
+        preciosBase = await getArticuloPreciosBase(art_sec);
+        const preciosTime = Date.now() - preciosStartTime;
+        console.log(`[${new Date().toISOString()}] 💰 Precios base obtenidos en ${preciosTime}ms:`, preciosBase);
+      }
+      
+      // Calcular precios finales
+      let precioDetalFinal = 0;
+      let precioMayorFinal = 0;
+      
+      if (art_sec && promocionInfo && promocionInfo.tiene_oferta === 'S') {
+        // Usar precio de promoción
+        precioDetalFinal = promocionInfo.precio_oferta;
+        precioMayorFinal = promocionInfo.precio_oferta;
+        console.log(`[${new Date().toISOString()}] 🎉 Aplicando precio de promoción: ${precioDetalFinal}`);
+      } else if (art_sec) {
+        // Usar precios base
+        precioDetalFinal = preciosBase.precio_detal_original;
+        precioMayorFinal = preciosBase.precio_mayor_original;
+        console.log(`[${new Date().toISOString()}] 💵 Usando precios base: detal=${precioDetalFinal}, mayor=${precioMayorFinal}`);
+      } else {
+        console.log(`[${new Date().toISOString()}] ⚠️ Artículo no encontrado, precios en 0`);
+      }
+      
+      return {
+        art_sec,
+        kar_uni: item.quantity,
+        kar_pre_pub: (item.subtotal / item.quantity),
+        kar_lis_pre_cod: null,
+        kar_kar_sec_ori: null,
+        kar_fac_sec_ori: null,
+        // Información de promociones para facturakardes
+        kar_pre_pub_detal: precioDetalFinal,
+        kar_pre_pub_mayor: precioMayorFinal,
+        kar_tiene_oferta: promocionInfo ? promocionInfo.tiene_oferta : 'N',
+        kar_precio_oferta: promocionInfo ? promocionInfo.precio_oferta : null,
+        kar_descuento_porcentaje: promocionInfo ? promocionInfo.descuento_porcentaje : null,
+        kar_codigo_promocion: promocionInfo ? promocionInfo.codigo_promocion : null,
+        kar_descripcion_promocion: promocionInfo ? promocionInfo.descripcion_promocion : null
+      };
+    })
+  );
+  
+  const detailsTime = Date.now() - detailsStartTime;
+  console.log(`[${new Date().toISOString()}] ✅ Todos los artículos procesados en ${detailsTime}ms`);
+  
+  // Log para verificar que los detalles incluyen información de promociones
+  const detallesConPromociones = detalles.filter(d => d.kar_tiene_oferta === 'S');
+  console.log(`[${new Date().toISOString()}] 📊 Resumen de detalles:`, {
+    total_detalles: detalles.length,
+    con_promociones: detallesConPromociones.length,
+    sin_promociones: detalles.length - detallesConPromociones.length
+  });
+  
+  if (detallesConPromociones.length > 0) {
+    console.log(`[${new Date().toISOString()}] 🎯 Artículos con promociones:`, detallesConPromociones.map(d => ({
+      art_sec: d.art_sec,
+      codigo_promocion: d.kar_codigo_promocion,
+      precio_oferta: d.kar_precio_oferta,
+      descuento_porcentaje: d.kar_descuento_porcentaje
+    })));
+  }
+
+  // Medición tiempo verificación orden existente
+  const checkOrderStartTime = Date.now();
+  console.log(`[${new Date().toISOString()}] 🔍 Verificando si el pedido ya existe...`);
+  
+  const existingOrder = await checkOrderExists(fac_nro_woo);
+  let totalMayor = 0;
+  
+  if (existingOrder) {
+    console.log(`[${new Date().toISOString()}] ✅ Pedido existente encontrado:`, {
+      fac_nro: existingOrder.fac_nro,
+      fac_tip_cod: existingOrder.fac_tip_cod,
+      nit_sec: existingOrder.nit_sec
+    });
+    totalMayor = await getWholesaleTotalByOrder(existingOrder.fac_nro);
+    console.log(`[${new Date().toISOString()}] 💰 Total al mayor calculado: ${totalMayor}`);
+  } else {
+    console.log(`[${new Date().toISOString()}] 🆕 Pedido no existe, será creado`);
+  }
+  
+  const checkOrderTime = Date.now() - checkOrderStartTime;
+  console.log(`[${new Date().toISOString()}] ✅ Verificación de pedido completada en ${checkOrderTime}ms`);
+
+  // Medición tiempo actualización/creación orden
+  const saveOrderStartTime = Date.now();
+  
+  if (existingOrder) {
+    const isFactured = await checkIfOrderFactured(existingOrder.fac_sec);
+    console.log(`[${new Date().toISOString()}] 📋 Estado de facturación: ${isFactured ? 'Facturado' : 'No facturado'}`);
+    
+    if (!isFactured) {
+      console.log(`[${new Date().toISOString()}] 🔄 Actualizando pedido existente...`);
+      await updateOrder({
+        fac_nro: existingOrder.fac_nro,
+        fac_tip_cod: existingOrder.fac_tip_cod,
+        fac_nro_woo,
+        nit_sec: existingOrder.nit_sec,
+        fac_obs: wooOrder.coupon_lines?.length ? `Cupón: ${wooOrder.coupon_lines.map(c => c.code).join(", ")}` : "",
+        fac_fec: wooOrder.date_created,
+        fac_est_fac: 'A',
+        detalles,
+        descuento: wooOrder.coupon_lines?.[0]?.meta_data?.find(m => m.key === "coupon_data")?.value?.amount || 0
+      });
+      const updateTime = Date.now() - saveOrderStartTime;
+      console.log(`[${new Date().toISOString()}] ✅ Pedido actualizado en ${updateTime}ms`);
+    } else {
+      console.log(`[${new Date().toISOString()}] ⚠️ Pedido ya facturado, no se puede actualizar`);
+    }
+  } else {
+    console.log(`[${new Date().toISOString()}] 🆕 Creando nuevo pedido...`);
+    await createCompleteOrder({
+      nit_sec,
+      fac_usu_cod_cre: wooOrder.customer_id?.toString() || '',
+      fac_tip_cod: "COT",
+      fac_nro_woo,
+      fac_obs: wooOrder.coupon_lines?.length ? `Cupón: ${wooOrder.coupon_lines.map(c => c.code).join(", ")}` : "",
+      detalles,
+      descuento: wooOrder.coupon_lines?.[0]?.meta_data?.find(m => m.key === "coupon_data")?.value?.amount || 0,
+      fac_fec: wooOrder.date_created,
+      lis_pre_cod: totalMayor > 100000 ? 2 : 1
+    });
+    const createTime = Date.now() - saveOrderStartTime;
+    console.log(`[${new Date().toISOString()}] ✅ Nuevo pedido creado en ${createTime}ms`);
+  }
+  
+  const totalOrderTime = Date.now() - orderStartTime;
+  console.log(`[${new Date().toISOString()}] 🎉 Pedido ${fac_nro_woo} procesado completamente en ${totalOrderTime}ms`);
 };
 
 module.exports = { syncWooOrders };

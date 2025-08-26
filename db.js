@@ -10,12 +10,16 @@ const config = {
   port: parseInt(process.env.DB_PORT, 10),
   options: {
     encrypt: false, // Si tu servidor requiere conexión cifrada
-    trustServerCertificate: false // En desarrollo, puede ser útil
+    trustServerCertificate: false, // En desarrollo, puede ser útil
+    requestTimeout: 300000, // 5 minutos para consultas largas
+    connectionTimeout: 60000, // 1 minuto para conexión
+    cancelTimeout: 5000 // 5 segundos para cancelar operaciones
   },
   pool: {
     max: 10,
     min: 0,
-    idleTimeoutMillis: 30000
+    idleTimeoutMillis: 30000,
+    acquireTimeoutMillis: 60000 // 1 minuto para adquirir conexión
   }
 };
 

@@ -626,7 +626,10 @@ const updateOrder = async (orderData, facSec, usuario) => {
  */
 export const syncWooOrders = async (req, res) => {
     const messages = [];
+    const startTime = Date.now();
     const today = new Date();
+    let orders = []; // Declarar orders aquí para que esté disponible en todo el scope
+    
     const { 
         FechaDesde = today.toISOString().split('T')[0],
         FechaHasta = today.toISOString().split('T')[0],
@@ -637,11 +640,20 @@ export const syncWooOrders = async (req, res) => {
     const usuario = req.user ? req.user.usu_cod : 'SISTEMA';
 
     try {
+        console.log(`[${new Date().toISOString()}] 🚀 Iniciando sincronización de pedidos WooCommerce`);
+        console.log(`[${new Date().toISOString()}] 📅 Parámetros recibidos:`, {
+            FechaDesde,
+            FechaHasta,
+            Estado,
+            usuario
+        });
+
         // Validar fechas
         const fechaDesde = new Date(FechaDesde);
         const fechaHasta = new Date(FechaHasta);
         
         if (isNaN(fechaDesde.getTime()) || isNaN(fechaHasta.getTime())) {
+            console.error(`[${new Date().toISOString()}] ❌ Fechas inválidas:`, { FechaDesde, FechaHasta });
             return res.status(400).json({
                 success: false,
                 message: 'Las fechas proporcionadas no son válidas'
@@ -649,6 +661,7 @@ export const syncWooOrders = async (req, res) => {
         }
 
         if (fechaDesde > today || fechaHasta > today) {
+            console.error(`[${new Date().toISOString()}] ❌ Fechas futuras no permitidas:`, { fechaDesde, fechaHasta, today });
             return res.status(400).json({
                 success: false,
                 message: 'No se pueden consultar pedidos con fechas futuras'
@@ -656,11 +669,14 @@ export const syncWooOrders = async (req, res) => {
         }
 
         if (fechaDesde > fechaHasta) {
+            console.error(`[${new Date().toISOString()}] ❌ Fecha inicial mayor que final:`, { fechaDesde, fechaHasta });
             return res.status(400).json({
                 success: false,
                 message: 'La fecha inicial no puede ser mayor que la fecha final'
             });
         }
+
+        console.log(`[${new Date().toISOString()}] ✅ Validación de fechas exitosa`);
 
         // Formatear fechas para WooCommerce (YYYY-MM-DDTHH:mm:ss)
         const formatDateForWoo = (dateStr, isEndDate = false) => {
@@ -671,94 +687,280 @@ export const syncWooOrders = async (req, res) => {
             }
         };
 
+        const afterDate = formatDateForWoo(FechaDesde);
+        const beforeDate = formatDateForWoo(FechaHasta, true);
+
         // Obtener pedidos de WooCommerce
-        console.log('Consultando pedidos en WooCommerce:', {
-            after: formatDateForWoo(FechaDesde),
-            before: formatDateForWoo(FechaHasta, true), 
-            status: Estado
-        });
-        const response = await wooCommerce.get('orders', {
-            after: formatDateForWoo(FechaDesde),
-            before: formatDateForWoo(FechaHasta, true),
+        console.log(`[${new Date().toISOString()}] 🔄 Consultando pedidos en WooCommerce:`, {
+            after: afterDate,
+            before: beforeDate, 
             status: Estado
         });
 
-        const orders = response.data;
-        addMessage(messages, `Se encontraron (${orders.length}) Pedidos en Woocommerce`);
+        const wooStartTime = Date.now();
+        console.log(`[${new Date().toISOString()}] 📡 Enviando petición a WooCommerce API...`);
+        
+        try {
+            const response = await wooCommerce.get('orders', {
+                after: afterDate,
+                before: beforeDate,
+                status: Estado
+            });
 
-        // Procesar cada pedido
-        for (const order of orders) {
-            addMessage(messages, `Validando Pedido Woocommerce #${order.number}`);
+            const wooResponseTime = Date.now() - wooStartTime;
+            console.log(`[${new Date().toISOString()}] ✅ WooCommerce API response recibida en ${wooResponseTime}ms`);
+            
+            // Log detallado de la respuesta de WooCommerce
+            console.log(`[${new Date().toISOString()}] 📊 Headers de respuesta WooCommerce:`, {
+                'x-wp-total': response.headers['x-wp-total'],
+                'x-wp-totalpages': response.headers['x-wp-totalpages'],
+                'content-type': response.headers['content-type'],
+                'status': response.status,
+                'date': response.headers['date']
+            });
 
-            // Extraer datos del pedido
-            const orderData = {
-                number: order.number,
-                email: order.billing.email,
-                firstName: order.billing.first_name,
-                lastName: order.billing.last_name,
-                phone: order.billing.phone,
-                address: order.billing.address_1,
-                dateCreated: order.date_created,
-                lineItems: order.line_items,
-                metaData: order.meta_data,
-                observations: order.coupon_lines.length > 0 
-                    ? `Cupón de descuento (${order.coupon_lines[0].code.trim()})`
-                    : ''
-            };
-
-            // Buscar NIT en meta_data
-            const nitMeta = order.meta_data.find(meta => meta.key === 'cc_o_nit');
-            const nitIde = nitMeta ? nitMeta.value : '';
-
-            // Validar/Crear cliente
-            const clientValidation = await validateClientByEmail(orderData.email);
-            let nitSec;
-
-            if (!clientValidation.exists) {
-                addMessage(messages, `Cliente con Identificación ${nitIde} no existe, Creando...`);
-                const cityCode = await findCity(order.billing.city);
-                nitSec = await createClient({
-                    nit_ide: nitIde,
-                    nit_nom: `${orderData.firstName} ${orderData.lastName}`,
-                    nit_tel: orderData.phone,
-                    nit_email: orderData.email,
-                    nit_dir: orderData.address,
-                    nit_ciudad: order.billing.city,
-                    ciu_cod: cityCode
+            orders = response.data; // Asignar a la variable orders del scope superior
+            console.log(`[${new Date().toISOString()}] 📦 Pedidos recibidos de WooCommerce: ${orders.length}`);
+            
+            // Log detallado del primer pedido para verificar estructura
+            if (orders.length > 0) {
+                const firstOrder = orders[0];
+                console.log(`[${new Date().toISOString()}] 🔍 Estructura del primer pedido:`, {
+                    number: firstOrder.number,
+                    status: firstOrder.status,
+                    date_created: firstOrder.date_created,
+                    total: firstOrder.total,
+                    currency: firstOrder.currency,
+                    payment_method: firstOrder.payment_method,
+                    payment_method_title: firstOrder.payment_method_title,
+                    line_items_count: firstOrder.line_items?.length || 0,
+                    billing: {
+                        email: firstOrder.billing?.email,
+                        first_name: firstOrder.billing?.first_name,
+                        last_name: firstOrder.billing?.last_name,
+                        city: firstOrder.billing?.city,
+                        phone: firstOrder.billing?.phone
+                    },
+                    meta_data_count: firstOrder.meta_data?.length || 0,
+                    coupon_lines_count: firstOrder.coupon_lines?.length || 0,
+                    customer_id: firstOrder.customer_id
                 });
-            } else {
-                nitSec = clientValidation.nit_sec;
-                addMessage(messages, `Cliente con Identificación ${nitIde} ya existe, Actualizando...`);
+                
+                // Log de meta_data para debugging
+                if (firstOrder.meta_data && firstOrder.meta_data.length > 0) {
+                    console.log(`[${new Date().toISOString()}] 🏷️ Meta data del primer pedido:`, 
+                        firstOrder.meta_data.map(meta => ({ key: meta.key, value: meta.value }))
+                    );
+                }
+
+                // Log de line_items para debugging
+                if (firstOrder.line_items && firstOrder.line_items.length > 0) {
+                    console.log(`[${new Date().toISOString()}] 📋 Line items del primer pedido:`, 
+                        firstOrder.line_items.map(item => ({
+                            id: item.id,
+                            sku: item.sku,
+                            name: item.name,
+                            quantity: item.quantity,
+                            total: item.total,
+                            subtotal: item.subtotal,
+                            price: item.price
+                        }))
+                    );
+                }
             }
 
-            // Validar pedido
-            const orderValidation = await validateOrder(orderData.number);
-            
-            if (orderValidation.exists && orderValidation.isInvoiced) {
-                addMessage(messages, `Pedido ${orderData.number} Ya facturado, no se puede modificar`);
-                continue;
-            }
+            addMessage(messages, `Se encontraron (${orders.length}) Pedidos en Woocommerce`);
+            addMessage(messages, `Tiempo de respuesta WooCommerce: ${wooResponseTime}ms`);
 
-            // Procesar pedido
-            if (orderValidation.exists) {
-                addMessage(messages, `Actualizando Pedido ${orderData.number}`);
-                await updateOrder(orderData, orderValidation.fac_sec, usuario);
-            } else {
-                addMessage(messages, `Creando Pedido ${orderData.number}`);
-                await createOrder(orderData, nitSec, usuario);
-            }
+        } catch (wooError) {
+            const wooErrorTime = Date.now() - wooStartTime;
+            console.error(`[${new Date().toISOString()}] ❌ Error en WooCommerce API después de ${wooErrorTime}ms:`, {
+                message: wooError.message,
+                code: wooError.code,
+                status: wooError.response?.status,
+                statusText: wooError.response?.statusText,
+                data: wooError.response?.data,
+                headers: wooError.response?.headers,
+                config: {
+                    url: wooError.config?.url,
+                    method: wooError.config?.method,
+                    timeout: wooError.config?.timeout,
+                    baseURL: wooError.config?.baseURL
+                }
+            });
             
-            addMessage(messages, `Pedido #${orderData.number} actualizado exitosamente`);
+            addMessage(messages, `Error en WooCommerce API: ${wooError.message}`);
+            throw wooError;
         }
 
-        res.json({ messages });
+        // Procesar cada pedido
+        console.log(`[${new Date().toISOString()}] 🔄 Iniciando procesamiento de ${orders.length} pedidos...`);
+        
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderStartTime = Date.now();
+            
+            console.log(`\n[${new Date().toISOString()}] 🔄 Procesando pedido ${i + 1}/${orders.length}: #${order.number}`);
+            addMessage(messages, `Validando Pedido Woocommerce #${order.number}`);
+
+            try {
+                // Extraer datos del pedido
+                const orderData = {
+                    number: order.number,
+                    email: order.billing.email,
+                    firstName: order.billing.first_name,
+                    lastName: order.billing.last_name,
+                    phone: order.billing.phone,
+                    address: order.billing.address_1,
+                    dateCreated: order.date_created,
+                    lineItems: order.line_items,
+                    metaData: order.meta_data,
+                    observations: order.coupon_lines.length > 0 
+                        ? `Cupón de descuento (${order.coupon_lines[0].code.trim()})`
+                        : ''
+                };
+
+                console.log(`[${new Date().toISOString()}] 📋 Datos extraídos del pedido:`, {
+                    number: orderData.number,
+                    email: orderData.email,
+                    firstName: orderData.firstName,
+                    lastName: orderData.lastName,
+                    phone: orderData.phone,
+                    city: order.billing.city,
+                    lineItemsCount: orderData.lineItems?.length || 0,
+                    hasCoupon: order.coupon_lines.length > 0
+                });
+
+                // Buscar NIT en meta_data
+                const nitMeta = order.meta_data.find(meta => meta.key === 'cc_o_nit');
+                const nitIde = nitMeta ? nitMeta.value : '';
+                console.log(`[${new Date().toISOString()}] 🆔 NIT encontrado en meta_data: ${nitIde}`);
+
+                // Validar/Crear cliente
+                console.log(`[${new Date().toISOString()}] 👤 Validando cliente por email: ${orderData.email}`);
+                const clientStartTime = Date.now();
+                
+                const clientValidation = await validateClientByEmail(orderData.email);
+                let nitSec;
+
+                if (!clientValidation.exists) {
+                    console.log(`[${new Date().toISOString()}] 🆕 Cliente no existe, creando nuevo cliente...`);
+                    addMessage(messages, `Cliente con Identificación ${nitIde} no existe, Creando...`);
+                    
+                    const cityStartTime = Date.now();
+                    const cityCode = await findCity(order.billing.city);
+                    const cityTime = Date.now() - cityStartTime;
+                    console.log(`[${new Date().toISOString()}] 🏙️ Ciudad procesada en ${cityTime}ms: ${order.billing.city} -> ${cityCode}`);
+                    
+                    const createClientStartTime = Date.now();
+                    nitSec = await createClient({
+                        nit_ide: nitIde,
+                        nit_nom: `${orderData.firstName} ${orderData.lastName}`,
+                        nit_tel: orderData.phone,
+                        nit_email: orderData.email,
+                        nit_dir: orderData.address,
+                        nit_ciudad: order.billing.city,
+                        ciu_cod: cityCode
+                    });
+                    const createClientTime = Date.now() - createClientStartTime;
+                    console.log(`[${new Date().toISOString()}] ✅ Cliente creado en ${createClientTime}ms con nit_sec: ${nitSec}`);
+                } else {
+                    nitSec = clientValidation.nit_sec;
+                    console.log(`[${new Date().toISOString()}] ✅ Cliente existente encontrado con nit_sec: ${nitSec}`);
+                    addMessage(messages, `Cliente con Identificación ${nitIde} ya existe, Actualizando...`);
+                }
+                
+                const clientTime = Date.now() - clientStartTime;
+                console.log(`[${new Date().toISOString()}] ✅ Cliente procesado en ${clientTime}ms`);
+
+                // Validar pedido
+                console.log(`[${new Date().toISOString()}] 🔍 Validando si el pedido ya existe...`);
+                const orderValidationStartTime = Date.now();
+                
+                const orderValidation = await validateOrder(orderData.number);
+                const orderValidationTime = Date.now() - orderValidationStartTime;
+                
+                console.log(`[${new Date().toISOString()}] 📋 Validación de pedido completada en ${orderValidationTime}ms:`, {
+                    exists: orderValidation.exists,
+                    fac_sec: orderValidation.fac_sec,
+                    isInvoiced: orderValidation.isInvoiced
+                });
+                
+                if (orderValidation.exists && orderValidation.isInvoiced) {
+                    console.log(`[${new Date().toISOString()}] ⚠️ Pedido ya facturado, no se puede modificar`);
+                    addMessage(messages, `Pedido ${orderData.number} Ya facturado, no se puede modificar`);
+                    continue;
+                }
+
+                // Procesar pedido
+                const processOrderStartTime = Date.now();
+                
+                if (orderValidation.exists) {
+                    console.log(`[${new Date().toISOString()}] 🔄 Actualizando pedido existente...`);
+                    addMessage(messages, `Actualizando Pedido ${orderData.number}`);
+                    
+                    await updateOrder(orderData, orderValidation.fac_sec, usuario);
+                    const updateTime = Date.now() - processOrderStartTime;
+                    console.log(`[${new Date().toISOString()}] ✅ Pedido actualizado en ${updateTime}ms`);
+                } else {
+                    console.log(`[${new Date().toISOString()}] 🆕 Creando nuevo pedido...`);
+                    addMessage(messages, `Creando Pedido ${orderData.number}`);
+                    
+                    await createOrder(orderData, nitSec, usuario);
+                    const createTime = Date.now() - processOrderStartTime;
+                    console.log(`[${new Date().toISOString()}] ✅ Pedido creado en ${createTime}ms`);
+                }
+                
+                const orderTotalTime = Date.now() - orderStartTime;
+                console.log(`[${new Date().toISOString()}] ✅ Pedido #${orderData.number} procesado completamente en ${orderTotalTime}ms`);
+                
+                addMessage(messages, `Pedido #${orderData.number} actualizado exitosamente`);
+                
+            } catch (orderError) {
+                const orderErrorTime = Date.now() - orderStartTime;
+                console.error(`[${new Date().toISOString()}] ❌ Error procesando pedido #${order.number} después de ${orderErrorTime}ms:`, {
+                    error: orderError.message,
+                    stack: orderError.stack,
+                    orderNumber: order.number
+                });
+                
+                addMessage(messages, `Error procesando pedido #${order.number}: ${orderError.message}`);
+                continue; // Continuar con el siguiente pedido
+            }
+        }
+
+        const totalTime = Date.now() - startTime;
+        console.log(`[${new Date().toISOString()}] 🎉 Sincronización completada. Tiempo total: ${totalTime}ms`);
+        console.log(`[${new Date().toISOString()}] 📈 Resumen de sincronización:`, {
+            total_orders: orders.length,
+            total_time: totalTime,
+            average_time_per_order: Math.round(totalTime / orders.length),
+            messages_count: messages.length
+        });
+
+        res.json({ 
+            success: true,
+            messages,
+            summary: {
+                total_orders: orders.length,
+                total_time: totalTime,
+                average_time_per_order: Math.round(totalTime / orders.length)
+            }
+        });
 
     } catch (error) {
-        console.error('Error syncing orders:', error);
+        const totalTime = Date.now() - startTime;
+        console.error(`[${new Date().toISOString()}] 💥 Error fatal en sincronización después de ${totalTime}ms:`, {
+            error: error.message,
+            stack: error.stack,
+            total_time: totalTime
+        });
+        
         res.status(500).json({
             success: false,
             message: 'Error al sincronizar pedidos',
-            error: error.message
+            error: error.message,
+            execution_time: totalTime
         });
     }
 }; 
