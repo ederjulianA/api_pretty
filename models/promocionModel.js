@@ -1,5 +1,6 @@
 import { sql, poolPromise } from '../db.js';
 import { validarPrecioOferta, validarDescuentoPorcentual } from '../utils/precioUtils.js';
+import { obtenerExistenciaArticulo, obtenerExistenciaArticuloPorSec } from '../utils/ArticuloUtils.js';
 import { updateWooProductPrices } from '../jobs/updateWooProductPrices.js';
 
 // Crear promoción (encabezado y detalle)
@@ -39,10 +40,42 @@ const crearPromocion = async (promocionData) => {
     
     // Validar y crear detalles de promoción
     for (const detalle of promocionData.articulos) {
+      // Obtener art_cod para mostrar en mensajes de error
+      let artCodigo = detalle.art_cod;
+      if (!artCodigo) {
+        // Si no viene art_cod, obtenerlo desde la BD usando art_sec
+        try {
+          const artCodRequest = new sql.Request(transaction);
+          const artCodResult = await artCodRequest
+            .input('art_sec', sql.VarChar(30), detalle.art_sec)
+            .query('SELECT art_cod FROM dbo.articulos WHERE art_sec = @art_sec');
+          
+          if (artCodResult.recordset.length > 0) {
+            artCodigo = artCodResult.recordset[0].art_cod;
+          }
+        } catch (error) {
+          // Si no se puede obtener art_cod, usar art_sec como fallback
+          artCodigo = detalle.art_sec;
+        }
+      }
+      
       // Validar que al menos tenga precio o descuento
       if ((!detalle.precio_oferta || detalle.precio_oferta <= 0) && 
           (!detalle.descuento_porcentaje || detalle.descuento_porcentaje <= 0)) {
-        throw new Error(`El artículo ${detalle.art_sec} debe tener precio de oferta o descuento porcentual`);
+        throw new Error(`El artículo ${artCodigo} debe tener precio de oferta o descuento porcentual`);
+      }
+      
+      // Validar que el artículo tenga existencias
+      try {
+        const existencia = await obtenerExistenciaArticuloPorSec(detalle.art_sec);
+        if (existencia <= 0) {
+          throw new Error(`El artículo ${artCodigo} no tiene existencias disponibles (existencia: ${existencia})`);
+        }
+      } catch (error) {
+        if (error.message.includes('No se encontró el artículo')) {
+          throw new Error(`El artículo ${artCodigo} no existe en el sistema`);
+        }
+        throw new Error(`Error al validar existencias del artículo ${artCodigo}: ${error.message}`);
       }
       
       // Validar precio de oferta usando función global
@@ -85,20 +118,15 @@ const crearPromocion = async (promocionData) => {
     let errorSincronizacion = null;
     
     try {
-      console.log(`[PROMOCION] Iniciando sincronización automática de precios para nueva promoción ${proSec}`);
-      
       resultadoSincronizacion = await sincronizarPreciosPromocion(proSec, {
-        solo_activos: false // Sincronizar todos los artículos para quitar ofertas de inactivos
-      });
-      
-      console.log(`[PROMOCION] Sincronización completada para nueva promoción ${proSec}:`, {
-        articulos_procesados: resultadoSincronizacion.data?.articulos_procesados,
-        articulos_exitosos: resultadoSincronizacion.data?.articulos_exitosos,
-        articulos_con_error: resultadoSincronizacion.data?.articulos_con_error
+        solo_activos: false, // Sincronizar todos los artículos para quitar ofertas de inactivos
+        fechasPromocion: {
+          fecha_inicio: fechaInicio,
+          fecha_fin: fechaFin
+        }
       });
     } catch (error) {
       errorSincronizacion = error;
-      console.error(`[PROMOCION] Error en sincronización automática para nueva promoción ${proSec}:`, error.message);
     }
     
     // Preparar respuesta
@@ -231,10 +259,42 @@ const actualizarPromocion = async (proSec, promocionData) => {
       
       // Actualizar o insertar artículos según corresponda
       for (const detalle of promocionData.articulos) {
+        // Obtener art_cod para mostrar en mensajes de error
+        let artCodigo = detalle.art_cod;
+        if (!artCodigo) {
+          // Si no viene art_cod, obtenerlo desde la BD usando art_sec
+          try {
+            const artCodRequest = new sql.Request(transaction);
+            const artCodResult = await artCodRequest
+              .input('art_sec', sql.VarChar(30), detalle.art_sec)
+              .query('SELECT art_cod FROM dbo.articulos WHERE art_sec = @art_sec');
+            
+            if (artCodResult.recordset.length > 0) {
+              artCodigo = artCodResult.recordset[0].art_cod;
+            }
+          } catch (error) {
+            // Si no se puede obtener art_cod, usar art_sec como fallback
+            artCodigo = detalle.art_sec;
+          }
+        }
+        
         // Validar que al menos tenga precio o descuento
         if ((!detalle.precio_oferta || detalle.precio_oferta <= 0) && 
             (!detalle.descuento_porcentaje || detalle.descuento_porcentaje <= 0)) {
-          throw new Error(`El artículo ${detalle.art_sec} debe tener precio de oferta o descuento porcentual`);
+          throw new Error(`El artículo ${artCodigo} debe tener precio de oferta o descuento porcentual`);
+        }
+        
+        // Validar que el artículo tenga existencias
+        try {
+          const existencia = await obtenerExistenciaArticuloPorSec(detalle.art_sec);
+          if (existencia <= 0) {
+            throw new Error(`El artículo ${artCodigo} no tiene existencias disponibles (existencia: ${existencia})`);
+          }
+        } catch (error) {
+          if (error.message.includes('No se encontró el artículo')) {
+            throw new Error(`El artículo ${artCodigo} no existe en el sistema`);
+          }
+          throw new Error(`Error al validar existencias del artículo ${artCodigo}: ${error.message}`);
         }
         
         // Validar precio de oferta usando función global
@@ -311,25 +371,17 @@ const actualizarPromocion = async (proSec, promocionData) => {
     let errorSincronizacion = null;
     
     try {
-      console.log(`[PROMOCION] Iniciando sincronización automática de precios para promoción ${proSec}`);
-      
       // Sincronizar todos los artículos de la promoción (activos e inactivos)
-      if (promocionData.articulos && promocionData.articulos.length > 0) {
-        resultadoSincronizacion = await sincronizarPreciosPromocion(proSec, {
-          solo_activos: false // Sincronizar todos los artículos para quitar ofertas de inactivos
-        });
-        
-        console.log(`[PROMOCION] Sincronización completada para promoción ${proSec}:`, {
-          articulos_procesados: resultadoSincronizacion.data?.articulos_procesados,
-          articulos_exitosos: resultadoSincronizacion.data?.articulos_exitosos,
-          articulos_con_error: resultadoSincronizacion.data?.articulos_con_error
-        });
-      } else {
-        console.log(`[PROMOCION] No se actualizaron artículos en la promoción ${proSec}, omitiendo sincronización`);
-      }
+      // Se ejecuta siempre que se actualice la promoción, ya que las fechas pueden haber cambiado
+      resultadoSincronizacion = await sincronizarPreciosPromocion(proSec, {
+        solo_activos: false, // Sincronizar todos los artículos para quitar ofertas de inactivos
+        fechasPromocion: {
+          fecha_inicio: fechaInicio,
+          fecha_fin: fechaFin
+        }
+      });
     } catch (error) {
       errorSincronizacion = error;
-      console.error(`[PROMOCION] Error en sincronización automática para promoción ${proSec}:`, error.message);
     }
     
     // Preparar respuesta
@@ -377,7 +429,7 @@ const actualizarPromocion = async (proSec, promocionData) => {
     } else {
       respuesta.sincronizacion = {
         ejecutada: false,
-        motivo: 'No se actualizaron artículos en la promoción'
+        motivo: 'No se pudo ejecutar la sincronización'
       };
     }
     
@@ -734,9 +786,22 @@ const sincronizarPreciosPromocion = async (proSec, opciones = {}) => {
     });
     
     // Sincronizar precios con WooCommerce
-    const resultadoSincronizacion = await updateWooProductPrices(art_cods, {
+    const opcionesSincronizacion = {
       estadosArticulos: estadosArticulos
-    });
+    };
+    
+    // Agregar fechas de promoción si están disponibles en las opciones
+    if (opciones.fechasPromocion && opciones.fechasPromocion.fecha_inicio && opciones.fechasPromocion.fecha_fin) {
+      opcionesSincronizacion.fechasPromocion = opciones.fechasPromocion;
+    } else {
+      // Usar fechas de la promoción desde la base de datos
+      opcionesSincronizacion.fechasPromocion = {
+        fecha_inicio: promocion.pro_fecha_inicio,
+        fecha_fin: promocion.pro_fecha_fin
+      };
+    }
+    
+    const resultadoSincronizacion = await updateWooProductPrices(art_cods, opcionesSincronizacion);
     
     // Preparar respuesta
     const respuesta = {

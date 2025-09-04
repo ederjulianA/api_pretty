@@ -141,8 +141,6 @@ const wcApi = new WooCommerceRestApi({
 
 // Función auxiliar para obtener el art_woo_id 
 export const getArticleWooId = async (art_cod) => {
-  log(logLevels.INFO, `Buscando art_woo_id para art_cod: ${art_cod}`);
-  await logEder(`Buscando art_woo_id para art_cod: ${art_cod}`);
   try {
     const pool = await poolPromise;
     const result = await pool.request()
@@ -150,24 +148,14 @@ export const getArticleWooId = async (art_cod) => {
       .query("SELECT art_woo_id FROM dbo.articulos WHERE art_cod = @art_cod");
 
     const artWooId = result.recordset.length > 0 ? result.recordset[0].art_woo_id : '';
-    log(logLevels.INFO, `art_woo_id encontrado para art_cod ${art_cod}: ${artWooId || 'No encontrado'}`, { art_cod, artWooId });
-    await logEder(`art_woo_id encontrado para art_cod ${art_cod}: ${artWooId || 'No encontrado'}`);
     return artWooId;
   } catch (error) {
-    log(logLevels.ERROR, `Error buscando art_woo_id para art_cod ${art_cod}`, {
-      error: error.message,
-      stack: error.stack,
-      art_cod
-    });
-    await logEder(`Error buscando art_woo_id para art_cod ${art_cod}: ${error.message}`);
     throw error;
   }
 };
 
 // Función para obtener precios y ofertas de un artículo usando precioUtils
 export const getArticlePricesAndOffers = async (art_cod) => {
-  log(logLevels.INFO, `Consultando precios y ofertas para art_cod: ${art_cod}`);
-  await logEder(`Consultando precios y ofertas para art_cod: ${art_cod}`);
   try {
     // Obtener art_sec
     const pool = await poolPromise;
@@ -176,8 +164,6 @@ export const getArticlePricesAndOffers = async (art_cod) => {
       .query("SELECT art_sec FROM dbo.articulos WHERE art_cod = @art_cod");
 
     if (art_sec.recordset.length === 0) {
-      log(logLevels.WARN, `No se encontró artículo con art_cod: ${art_cod}`);
-      await logEder(`No se encontró artículo con art_cod: ${art_cod}`);
       return null;
     }
 
@@ -204,31 +190,36 @@ export const getArticlePricesAndOffers = async (art_cod) => {
       tiene_oferta: preciosData.tiene_oferta ? 'S' : 'N'
     };
 
-    log(logLevels.INFO, `Datos de precios obtenidos para art_cod ${art_cod}`, articleData);
-    await logEder(`Datos de precios obtenidos para art_cod ${art_cod}: ${JSON.stringify(articleData)}`);
-    
     return articleData;
   } catch (error) {
-    log(logLevels.ERROR, `Error obteniendo precios para art_cod ${art_cod}`, {
-      error: error.message,
-      stack: error.stack,
-      art_cod
-    });
-    await logEder(`Error obteniendo precios para art_cod ${art_cod}: ${error.message}`);
     throw error;
   }
 };
 
-const formatDateToISO8601 = (date) => {
+const formatDateToISO8601 = (date, isEndDate = false) => {
   try {
     const dateObj = new Date(date);
     if (isNaN(dateObj.getTime())) {
-      log(logLevels.WARN, `Fecha inválida proporcionada: ${date}`);
       return null;
     }
-    return dateObj.toISOString().slice(0, 19).replace('Z', '');
+    
+    // Usar UTC para evitar problemas de zona horaria
+    const year = dateObj.getUTCFullYear();
+    const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getUTCDate()).padStart(2, '0');
+    
+    // Formatear según el tipo de fecha
+    let formattedDate;
+    if (isEndDate) {
+      // Fecha de fin: siempre 23:59:59
+      formattedDate = `${year}-${month}-${day}T23:59:59`;
+    } else {
+      // Fecha de inicio: siempre 00:00:00
+      formattedDate = `${year}-${month}-${day}T00:00:00`;
+    }
+    
+    return formattedDate;
   } catch (error) {
-    log(logLevels.ERROR, 'Error formateando fecha', { error: error.message, date });
     return null;
   }
 };
@@ -283,10 +274,6 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
       throw new Error(error);
     }
 
-    debugLogs.push(log(logLevels.INFO, `Iniciando actualización de precios en WooCommerce`, {
-      totalItems: art_cods.length,
-      art_cods: art_cods.slice(0, 5) // Mostrar solo los primeros 5 para el log
-    }));
 
     // Preparar datos para actualización por lotes
     const productUpdates = [];
@@ -296,7 +283,6 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
         const artWooId = await getArticleWooId(art_cod);
 
         if (!artWooId) {
-          log(logLevels.WARN, `No se encontró art_woo_id para art_cod: ${art_cod}`);
           messages.push(`No se encontró art_woo_id para art_cod: ${art_cod}.`);
           skippedCount++;
           continue;
@@ -306,7 +292,6 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
         const articleData = await getArticlePricesAndOffers(art_cod);
 
         if (!articleData) {
-          log(logLevels.WARN, `No se encontraron datos de precios para art_cod: ${art_cod}`);
           messages.push(`No se encontraron datos de precios para art_cod: ${art_cod}.`);
           skippedCount++;
           continue;
@@ -328,11 +313,6 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
         let articuloActivoEnPromocion = true;
         if (opciones.estadosArticulos && opciones.estadosArticulos[art_cod]) {
           articuloActivoEnPromocion = opciones.estadosArticulos[art_cod] === 'A';
-          log(logLevels.INFO, `Estado del artículo ${art_cod} en promoción: ${opciones.estadosArticulos[art_cod]}`, {
-            art_cod,
-            estado: opciones.estadosArticulos[art_cod],
-            activo: articuloActivoEnPromocion
-          });
         }
 
         // Si tiene oferta activa Y el artículo está activo en la promoción, agregar información de oferta
@@ -346,63 +326,46 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
             wooData.sale_price = salePrice.toString();
           }
 
-          // Agregar fechas de oferta si están disponibles
-          if (articleData.pro_fecha_inicio && articleData.pro_fecha_fin) {
-            wooData.date_on_sale_from = formatDateToISO8601(articleData.pro_fecha_inicio);
-            wooData.date_on_sale_to = formatDateToISO8601(articleData.pro_fecha_fin);
+          // Agregar fechas de oferta - priorizar fechas de promoción pasadas como parámetro
+          let fechaInicio = null;
+          let fechaFin = null;
+          
+          if (opciones.fechasPromocion && opciones.fechasPromocion.fecha_inicio && opciones.fechasPromocion.fecha_fin) {
+            // Usar fechas de promoción pasadas como parámetro (para promociones nuevas o futuras)
+            fechaInicio = opciones.fechasPromocion.fecha_inicio;
+            fechaFin = opciones.fechasPromocion.fecha_fin;
+          } else if (articleData.pro_fecha_inicio && articleData.pro_fecha_fin) {
+            // Usar fechas de promoción desde articleData (para promociones activas)
+            fechaInicio = articleData.pro_fecha_inicio;
+            fechaFin = articleData.pro_fecha_fin;
+          }
+          
+          if (fechaInicio && fechaFin) {
+            wooData.date_on_sale_from = formatDateToISO8601(fechaInicio, false); // Fecha de inicio
+            wooData.date_on_sale_to = formatDateToISO8601(fechaFin, true); // Fecha de fin (23:59:59)
           }
 
-          // Agregar información de la promoción en meta_data
-          wooData.meta_data.push(
-            {
-              key: "_codigo_promocion",
-              value: articleData.codigo_promocion || ''
-            },
-            {
-              key: "_descripcion_promocion",
-              value: articleData.descripcion_promocion || ''
-            },
-            {
-              key: "_descuento_porcentaje",
-              value: articleData.descuento_porcentaje?.toString() || ''
-            }
-          );
+          // NO agregar meta_data de promoción que interfieren con special deals
+          // Solo mantener el precio mayorista que es necesario para el negocio
+          // Los meta_data _codigo_promocion, _descripcion_promocion y _descuento_porcentaje
+          // están causando que los productos no aparezcan en las secciones de special deals
         } else {
           // Si no tiene oferta O el artículo está inactivo en la promoción, quitar la oferta
           wooData.sale_price = '';
-          wooData.date_on_sale_from = null;
-          wooData.date_on_sale_to = null;
+          // IMPORTANTE: Usar cadena vacía en lugar de null para eliminar fechas en WooCommerce
+          wooData.date_on_sale_from = '';
+          wooData.date_on_sale_to = '';
           
-          // Limpiar meta_data de promoción
+          // Limpiar meta_data de promoción que interfieren con special deals
           wooData.meta_data = wooData.meta_data.filter(meta => 
             !['_codigo_promocion', '_descripcion_promocion', '_descuento_porcentaje'].includes(meta.key)
           );
           
-          if (!articuloActivoEnPromocion) {
-            log(logLevels.INFO, `Quitando oferta de artículo inactivo en promoción: ${art_cod}`, {
-              art_cod,
-              art_woo_id: artWooId,
-              motivo: 'Artículo inactivo en promoción'
-            });
-          }
         }
 
         productUpdates.push(wooData);
-        
-        log(logLevels.INFO, `Datos preparados para WooCommerce - art_cod: ${art_cod}`, {
-          art_cod,
-          art_woo_id: artWooId,
-          tiene_oferta: articleData.tiene_oferta,
-          activo_en_promocion: articuloActivoEnPromocion,
-          precio_detal: articleData.precio_detal,
-          precio_mayor: articleData.precio_mayor,
-          sale_price: wooData.sale_price || 'No aplica'
-        });
 
       } catch (error) {
-        log(logLevels.ERROR, `Error preparando actualización para art_cod ${art_cod}`, {
-          error: error.message
-        });
         errorCount++;
       }
     }
@@ -445,6 +408,22 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
       }
     }
 
+    // Forzar actualización de cache de WooCommerce
+    try {
+      // Hacer llamadas individuales a los productos actualizados para forzar la actualización del cache
+      const productIds = productUpdates.map(p => p.id).slice(0, 5); // Solo los primeros 5 para no sobrecargar
+      
+      for (const productId of productIds) {
+        try {
+          await wcApi.get(`products/${productId}`);
+        } catch (productError) {
+          // Silenciar errores de cache
+        }
+      }
+    } catch (cacheError) {
+      // Silenciar errores de cache
+    }
+
     const endTime = new Date();
     const duration = (endTime - startTime) / 1000;
 
@@ -466,7 +445,6 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
 
     // Guardar el log en la base de datos
     const logId = await saveSyncLog(logData);
-    debugLogs.push(log(logLevels.INFO, `Log guardado con ID: ${logId}`));
 
     return {
       messages,
@@ -509,13 +487,9 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
     };
 
     try {
-      const logId = await saveSyncLog(errorLogData);
-      debugLogs.push(log(logLevels.INFO, `Log de error guardado con ID: ${logId}`));
+      await saveSyncLog(errorLogData);
     } catch (logError) {
-      debugLogs.push(log(logLevels.ERROR, "Error guardando log de error", {
-        error: logError.message,
-        originalError: error.message
-      }));
+      // Silenciar errores de log
     }
 
     return {

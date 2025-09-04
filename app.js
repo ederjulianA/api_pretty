@@ -5,6 +5,7 @@ import logger from './config/logger.js';
 import authRoutes from './routes/authRoutes.js';
 import roleRoutes from './routes/roleRoutes.js';
 import documentoInventarioRoutes from './routes/documentoInventarioRoutes.js';
+import diagnosticRoutes from './routes/diagnosticRoutes.js';
 
 const app = express();
 
@@ -43,5 +44,6 @@ app.use('/api/woo', wooRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api', documentoInventarioRoutes);
+app.use('/api/diagnostic', diagnosticRoutes);
 
 export default app; 

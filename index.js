@@ -38,6 +38,7 @@ import userRoutes from './routes/userRoutes.js';
 import inventoryDifferenceRoutes from './routes/inventoryDifferenceRoutes.js';
 import productPhotoRoutes from './routes/productPhotoRoutes.js';
 import promocionRoutes from './routes/promocionRoutes.js';
+import diagnosticRoutes from './routes/diagnosticRoutes.js';
 
 // Middleware
 app.use(express.json());
@@ -85,6 +86,7 @@ app.use("/api/users", userRoutes);
 app.use('/api', documentoInventarioRoutes);
 app.use("/api/productos", productPhotoRoutes);
 app.use("/api/promociones", promocionRoutes);
+app.use("/api/diagnostic", diagnosticRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });
