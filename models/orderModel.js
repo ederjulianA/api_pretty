@@ -2,6 +2,7 @@
 
 import { sql, poolPromise } from "../db.js";
 import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
+import { determinarEstadoWooFactura } from "../utils/facturaUtils.js";
 
 
 
@@ -262,6 +263,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
         f.fac_nro,
         f.fac_tip_cod,
         f.fac_nro_woo,
+        f.fac_est_woo,
         f.fac_est_fac,
         SUM(fd.kar_total) AS total_pedido,
         (SELECT STRING_AGG(fac_nro_origen, ', ') 
@@ -288,7 +290,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
       AND (@fac_nro_woo IS NULL OR f.fac_nro_woo = @fac_nro_woo)
       AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)
     GROUP BY 
-        f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_fac, f.fac_nro_origen,fac_usu_cod_cre
+        f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_woo, f.fac_est_fac, f.fac_nro_origen,fac_usu_cod_cre
     ORDER BY f.fac_fec DESC, f.fac_nro  ASC
     OFFSET (@PageNumber - 1) * @PageSize ROWS
     FETCH NEXT @PageSize ROWS ONLY;
@@ -464,12 +466,24 @@ const createCompleteOrder = async ({
     // 3. Construir el número de factura final concatenando fac_tip_cod y el nuevo consecutivo
     const FinalFacNro = fac_tip_cod + String(NewConsecFacNro);
 
-    // 4. Insertar el encabezado en la tabla factura
+    // 4. Determinar el estado de WooCommerce para facturas de venta
+    let fac_est_woo = null;
+    if (fac_tip_cod === 'VTA' && fac_nro_woo) {
+      try {
+        fac_est_woo = await determinarEstadoWooFactura(fac_nro_woo);
+        console.log(`[CREATE_COMPLETE_ORDER] Estado WooCommerce determinado para factura VTA: ${fac_est_woo}`);
+      } catch (error) {
+        console.error(`[CREATE_COMPLETE_ORDER] Error al determinar estado WooCommerce:`, error);
+        // Continuar sin el estado si hay error
+      }
+    }
+
+    // 5. Insertar el encabezado en la tabla factura
     const insertHeaderQuery = `
       INSERT INTO dbo.factura 
-        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs)
+        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs, fac_est_woo)
       VALUES
-        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs);
+        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs, @fac_est_woo);
     `;
     await request.input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
       .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
@@ -479,6 +493,7 @@ const createCompleteOrder = async ({
       .input('fac_obs', sql.VarChar, fac_obs)
       .input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre)
       .input('fac_fec', sql.Date, fac_fec || new Date()) // Usa la fecha proporcionada o la fecha actual
+      .input('fac_est_woo', sql.VarChar(50), fac_est_woo)
       .query(insertHeaderQuery);
 
     // 5. Insertar cada detalle en la tabla facturakardes
@@ -633,6 +648,10 @@ const createCompleteOrder = async ({
           batches.push(detalles.slice(i, i + BATCH_SIZE));
         }
 
+        // Determinar el estado a enviar a WooCommerce
+        const estadoWooCommerce = fac_est_woo || 'completed'; // Usar el estado determinado o 'completed' por defecto
+        console.log(`[CREATE_COMPLETE_ORDER] Enviando estado a WooCommerce: ${estadoWooCommerce}`);
+
         // Procesar cada lote secuencialmente
         for (const batch of batches) {
           await updateWooOrderStatusAndStock(
@@ -640,7 +659,8 @@ const createCompleteOrder = async ({
             batch,
             fac_fec,
             FinalFacNro,  // Usar FinalFacNro en lugar de fac_nro
-            'N'
+            'N',
+            estadoWooCommerce // Pasar el estado determinado
           );
         }
       } catch (error) {

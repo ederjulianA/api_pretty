@@ -224,7 +224,7 @@ const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
 };
 
 // Función para actualizar el estado del pedido y el stock de cada artículo en WooCommerce
-const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec = null, fac_nro = null, actualiza_fecha = 'N') => {
+const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec = null, fac_nro = null, actualiza_fecha = 'N', estado_personalizado = null) => {
   let messages = [];
   let debugLogs = [];
   let successCount = 0;
@@ -282,9 +282,12 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
     // Actualizar estado del pedido si existe
     if (fac_nro_woo) {
       try {
-        const orderUpdateData = { status: "completed" };
+        // Usar estado personalizado si se proporciona, sino usar 'completed' por defecto
+        const estadoFinal = estado_personalizado || "completed";
+        const orderUpdateData = { status: estadoFinal };
         await wcApi.put(`orders/${fac_nro_woo}`, orderUpdateData);
-        messages.push(`Pedido ${fac_nro_woo} actualizado a 'completed' en WooCommerce.`);
+        messages.push(`Pedido ${fac_nro_woo} actualizado a '${estadoFinal}' en WooCommerce.`);
+        debugLogs.push(log(logLevels.INFO, `Estado enviado a WooCommerce: ${estadoFinal}`));
       } catch (orderError) {
         log(logLevels.ERROR, `Error actualizando pedido ${fac_nro_woo}`, {
           error: orderError.message

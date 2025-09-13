@@ -407,14 +407,15 @@ const createOrder = async (orderData, nitSec, usuario) => {
             .input('fac_nro_woo', sql.VarChar(50), orderData.number)
             .input('fac_nro', sql.VarChar(20), facNro)
             .input('fac_usu_cod_cre', sql.VarChar(20), usuario)
+            .input('fac_est_woo', sql.VarChar(50), orderData.status)
             .query(`
                 INSERT INTO dbo.factura (
                     fac_sec, fac_fec, fac_tip_cod, f_tip_cod, nit_sec,
-                    fac_est_fac, fac_obs, fac_nro_woo, fac_nro, fac_usu_cod_cre
+                    fac_est_fac, fac_obs, fac_nro_woo, fac_nro, fac_usu_cod_cre, fac_est_woo
                 )
                 VALUES (
                     @fac_sec, @fac_fec, @fac_tip_cod, @f_tip_cod, @nit_sec,
-                    @fac_est_fac, @fac_obs, @fac_nro_woo, @fac_nro, @fac_usu_cod_cre
+                    @fac_est_fac, @fac_obs, @fac_nro_woo, @fac_nro, @fac_usu_cod_cre, @fac_est_woo
                 )
             `);
 
@@ -551,10 +552,12 @@ const updateOrder = async (orderData, facSec, usuario) => {
             .input('fac_sec', sql.Int, facSec)
             .input('fac_obs', sql.VarChar(500), orderData.observations || '')
             .input('fac_usu_cod_cre', sql.VarChar(20), usuario)
+            .input('fac_est_woo', sql.VarChar(50), orderData.status)
             .query(`
                 UPDATE dbo.factura 
                 SET fac_obs = @fac_obs,
-                    fac_usu_cod_cre = @fac_usu_cod_cre
+                    fac_usu_cod_cre = @fac_usu_cod_cre,
+                    fac_est_woo = @fac_est_woo
                 WHERE fac_sec = @fac_sec
             `);
 
@@ -904,6 +907,7 @@ export const syncWooOrders = async (req, res) => {
                         dateCreated: order.date_created,
                         lineItems: order.line_items,
                         metaData: order.meta_data,
+                        status: order.status, // Estado de WooCommerce
                         observations: order.coupon_lines.length > 0 
                             ? `Cupón de descuento (${order.coupon_lines[0].code.trim()})`
                             : ''
@@ -916,6 +920,7 @@ export const syncWooOrders = async (req, res) => {
                         lastName: orderData.lastName,
                         phone: orderData.phone,
                         city: order.billing.city,
+                        status: orderData.status,
                         lineItemsCount: orderData.lineItems?.length || 0,
                         hasCoupon: order.coupon_lines.length > 0
                     });
