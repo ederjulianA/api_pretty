@@ -15,6 +15,24 @@ function Write-Log {
     Write-Host "[$date] $Message"
 }
 
+# Función para obtener el nombre de la aplicación PM2
+function Get-PM2AppName {
+    try {
+        $pm2List = pm2 list --format json | ConvertFrom-Json
+        if ($pm2List -and $pm2List.Count -gt 0) {
+            # Buscar aplicación que contenga 'index' o 'api_pretty'
+            $app = $pm2List | Where-Object { $_.name -like "*index*" -or $_.name -like "*api_pretty*" } | Select-Object -First 1
+            if ($app) {
+                return $app.name
+            }
+        }
+        return "index"  # Fallback por defecto
+    } catch {
+        Write-Log "Advertencia: No se pudo detectar el nombre de la aplicación PM2, usando 'index' por defecto"
+        return "index"
+    }
+}
+
 # Función para verificar y configurar Git
 function Initialize-GitRepo {
     if (-not (Test-Path "$repoPath\.git")) {
@@ -34,6 +52,10 @@ try {
 
     Set-Location $repoPath
     Write-Log "Iniciando verificación de actualizaciones..."
+    
+    # Obtener el nombre de la aplicación PM2
+    $appName = Get-PM2AppName
+    Write-Log "Aplicación PM2 detectada: $appName"
 
     # Verificar y configurar Git si es necesario
     Initialize-GitRepo
@@ -74,10 +96,10 @@ try {
     }
     
     # Reiniciar aplicación
-    Write-Log "Reiniciando aplicación..."
-    pm2 restart api_pretty
+    Write-Log "Reiniciando aplicación $appName..."
+    pm2 restart $appName
     pm2 save
-    Write-Log "Aplicación reiniciada correctamente"
+    Write-Log "Aplicación $appName reiniciada correctamente"
     
     Write-Log "Actualización completada exitosamente"
 } catch {
@@ -89,7 +111,7 @@ try {
     try {
         Write-Log "Intentando restaurar el estado anterior..."
         git reset --hard $localCommit
-        pm2 restart api_pretty
+        pm2 restart $appName
         Write-Log "Estado anterior restaurado"
     } catch {
         Write-Log "ERROR al restaurar estado anterior: $($_.Exception.Message)"
