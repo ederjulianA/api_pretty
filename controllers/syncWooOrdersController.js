@@ -39,6 +39,28 @@ const addMessage = (messages, description, id = '', type = 0) => {
 };
 
 /**
+ * Normaliza el estado de WooCommerce para consistencia en la base de datos
+ * Convierte guiones (-) a guiones bajos (_) para mantener consistencia
+ * @param {string} status - Estado original de WooCommerce
+ * @returns {string} - Estado normalizado
+ */
+const normalizeWooCommerceStatus = (status) => {
+    if (!status || typeof status !== 'string') {
+        return status;
+    }
+    
+    // Convertir guiones a guiones bajos para mantener consistencia
+    const normalizedStatus = status.replace(/-/g, '_');
+    
+    // Log para debugging en caso de normalización
+    if (status !== normalizedStatus) {
+        console.log(`[NORMALIZE_STATUS] Estado normalizado: "${status}" -> "${normalizedStatus}"`);
+    }
+    
+    return normalizedStatus;
+};
+
+/**
  * Busca una ciudad por nombre
  * @param {string} cityName - Nombre de la ciudad
  * @returns {Promise<string>} - Código de la ciudad
@@ -395,12 +417,16 @@ const createOrder = async (orderData, nitSec, usuario) => {
         
         console.log('Creando encabezado del pedido:', { facSec, facNro });
         
+        // Normalizar el estado de WooCommerce
+        const normalizedStatus = normalizeWooCommerceStatus(orderData.status);
+        
         // Crear encabezado del pedido
         console.log(`[CREATE_ORDER] Insertando factura con fac_est_woo:`, {
             facSec,
             facNro,
             fac_nro_woo: orderData.number,
-            fac_est_woo: orderData.status,
+            fac_est_woo_original: orderData.status,
+            fac_est_woo_normalized: normalizedStatus,
             statusType: typeof orderData.status
         });
 
@@ -415,7 +441,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
             .input('fac_nro_woo', sql.VarChar(50), orderData.number)
             .input('fac_nro', sql.VarChar(20), facNro)
             .input('fac_usu_cod_cre', sql.VarChar(20), usuario)
-            .input('fac_est_woo', sql.VarChar(50), orderData.status)
+            .input('fac_est_woo', sql.VarChar(50), normalizedStatus)
             .query(`
                 INSERT INTO dbo.factura (
                     fac_sec, fac_fec, fac_tip_cod, f_tip_cod, nit_sec,
@@ -427,7 +453,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 )
             `);
 
-        console.log(`[CREATE_ORDER] Factura insertada exitosamente con fac_est_woo: ${orderData.status}`);
+        console.log(`[CREATE_ORDER] Factura insertada exitosamente con fac_est_woo: ${normalizedStatus} (original: ${orderData.status})`);
 
         console.log('Procesando items del pedido...');
         // Procesar items del pedido
@@ -558,10 +584,14 @@ const updateOrder = async (orderData, facSec, usuario) => {
 
         console.log('Actualizando encabezado del pedido:', { facSec });
         
+        // Normalizar el estado de WooCommerce
+        const normalizedStatus = normalizeWooCommerceStatus(orderData.status);
+        
         // Log específico para debugging del estado en actualización
         console.log(`[UPDATE_ORDER] Actualizando factura con fac_est_woo:`, {
             facSec,
-            fac_est_woo: orderData.status,
+            fac_est_woo_original: orderData.status,
+            fac_est_woo_normalized: normalizedStatus,
             statusType: typeof orderData.status
         });
 
@@ -570,7 +600,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
             .input('fac_sec', sql.Int, facSec)
             .input('fac_obs', sql.VarChar(500), orderData.observations || '')
             .input('fac_usu_cod_cre', sql.VarChar(20), usuario)
-            .input('fac_est_woo', sql.VarChar(50), orderData.status)
+            .input('fac_est_woo', sql.VarChar(50), normalizedStatus)
             .query(`
                 UPDATE dbo.factura 
                 SET fac_obs = @fac_obs,
@@ -579,7 +609,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 WHERE fac_sec = @fac_sec
             `);
 
-        console.log(`[UPDATE_ORDER] Factura actualizada exitosamente con fac_est_woo: ${orderData.status}`);
+        console.log(`[UPDATE_ORDER] Factura actualizada exitosamente con fac_est_woo: ${normalizedStatus} (original: ${orderData.status})`);
 
         console.log('Eliminando detalles existentes...');
         // Eliminar detalles existentes
@@ -945,13 +975,18 @@ export const syncWooOrders = async (req, res) => {
                         hasCoupon: order.coupon_lines.length > 0
                     });
 
+                    // Normalizar el estado para logging y debugging
+                    const normalizedStatus = normalizeWooCommerceStatus(orderData.status);
+                    
                     // Log específico para debugging del estado de WooCommerce
                     console.log(`[${new Date().toISOString()}] 🔍 Debug estado WooCommerce:`, {
                         orderNumber: order.number,
                         orderStatus: order.status,
                         orderDataStatus: orderData.status,
+                        normalizedStatus: normalizedStatus,
                         statusType: typeof orderData.status,
-                        statusLength: orderData.status ? orderData.status.length : 0
+                        statusLength: orderData.status ? orderData.status.length : 0,
+                        wasNormalized: orderData.status !== normalizedStatus
                     });
 
                     // Buscar NIT en meta_data
