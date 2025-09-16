@@ -963,6 +963,15 @@ export const syncWooOrders = async (req, res) => {
                             : ''
                     };
 
+                    // Log inmediato para verificar el estado extraído
+                    console.log(`[${new Date().toISOString()}] 🔍 Estado extraído del pedido:`, {
+                        orderNumber: order.number,
+                        originalStatus: order.status,
+                        extractedStatus: orderData.status,
+                        statusType: typeof orderData.status,
+                        statusLength: orderData.status ? orderData.status.length : 0
+                    });
+
                     console.log(`[${new Date().toISOString()}] 📋 Datos extraídos del pedido:`, {
                         number: orderData.number,
                         email: orderData.email,
@@ -971,6 +980,8 @@ export const syncWooOrders = async (req, res) => {
                         phone: orderData.phone,
                         city: order.billing.city,
                         status: orderData.status,
+                        statusType: typeof orderData.status,
+                        statusValue: orderData.status,
                         lineItemsCount: orderData.lineItems?.length || 0,
                         hasCoupon: order.coupon_lines.length > 0
                     });
