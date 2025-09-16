@@ -77,51 +77,6 @@ export const valorMayorista = async () => {
 };
 
 /**
- * Verifica el estado de WooCommerce de una cotización por su número de WooCommerce
- * @param {string} fac_nro_woo - Número de pedido de WooCommerce
- * @returns {Promise<string|null>} - Estado de WooCommerce de la cotización o null si no existe
- */
-export const getCotizacionWooStatus = async (fac_nro_woo) => {
-    const pool = await poolPromise;
-    const result = await pool.request()
-        .input('fac_nro_woo', sql.VarChar(50), fac_nro_woo)
-        .query(`
-            SELECT fac_est_woo
-            FROM dbo.factura 
-            WHERE fac_nro_woo = @fac_nro_woo 
-            AND fac_tip_cod = 'COT'
-            AND fac_est_fac = 'A'
-        `);
-
-    if (!result.recordset || result.recordset.length === 0) {
-        return null;
-    }
-
-    return result.recordset[0].fac_est_woo;
-};
-
-/**
- * Determina el estado de WooCommerce para una factura de venta basado en la cotización original
- * @param {string} fac_nro_woo - Número de pedido de WooCommerce
- * @returns {Promise<string>} - Estado de WooCommerce a usar en la factura
- */
-export const determinarEstadoWooFactura = async (fac_nro_woo) => {
-    if (!fac_nro_woo) {
-        return null; // No es un pedido de WooCommerce
-    }
-
-    const estadoCotizacion = await getCotizacionWooStatus(fac_nro_woo);
-    
-    // Si la cotización tenía estado epayco_processing, la factura debe ser epayco_completed
-    if (estadoCotizacion === 'epayco_processing') {
-        return 'epayco_completed';
-    }
-    
-    // Para otros casos, mantener el estado original de la cotización o null
-    return estadoCotizacion;
-};
-
-/**
  * Genera un nuevo número de secuencia para clientes (nit_sec)
  * @returns {Promise<string>} - Nuevo número de secuencia generado
  * @throws {Error} Si no se encuentra la secuencia para 'CLIENTES'

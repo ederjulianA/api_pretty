@@ -396,6 +396,14 @@ const createOrder = async (orderData, nitSec, usuario) => {
         console.log('Creando encabezado del pedido:', { facSec, facNro });
         
         // Crear encabezado del pedido
+        console.log(`[CREATE_ORDER] Insertando factura con fac_est_woo:`, {
+            facSec,
+            facNro,
+            fac_nro_woo: orderData.number,
+            fac_est_woo: orderData.status,
+            statusType: typeof orderData.status
+        });
+
         await transaction.request()
             .input('fac_sec', sql.Int, facSec)
             .input('fac_fec', sql.DateTime, orderData.dateCreated)
@@ -418,6 +426,8 @@ const createOrder = async (orderData, nitSec, usuario) => {
                     @fac_est_fac, @fac_obs, @fac_nro_woo, @fac_nro, @fac_usu_cod_cre, @fac_est_woo
                 )
             `);
+
+        console.log(`[CREATE_ORDER] Factura insertada exitosamente con fac_est_woo: ${orderData.status}`);
 
         console.log('Procesando items del pedido...');
         // Procesar items del pedido
@@ -547,6 +557,14 @@ const updateOrder = async (orderData, facSec, usuario) => {
         await transaction.begin();
 
         console.log('Actualizando encabezado del pedido:', { facSec });
+        
+        // Log específico para debugging del estado en actualización
+        console.log(`[UPDATE_ORDER] Actualizando factura con fac_est_woo:`, {
+            facSec,
+            fac_est_woo: orderData.status,
+            statusType: typeof orderData.status
+        });
+
         // Actualizar encabezado
         await transaction.request()
             .input('fac_sec', sql.Int, facSec)
@@ -560,6 +578,8 @@ const updateOrder = async (orderData, facSec, usuario) => {
                     fac_est_woo = @fac_est_woo
                 WHERE fac_sec = @fac_sec
             `);
+
+        console.log(`[UPDATE_ORDER] Factura actualizada exitosamente con fac_est_woo: ${orderData.status}`);
 
         console.log('Eliminando detalles existentes...');
         // Eliminar detalles existentes
@@ -923,6 +943,15 @@ export const syncWooOrders = async (req, res) => {
                         status: orderData.status,
                         lineItemsCount: orderData.lineItems?.length || 0,
                         hasCoupon: order.coupon_lines.length > 0
+                    });
+
+                    // Log específico para debugging del estado de WooCommerce
+                    console.log(`[${new Date().toISOString()}] 🔍 Debug estado WooCommerce:`, {
+                        orderNumber: order.number,
+                        orderStatus: order.status,
+                        orderDataStatus: orderData.status,
+                        statusType: typeof orderData.status,
+                        statusLength: orderData.status ? orderData.status.length : 0
                     });
 
                     // Buscar NIT en meta_data
