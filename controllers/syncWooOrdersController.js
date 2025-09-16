@@ -946,7 +946,29 @@ export const syncWooOrders = async (req, res) => {
                 addMessage(messages, `Validando Pedido Woocommerce #${order.number}`);
 
                 try {
+                    // Log del objeto order completo para debugging
+                    console.log(`[${new Date().toISOString()}] 🔍 Objeto order completo:`, {
+                        orderNumber: order.number,
+                        orderStatus: order.status,
+                        orderStatusType: typeof order.status,
+                        orderKeys: Object.keys(order),
+                        hasStatus: 'status' in order,
+                        orderStatusValue: order.status
+                    });
+
                     // Extraer datos del pedido
+                    let orderStatus;
+                    try {
+                        orderStatus = order.status;
+                        console.log(`[${new Date().toISOString()}] ✅ Estado extraído exitosamente:`, {
+                            status: orderStatus,
+                            type: typeof orderStatus
+                        });
+                    } catch (statusError) {
+                        console.error(`[${new Date().toISOString()}] ❌ Error extrayendo estado:`, statusError);
+                        orderStatus = 'unknown';
+                    }
+
                     const orderData = {
                         number: order.number,
                         email: order.billing.email,
@@ -957,7 +979,7 @@ export const syncWooOrders = async (req, res) => {
                         dateCreated: order.date_created,
                         lineItems: order.line_items,
                         metaData: order.meta_data,
-                        status: order.status, // Estado de WooCommerce
+                        status: orderStatus, // Estado de WooCommerce
                         observations: order.coupon_lines.length > 0 
                             ? `Cupón de descuento (${order.coupon_lines[0].code.trim()})`
                             : ''
