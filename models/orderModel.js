@@ -3,6 +3,51 @@
 import { sql, poolPromise } from "../db.js";
 import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
 
+/**
+ * Normaliza el estado de WooCommerce para consistencia en la base de datos
+ * Convierte guiones (-) a guiones bajos (_) para mantener consistencia
+ * @param {string} status - Estado original de WooCommerce
+ * @returns {string} - Estado normalizado
+ */
+const normalizeWooCommerceStatus = (status) => {
+  if (!status || typeof status !== 'string') {
+    return status;
+  }
+  
+  // Convertir guiones a guiones bajos para mantener consistencia
+  const normalizedStatus = status.replace(/-/g, '_');
+  
+  // Log para debugging en caso de normalización
+  if (status !== normalizedStatus) {
+    console.log(`[NORMALIZE_STATUS] Estado normalizado: "${status}" -> "${normalizedStatus}"`);
+  }
+  
+  return normalizedStatus;
+};
+
+/**
+ * Obtiene el estado actual del pedido desde la base de datos
+ * @param {string} fac_nro - Número de factura
+ * @returns {Promise<string|null>} - Estado actual del pedido o null si no existe
+ */
+const getCurrentOrderStatus = async (fac_nro) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('fac_nro', sql.VarChar(15), fac_nro)
+      .query(`
+        SELECT fac_est_woo 
+        FROM dbo.factura 
+        WHERE fac_nro = @fac_nro
+      `);
+    
+    return result.recordset.length > 0 ? result.recordset[0].fac_est_woo : null;
+  } catch (error) {
+    console.error(`Error obteniendo estado del pedido ${fac_nro}:`, error.message);
+    return null;
+  }
+};
+
 
 
 
@@ -10,14 +55,24 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
   let transaction;
   try {
     const pool = await poolPromise;
-    // 1. Buscar el fac_sec correspondiente al fac_nro
+    // 1. Buscar el fac_sec correspondiente al fac_nro y obtener el estado actual
     const headerRes = await pool.request()
       .input('fac_nro', sql.VarChar(15), fac_nro)
-      .query('SELECT fac_sec FROM dbo.factura WHERE fac_nro = @fac_nro');
+      .query('SELECT fac_sec, fac_est_woo FROM dbo.factura WHERE fac_nro = @fac_nro');
     if (headerRes.recordset.length === 0) {
       throw new Error("Pedido no encontrado.");
     }
     const fac_sec = headerRes.recordset[0].fac_sec;
+    const currentStatus = headerRes.recordset[0].fac_est_woo;
+    
+    // Normalizar el estado actual si existe
+    const normalizedStatus = currentStatus ? normalizeWooCommerceStatus(currentStatus) : null;
+    
+    console.log(`[UPDATE_ORDER] Estado actual del pedido ${fac_nro}:`, {
+      original: currentStatus,
+      normalized: normalizedStatus,
+      wasNormalized: currentStatus && normalizedStatus !== currentStatus
+    });
 
     // 2. Iniciar la transacción
     transaction = new sql.Transaction(pool);
@@ -30,7 +85,8 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
           nit_sec = @nit_sec,
           fac_est_fac = @fac_est_fac,
           fac_nro_woo = @fac_nro_woo,
-          fac_obs = @fac_obs
+          fac_obs = @fac_obs,
+          fac_est_woo = @fac_est_woo
           ${fac_fec ? ', fac_fec = @fac_fec' : ''}
       WHERE fac_sec = @fac_sec
     `;
@@ -42,7 +98,8 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       .input('fac_est_fac', sql.Char(1), fac_est_fac)
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
       .input('fac_nro_woo', sql.VarChar(15), fac_nro_woo)
-      .input('fac_obs', sql.VarChar, fac_obs);
+      .input('fac_obs', sql.VarChar, fac_obs)
+      .input('fac_est_woo', sql.VarChar(50), normalizedStatus);
 
     // Solo agregar el parámetro de fecha si se proporciona
     if (fac_fec) {
@@ -468,9 +525,9 @@ const createCompleteOrder = async ({
     // 4. Insertar el encabezado en la tabla factura
     const insertHeaderQuery = `
       INSERT INTO dbo.factura 
-        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs)
+        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs, fac_est_woo)
       VALUES
-        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs);
+        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs, @fac_est_woo);
     `;
     await request.input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
       .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
@@ -480,6 +537,7 @@ const createCompleteOrder = async ({
       .input('fac_obs', sql.VarChar, fac_obs)
       .input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre)
       .input('fac_fec', sql.Date, fac_fec || new Date()) // Usa la fecha proporcionada o la fecha actual
+      .input('fac_est_woo', sql.VarChar(50), null) // Inicializar como null para nuevos pedidos
       .query(insertHeaderQuery);
 
     // 5. Insertar cada detalle en la tabla facturakardes
@@ -672,7 +730,7 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
     const headerRes = await pool.request()
       .input('fac_nro', sql.VarChar(15), fac_nro)
       .query(`
-        SELECT fac_sec, fac_nro_woo, fac_fec 
+        SELECT fac_sec, fac_nro_woo, fac_fec, fac_est_woo 
         FROM dbo.factura 
         WHERE fac_nro = @fac_nro
       `);
@@ -681,7 +739,16 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
       throw new Error("Documento no encontrado.");
     }
 
-    const { fac_sec, fac_nro_woo, fac_fec } = headerRes.recordset[0];
+    const { fac_sec, fac_nro_woo, fac_fec, fac_est_woo } = headerRes.recordset[0];
+    
+    // Normalizar el estado actual si existe
+    const normalizedStatus = fac_est_woo ? normalizeWooCommerceStatus(fac_est_woo) : null;
+    
+    console.log(`[ANULAR_DOCUMENTO] Estado actual del documento ${fac_nro}:`, {
+      original: fac_est_woo,
+      normalized: normalizedStatus,
+      wasNormalized: fac_est_woo && normalizedStatus !== fac_est_woo
+    });
 
     transaction = new sql.Transaction(pool);
     await transaction.begin();
@@ -689,7 +756,8 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
     const updateHeaderQuery = `
       UPDATE dbo.factura
       SET fac_est_fac = 'I',
-          fac_obs = @fac_obs
+          fac_obs = @fac_obs,
+          fac_est_woo = @fac_est_woo
       WHERE fac_sec = @fac_sec
     `;
 
@@ -697,6 +765,7 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
     await updateHeaderRequest
       .input('fac_obs', sql.VarChar, fac_obs)
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+      .input('fac_est_woo', sql.VarChar(50), normalizedStatus)
       .query(updateHeaderQuery);
 
     let detalles = [];

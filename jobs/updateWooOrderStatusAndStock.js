@@ -6,6 +6,85 @@ const WooCommerceRestApi = wcPkg.default || wcPkg;
 // Log de inicialización
 console.log('Inicializando updateWooOrderStatusAndStock.js - Versión:', new Date().toISOString());
 
+/**
+ * Normaliza el estado de WooCommerce para consistencia en la base de datos
+ * Convierte guiones (-) a guiones bajos (_) para mantener consistencia
+ * @param {string} status - Estado original de WooCommerce
+ * @returns {string} - Estado normalizado
+ */
+const normalizeWooCommerceStatus = (status) => {
+  if (!status || typeof status !== 'string') {
+    return status;
+  }
+  
+  // Convertir guiones a guiones bajos para mantener consistencia
+  const normalizedStatus = status.replace(/-/g, '_');
+  
+  // Log para debugging en caso de normalización
+  if (status !== normalizedStatus) {
+    console.log(`[NORMALIZE_STATUS] Estado normalizado: "${status}" -> "${normalizedStatus}"`);
+  }
+  
+  return normalizedStatus;
+};
+
+/**
+ * Obtiene el estado actual del pedido desde la base de datos
+ * @param {string} fac_nro_woo - Número de pedido de WooCommerce
+ * @returns {Promise<string|null>} - Estado actual del pedido o null si no existe
+ */
+const getCurrentOrderStatus = async (fac_nro_woo) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('fac_nro_woo', sql.VarChar(50), fac_nro_woo)
+      .query(`
+        SELECT fac_est_woo 
+        FROM dbo.factura 
+        WHERE fac_nro_woo = @fac_nro_woo
+      `);
+    
+    return result.recordset.length > 0 ? result.recordset[0].fac_est_woo : null;
+  } catch (error) {
+    log(logLevels.ERROR, `Error obteniendo estado del pedido ${fac_nro_woo}`, {
+      error: error.message
+    });
+    return null;
+  }
+};
+
+/**
+ * Determina el estado correcto para actualizar en WooCommerce basado en el estado actual
+ * @param {string} currentStatus - Estado actual del pedido
+ * @returns {string} - Estado a enviar a WooCommerce
+ */
+const determineWooCommerceStatus = (currentStatus) => {
+  if (!currentStatus) {
+    return 'completed'; // Estado por defecto si no hay estado
+  }
+  
+  // Normalizar el estado actual
+  const normalizedStatus = normalizeWooCommerceStatus(currentStatus);
+  
+  // Mapear estados de epayco a estados de WooCommerce
+  const statusMapping = {
+    'epayco_processing': 'processing',
+    'epayco_completed': 'completed',
+    'epayco_pending': 'pending',
+    'epayco_failed': 'failed',
+    'epayco_cancelled': 'cancelled',
+    'epayco_refunded': 'refunded',
+    'processing': 'processing',
+    'completed': 'completed',
+    'pending': 'pending',
+    'failed': 'failed',
+    'cancelled': 'cancelled',
+    'refunded': 'refunded'
+  };
+  
+  return statusMapping[normalizedStatus] || 'completed';
+};
+
 // Configuración de logging
 const logLevels = {
   INFO: 'INFO',
@@ -282,9 +361,24 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
     // Actualizar estado del pedido si existe
     if (fac_nro_woo) {
       try {
-        const orderUpdateData = { status: "completed" };
+        // Obtener el estado actual del pedido desde la base de datos
+        const currentStatus = await getCurrentOrderStatus(fac_nro_woo);
+        debugLogs.push(log(logLevels.INFO, `Estado actual del pedido ${fac_nro_woo}`, {
+          currentStatus,
+          normalizedStatus: currentStatus ? normalizeWooCommerceStatus(currentStatus) : null
+        }));
+        
+        // Determinar el estado correcto para WooCommerce
+        const wooStatus = determineWooCommerceStatus(currentStatus);
+        debugLogs.push(log(logLevels.INFO, `Estado determinado para WooCommerce`, {
+          currentStatus,
+          wooStatus,
+          wasNormalized: currentStatus && normalizeWooCommerceStatus(currentStatus) !== currentStatus
+        }));
+        
+        const orderUpdateData = { status: wooStatus };
         await wcApi.put(`orders/${fac_nro_woo}`, orderUpdateData);
-        messages.push(`Pedido ${fac_nro_woo} actualizado a 'completed' en WooCommerce.`);
+        messages.push(`Pedido ${fac_nro_woo} actualizado a '${wooStatus}' en WooCommerce (estado original: ${currentStatus || 'N/A'}).`);
       } catch (orderError) {
         log(logLevels.ERROR, `Error actualizando pedido ${fac_nro_woo}`, {
           error: orderError.message
