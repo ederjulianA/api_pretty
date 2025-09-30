@@ -63,18 +63,21 @@ const determineWooCommerceStatus = (currentStatus) => {
     return 'completed'; // Estado por defecto si no hay estado
   }
   
-  // Normalizar el estado actual
-  const normalizedStatus = normalizeWooCommerceStatus(currentStatus);
+  // Detectar el entorno basado en el formato del estado
+  // Entorno de pruebas: usa guiones bajos (_) - epayco_processing
+  // Entorno de producción: usa guiones (-) - epayco-processing
+  const isTestEnvironment = currentStatus.includes('_');
+  const isProductionEnvironment = currentStatus.includes('-');
   
-  // Mapear estados de epayco a estados de WooCommerce
-  const statusMapping = {
-    'epayco_processing': 'processing',
-    'epayco_completed': 'completed',
-    'epayco_pending': 'pending',
-    'epayco_failed': 'failed',
-    'epayco_cancelled': 'cancelled',
-    'epayco_refunded': 'refunded',
-    'processing': 'processing',
+  // Mapeo para entorno de pruebas (guiones bajos)
+  const testStatusMapping = {
+    'epayco_processing': 'epayco_completed',
+    'epayco_completed': 'epayco_completed',
+    'epayco_pending': 'epayco_pending',
+    'epayco_failed': 'epayco_failed',
+    'epayco_cancelled': 'epayco_cancelled',
+    'epayco_refunded': 'epayco-refunded',
+    'processing': 'completed',
     'completed': 'completed',
     'pending': 'pending',
     'failed': 'failed',
@@ -82,7 +85,40 @@ const determineWooCommerceStatus = (currentStatus) => {
     'refunded': 'refunded'
   };
   
-  return statusMapping[normalizedStatus] || 'completed';
+  // Mapeo para entorno de producción (guiones)
+  const productionStatusMapping = {
+    'epayco-processing' : 'epayco-completed',
+    'epayco-completed'  : 'epayco-completed',
+    'epayco-pending'    : 'epayco_pending',
+    'epayco-failed'     : 'epayco_failed',
+    'epayco-cancelled'  : 'epayco_cancelled',
+    'epayco-refunded'   : 'epayco_refunded',
+    'processing'        : 'completed',
+    'completed'         : 'completed',
+    'pending'           : 'pending',
+    'failed'            : 'failed',
+    'cancelled'         : 'cancelled',
+    'refunded'          : 'refunded'
+  };
+  
+  // Seleccionar el mapeo según el entorno detectado
+  let statusMapping;
+  if (isTestEnvironment) {
+    statusMapping = testStatusMapping;
+    console.log(`[DETERMINE_STATUS] Entorno de PRUEBAS detectado para estado: ${currentStatus}`);
+  } else if (isProductionEnvironment) {
+    statusMapping = productionStatusMapping;
+    console.log(`[DETERMINE_STATUS] Entorno de PRODUCCIÓN detectado para estado: ${currentStatus}`);
+  } else {
+    // Si no se puede determinar el entorno, usar mapeo de pruebas por defecto
+    statusMapping = testStatusMapping;
+    console.log(`[DETERMINE_STATUS] Entorno no detectado, usando PRUEBAS por defecto para estado: ${currentStatus}`);
+  }
+  
+  const result = statusMapping[currentStatus] || 'completed';
+  console.log(`[DETERMINE_STATUS] Mapeo: ${currentStatus} -> ${result}`);
+  
+  return result;
 };
 
 // Configuración de logging
