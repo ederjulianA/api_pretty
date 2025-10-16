@@ -65,17 +65,19 @@ const crearPromocion = async (promocionData) => {
         throw new Error(`El artículo ${artCodigo} debe tener precio de oferta o descuento porcentual`);
       }
       
-      // Validar que el artículo tenga existencias
-      try {
-        const existencia = await obtenerExistenciaArticuloPorSec(detalle.art_sec);
-        if (existencia <= 0) {
-          throw new Error(`El artículo ${artCodigo} no tiene existencias disponibles (existencia: ${existencia})`);
+      // Validar que el artículo tenga existencias solo si está activo
+      if (detalle.estado === 'A' || detalle.estado === undefined) {
+        try {
+          const existencia = await obtenerExistenciaArticuloPorSec(detalle.art_sec);
+          if (existencia <= 0) {
+            throw new Error(`El artículo ${artCodigo} no tiene existencias disponibles (existencia: ${existencia})`);
+          }
+        } catch (error) {
+          if (error.message.includes('No se encontró el artículo')) {
+            throw new Error(`El artículo ${artCodigo} no existe en el sistema`);
+          }
+          throw new Error(`Error al validar existencias del artículo ${artCodigo}: ${error.message}`);
         }
-      } catch (error) {
-        if (error.message.includes('No se encontró el artículo')) {
-          throw new Error(`El artículo ${artCodigo} no existe en el sistema`);
-        }
-        throw new Error(`Error al validar existencias del artículo ${artCodigo}: ${error.message}`);
       }
       
       // Validar precio de oferta usando función global
@@ -284,17 +286,19 @@ const actualizarPromocion = async (proSec, promocionData) => {
           throw new Error(`El artículo ${artCodigo} debe tener precio de oferta o descuento porcentual`);
         }
         
-        // Validar que el artículo tenga existencias
-        try {
-          const existencia = await obtenerExistenciaArticuloPorSec(detalle.art_sec);
-          if (existencia <= 0) {
-            throw new Error(`El artículo ${artCodigo} no tiene existencias disponibles (existencia: ${existencia})`);
+        // Validar que el artículo tenga existencias solo si está activo
+        if (detalle.estado === 'A' || detalle.estado === undefined) {
+          try {
+            const existencia = await obtenerExistenciaArticuloPorSec(detalle.art_sec);
+            if (existencia <= 0) {
+              throw new Error(`El artículo ${artCodigo} no tiene existencias disponibles (existencia: ${existencia})`);
+            }
+          } catch (error) {
+            if (error.message.includes('No se encontró el artículo')) {
+              throw new Error(`El artículo ${artCodigo} no existe en el sistema`);
+            }
+            throw new Error(`Error al validar existencias del artículo ${artCodigo}: ${error.message}`);
           }
-        } catch (error) {
-          if (error.message.includes('No se encontró el artículo')) {
-            throw new Error(`El artículo ${artCodigo} no existe en el sistema`);
-          }
-          throw new Error(`Error al validar existencias del artículo ${artCodigo}: ${error.message}`);
         }
         
         // Validar precio de oferta usando función global
