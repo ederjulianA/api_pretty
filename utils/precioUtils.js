@@ -223,6 +223,24 @@ export const obtenerPreciosConOferta = async (art_sec, fecha_consulta = null) =>
             .input('art_sec', sql.VarChar(30), art_sec)
             .input('fecha_consulta', sql.DateTime, fecha)
             .query(`
+                WITH PromocionActiva AS (
+                    SELECT TOP 1
+                        pd.pro_sec,
+                        pd.pro_det_precio_oferta,
+                        pd.pro_det_descuento_porcentaje,
+                        p.pro_fecha_inicio,
+                        p.pro_fecha_fin,
+                        p.pro_codigo,
+                        p.pro_descripcion,
+                        p.pro_activa,
+                        ROW_NUMBER() OVER (ORDER BY p.pro_fecha_inicio DESC, p.pro_sec DESC) as rn
+                    FROM dbo.promociones_detalle pd
+                    INNER JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec
+                    WHERE pd.art_sec = @art_sec
+                        AND pd.pro_det_estado = 'A'
+                        AND p.pro_activa = 'S'
+                        AND @fecha_consulta BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+                )
                 SELECT 
                     a.art_sec,
                     a.art_cod,
@@ -232,40 +250,37 @@ export const obtenerPreciosConOferta = async (art_sec, fecha_consulta = null) =>
                     ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
                     -- Precios con oferta aplicada
                     CASE 
-                        WHEN pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0 
-                        THEN pd.pro_det_precio_oferta 
-                        WHEN pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0 
-                        THEN ISNULL(ad1.art_bod_pre, 0) * (1 - (pd.pro_det_descuento_porcentaje / 100))
+                        WHEN pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0 
+                        THEN pa.pro_det_precio_oferta 
+                        WHEN pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0 
+                        THEN ISNULL(ad1.art_bod_pre, 0) * (1 - (pa.pro_det_descuento_porcentaje / 100))
                         ELSE ISNULL(ad1.art_bod_pre, 0) 
                     END AS precio_detal,
                     CASE 
-                        WHEN pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0 
-                        THEN pd.pro_det_precio_oferta 
-                        WHEN pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0 
-                        THEN ISNULL(ad2.art_bod_pre, 0) * (1 - (pd.pro_det_descuento_porcentaje / 100))
+                        WHEN pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0 
+                        THEN pa.pro_det_precio_oferta 
+                        WHEN pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0 
+                        THEN ISNULL(ad2.art_bod_pre, 0) * (1 - (pa.pro_det_descuento_porcentaje / 100))
                         ELSE ISNULL(ad2.art_bod_pre, 0) 
                     END AS precio_mayor,
                     -- Información de oferta
-                    pd.pro_det_precio_oferta AS precio_oferta,
-                    pd.pro_det_descuento_porcentaje AS descuento_porcentaje,
-                    p.pro_fecha_inicio,
-                    p.pro_fecha_fin,
-                    p.pro_codigo AS codigo_promocion,
-                    p.pro_descripcion AS descripcion_promocion,
+                    pa.pro_det_precio_oferta AS precio_oferta,
+                    pa.pro_det_descuento_porcentaje AS descuento_porcentaje,
+                    pa.pro_fecha_inicio,
+                    pa.pro_fecha_fin,
+                    pa.pro_codigo AS codigo_promocion,
+                    pa.pro_descripcion AS descripcion_promocion,
+                    pa.pro_activa,
                     CASE 
-                        WHEN (pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
-                             OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0)
+                        WHEN (pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0) 
+                             OR (pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0)
                         THEN 'S' 
                         ELSE 'N' 
                     END AS tiene_oferta
                 FROM dbo.articulos a
                 LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
                 LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
-                LEFT JOIN dbo.promociones_detalle pd ON a.art_sec = pd.art_sec 
-                    AND pd.pro_det_estado = 'A'
-                LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec 
-                    AND p.pro_activa = 'S'
-                    AND @fecha_consulta BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+                LEFT JOIN PromocionActiva pa ON pa.rn = 1
                 WHERE a.art_sec = @art_sec
             `);
 
@@ -320,6 +335,25 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
         const result = await pool.request()
             .input('fecha_consulta', sql.DateTime, fecha)
             .query(`
+                WITH PromocionesActivas AS (
+                    SELECT 
+                        pd.art_sec,
+                        pd.pro_sec,
+                        pd.pro_det_precio_oferta,
+                        pd.pro_det_descuento_porcentaje,
+                        p.pro_fecha_inicio,
+                        p.pro_fecha_fin,
+                        p.pro_codigo,
+                        p.pro_descripcion,
+                        p.pro_activa,
+                        ROW_NUMBER() OVER (PARTITION BY pd.art_sec ORDER BY p.pro_fecha_inicio DESC, p.pro_sec DESC) as rn
+                    FROM dbo.promociones_detalle pd
+                    INNER JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec
+                    WHERE pd.art_sec IN (${artSecList})
+                        AND pd.pro_det_estado = 'A'
+                        AND p.pro_activa = 'S'
+                        AND @fecha_consulta BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+                )
                 SELECT 
                     a.art_sec,
                     a.art_cod,
@@ -329,40 +363,37 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
                     ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
                     -- Precios con oferta aplicada
                     CASE 
-                        WHEN pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0 
-                        THEN pd.pro_det_precio_oferta 
-                        WHEN pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0 
-                        THEN ISNULL(ad1.art_bod_pre, 0) * (1 - (pd.pro_det_descuento_porcentaje / 100))
+                        WHEN pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0 
+                        THEN pa.pro_det_precio_oferta 
+                        WHEN pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0 
+                        THEN ISNULL(ad1.art_bod_pre, 0) * (1 - (pa.pro_det_descuento_porcentaje / 100))
                         ELSE ISNULL(ad1.art_bod_pre, 0) 
                     END AS precio_detal,
                     CASE 
-                        WHEN pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0 
-                        THEN pd.pro_det_precio_oferta 
-                        WHEN pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0 
-                        THEN ISNULL(ad2.art_bod_pre, 0) * (1 - (pd.pro_det_descuento_porcentaje / 100))
+                        WHEN pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0 
+                        THEN pa.pro_det_precio_oferta 
+                        WHEN pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0 
+                        THEN ISNULL(ad2.art_bod_pre, 0) * (1 - (pa.pro_det_descuento_porcentaje / 100))
                         ELSE ISNULL(ad2.art_bod_pre, 0) 
                     END AS precio_mayor,
                     -- Información de oferta
-                    pd.pro_det_precio_oferta AS precio_oferta,
-                    pd.pro_det_descuento_porcentaje AS descuento_porcentaje,
-                    p.pro_fecha_inicio,
-                    p.pro_fecha_fin,
-                    p.pro_codigo AS codigo_promocion,
-                    p.pro_descripcion AS descripcion_promocion,
+                    pa.pro_det_precio_oferta AS precio_oferta,
+                    pa.pro_det_descuento_porcentaje AS descuento_porcentaje,
+                    pa.pro_fecha_inicio,
+                    pa.pro_fecha_fin,
+                    pa.pro_codigo AS codigo_promocion,
+                    pa.pro_descripcion AS descripcion_promocion,
+                    pa.pro_activa,
                     CASE 
-                        WHEN (pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
-                             OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0)
+                        WHEN (pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0) 
+                             OR (pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0)
                         THEN 'S' 
                         ELSE 'N' 
                     END AS tiene_oferta
                 FROM dbo.articulos a
                 LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
                 LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
-                LEFT JOIN dbo.promociones_detalle pd ON a.art_sec = pd.art_sec 
-                    AND pd.pro_det_estado = 'A'
-                LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec 
-                    AND p.pro_activa = 'S'
-                    AND @fecha_consulta BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+                LEFT JOIN PromocionesActivas pa ON a.art_sec = pa.art_sec AND pa.rn = 1
                 WHERE a.art_sec IN (${artSecList})
             `);
 
