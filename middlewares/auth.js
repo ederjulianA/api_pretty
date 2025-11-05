@@ -1,5 +1,6 @@
 // middlewares/auth.js
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 const verifyToken = (req, res, next) => {
   // Se espera que el token se envíe en el header "x-access-token"
@@ -9,7 +10,10 @@ const verifyToken = (req, res, next) => {
     return res.status(401).json({ success: false, error: 'No token provided.' });
   }
   
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+  // Generar el secretKey usando el mismo hash SHA-256 que se usa al generar el token
+  const secretKey = crypto.createHash('sha256').update(process.env.JWT_SECRET).digest();
+  
+  jwt.verify(token, secretKey, (err, decoded) => {
     if (err) {
       return res.status(401).json({ success: false, error: 'Invalid token.' });
     }
