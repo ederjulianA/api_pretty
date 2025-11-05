@@ -65,13 +65,9 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     const fac_sec = headerRes.recordset[0].fac_sec;
     const currentStatus = headerRes.recordset[0].fac_est_woo;
     
-    // Normalizar el estado actual si existe
-    const normalizedStatus = currentStatus ? normalizeWooCommerceStatus(currentStatus) : null;
-    
     console.log(`[UPDATE_ORDER] Estado actual del pedido ${fac_nro}:`, {
-      original: currentStatus,
-      normalized: normalizedStatus,
-      wasNormalized: currentStatus && normalizedStatus !== currentStatus
+      currentStatus: currentStatus,
+      willUpdateTo: fac_est_woo || currentStatus
     });
 
     // 2. Iniciar la transacción
@@ -79,6 +75,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     await transaction.begin();
 
     // 3. Actualizar el encabezado en la tabla factura con un nuevo Request
+    // NOTA: NO normalizamos el estado aquí para que determineWooCommerceStatus pueda detectar correctamente el entorno
     const updateHeaderQuery = `
       UPDATE dbo.factura
       SET fac_tip_cod = @fac_tip_cod,
@@ -99,7 +96,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
       .input('fac_nro_woo', sql.VarChar(15), fac_nro_woo)
       .input('fac_obs', sql.VarChar, fac_obs)
-      .input('fac_est_woo', sql.VarChar(50), normalizedStatus);
+      .input('fac_est_woo', sql.VarChar(50), currentStatus); // Mantener el estado actual sin normalizar
 
     // Solo agregar el parámetro de fecha si se proporciona
     if (fac_fec) {
@@ -741,13 +738,8 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
 
     const { fac_sec, fac_nro_woo, fac_fec, fac_est_woo } = headerRes.recordset[0];
     
-    // Normalizar el estado actual si existe
-    const normalizedStatus = fac_est_woo ? normalizeWooCommerceStatus(fac_est_woo) : null;
-    
     console.log(`[ANULAR_DOCUMENTO] Estado actual del documento ${fac_nro}:`, {
-      original: fac_est_woo,
-      normalized: normalizedStatus,
-      wasNormalized: fac_est_woo && normalizedStatus !== fac_est_woo
+      currentStatus: fac_est_woo
     });
 
     transaction = new sql.Transaction(pool);
@@ -765,7 +757,7 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
     await updateHeaderRequest
       .input('fac_obs', sql.VarChar, fac_obs)
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
-      .input('fac_est_woo', sql.VarChar(50), normalizedStatus)
+      .input('fac_est_woo', sql.VarChar(50), fac_est_woo) // Mantener el estado actual sin normalizar
       .query(updateHeaderQuery);
 
     let detalles = [];

@@ -76,7 +76,7 @@ const determineWooCommerceStatus = (currentStatus) => {
     'epayco_pending': 'epayco_pending',
     'epayco_failed': 'epayco_failed',
     'epayco_cancelled': 'epayco_cancelled',
-    'epayco_refunded': 'epayco-refunded',
+    'epayco_refunded': 'epayco_refunded',
     'processing': 'completed',
     'completed': 'completed',
     'pending': 'pending',
@@ -89,16 +89,16 @@ const determineWooCommerceStatus = (currentStatus) => {
   const productionStatusMapping = {
     'epayco-processing' : 'epayco-completed',
     'epayco-completed'  : 'epayco-completed',
-    'epayco-pending'    : 'epayco_pending',
-    'epayco-failed'     : 'epayco_failed',
-    'epayco-cancelled'  : 'epayco_cancelled',
-    'epayco-refunded'   : 'epayco_refunded',
-    'processing'        : 'completed',
-    'completed'         : 'completed',
-    'pending'           : 'pending',
-    'failed'            : 'failed',
-    'cancelled'         : 'cancelled',
-    'refunded'          : 'refunded'
+    'epayco-pending'    : 'epayco-pending',
+    'epayco-failed'    : 'epayco-failed',
+    'epayco-cancelled' : 'epayco-cancelled',
+    'epayco-refunded'  : 'epayco-refunded',
+    'processing'       : 'completed',
+    'completed'        : 'completed',
+    'pending'          : 'pending',
+    'failed'           : 'failed',
+    'cancelled'        : 'cancelled',
+    'refunded'         : 'refunded'
   };
   
   // Seleccionar el mapeo según el entorno detectado
@@ -110,9 +110,10 @@ const determineWooCommerceStatus = (currentStatus) => {
     statusMapping = productionStatusMapping;
     console.log(`[DETERMINE_STATUS] Entorno de PRODUCCIÓN detectado para estado: ${currentStatus}`);
   } else {
-    // Si no se puede determinar el entorno, usar mapeo de pruebas por defecto
-    statusMapping = testStatusMapping;
-    console.log(`[DETERMINE_STATUS] Entorno no detectado, usando PRUEBAS por defecto para estado: ${currentStatus}`);
+    // Si no se puede determinar el entorno, usar mapeo de producción por defecto
+    // porque la mayoría de los casos en producción usan guiones
+    statusMapping = productionStatusMapping;
+    console.log(`[DETERMINE_STATUS] Entorno no detectado, usando PRODUCCIÓN por defecto para estado: ${currentStatus}`);
   }
   
   const result = statusMapping[currentStatus] || 'completed';

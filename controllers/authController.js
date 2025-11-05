@@ -2,6 +2,7 @@
 import { sql, poolPromise } from "../db.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { getUserPermissions } from "../models/userRoleModel.js";
 
 const loginUser = async (req, res) => {
@@ -66,6 +67,8 @@ const loginUser = async (req, res) => {
       }
     });
 
+    const secretKey = crypto.createHash('sha256').update(process.env.JWT_SECRET).digest();
+
     // Generar el token JWT
     const token = jwt.sign(
       {
@@ -74,8 +77,11 @@ const loginUser = async (req, res) => {
         rol_id: user.rol_id,
         rol_nombre: user.rol_nombre
       },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+     secretKey,
+      { 
+        algorithm: 'HS256',
+        expiresIn: '24h' 
+      }
     );
 
     // Enviar la respuesta
