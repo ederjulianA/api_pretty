@@ -51,7 +51,7 @@ const getCurrentOrderStatus = async (fac_nro) => {
 
 
 
-const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_fec }) => {
+const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_fec, fac_descuento_general, fac_est_woo }) => {
   let transaction;
   try {
     const pool = await poolPromise;
@@ -65,9 +65,12 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     const fac_sec = headerRes.recordset[0].fac_sec;
     const currentStatus = headerRes.recordset[0].fac_est_woo;
     
+    // Si se proporciona fac_est_woo, usarlo; de lo contrario, mantener el estado actual
+    const newStatus = fac_est_woo !== undefined ? fac_est_woo : currentStatus;
+    
     console.log(`[UPDATE_ORDER] Estado actual del pedido ${fac_nro}:`, {
       currentStatus: currentStatus,
-      willUpdateTo: fac_est_woo || currentStatus
+      willUpdateTo: newStatus
     });
 
     // 2. Iniciar la transacción
@@ -85,6 +88,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
           fac_obs = @fac_obs,
           fac_est_woo = @fac_est_woo
           ${fac_fec ? ', fac_fec = @fac_fec' : ''}
+          ${fac_descuento_general !== undefined ? ', fac_descuento_general = @fac_descuento_general' : ''}
       WHERE fac_sec = @fac_sec
     `;
 
@@ -96,11 +100,16 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
       .input('fac_nro_woo', sql.VarChar(15), fac_nro_woo)
       .input('fac_obs', sql.VarChar, fac_obs)
-      .input('fac_est_woo', sql.VarChar(50), currentStatus); // Mantener el estado actual sin normalizar
+      .input('fac_est_woo', sql.VarChar(50), newStatus); // Usar el nuevo estado o mantener el actual
 
     // Solo agregar el parámetro de fecha si se proporciona
     if (fac_fec) {
       updateHeaderRequest.input('fac_fec', sql.Date, fac_fec);
+    }
+    
+    // Solo agregar el parámetro de descuento general si se proporciona
+    if (fac_descuento_general !== undefined) {
+      updateHeaderRequest.input('fac_descuento_general', sql.Decimal(17, 2), fac_descuento_general);
     }
 
     await updateHeaderRequest.query(updateHeaderQuery);
@@ -318,7 +327,8 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
         f.fac_nro_woo,
         f.fac_est_woo,
         f.fac_est_fac,
-        SUM(fd.kar_total) AS total_pedido,
+        SUM(fd.kar_total) - ISNULL(MAX(f.fac_descuento_general), 0) AS total_pedido,
+        ISNULL(MAX(f.fac_descuento_general), 0) AS descuento_general,
         (SELECT STRING_AGG(fac_nro_origen, ', ') 
          FROM (SELECT DISTINCT f.fac_nro_origen 
                FROM factura f2 
@@ -343,7 +353,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
       AND (@fac_nro_woo IS NULL OR f.fac_nro_woo = @fac_nro_woo)
       AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)
     GROUP BY 
-        f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_woo, f.fac_est_fac, f.fac_nro_origen,fac_usu_cod_cre
+        f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_woo, f.fac_est_fac, f.fac_nro_origen, f.fac_usu_cod_cre, f.fac_sec
     ORDER BY f.fac_fec DESC, f.fac_nro  ASC
     OFFSET (@PageNumber - 1) * @PageSize ROWS
     FETCH NEXT @PageSize ROWS ONLY;
@@ -384,6 +394,8 @@ const getOrder = async (fac_nro) => {
         f.fac_nro,
         f.fac_nro_woo,
         f.fac_est_fac,
+        f.fac_descuento_general,
+        f.fac_total_woo,
         c.ciu_nom
       FROM dbo.factura f  
       LEFT JOIN dbo.nit n ON n.nit_sec = f.nit_sec
@@ -435,6 +447,16 @@ const getOrder = async (fac_nro) => {
 
     const details = detailResult.recordset;
 
+    // Calcular el total de la factura incluyendo el descuento general
+    const totalDetalles = details.reduce((sum, detail) => sum + parseFloat(detail.kar_total || 0), 0);
+    const descuentoGeneral = parseFloat(header.fac_descuento_general || 0);
+    const totalFinal = totalDetalles - descuentoGeneral;
+
+    // Agregar información de totales al header
+    header.total_detalles = totalDetalles;
+    header.descuento_general = descuentoGeneral;
+    header.total_final = totalFinal;
+
     return { header, details };
   } catch (error) {
     throw error;
@@ -450,7 +472,8 @@ const createCompleteOrder = async ({
   lis_pre_cod,
   fac_nro_woo,
   fac_obs,
-  fac_fec // Nuevo parámetro opcional
+  fac_fec, // Nuevo parámetro opcional
+  fac_descuento_general // Nuevo parámetro opcional para descuento general
 }) => {
   let transaction;
   try {
@@ -522,9 +545,9 @@ const createCompleteOrder = async ({
     // 4. Insertar el encabezado en la tabla factura
     const insertHeaderQuery = `
       INSERT INTO dbo.factura 
-        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs, fac_est_woo)
+        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs, fac_est_woo, fac_descuento_general)
       VALUES
-        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs, @fac_est_woo);
+        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs, @fac_est_woo, @fac_descuento_general);
     `;
     await request.input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
       .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
@@ -535,6 +558,7 @@ const createCompleteOrder = async ({
       .input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre)
       .input('fac_fec', sql.Date, fac_fec || new Date()) // Usa la fecha proporcionada o la fecha actual
       .input('fac_est_woo', sql.VarChar(50), null) // Inicializar como null para nuevos pedidos
+      .input('fac_descuento_general', sql.Decimal(17, 2), fac_descuento_general || 0) // Usar el valor proporcionado o 0 por defecto
       .query(insertHeaderQuery);
 
     // 5. Insertar cada detalle en la tabla facturakardes

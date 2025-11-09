@@ -1379,6 +1379,24 @@
 					}
 				},
 				{
+					"name": "Eliminar Detalle de Conteo",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo/1/detalle/ART001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo", "1", "detalle", "ART001"]
+						}
+					},
+					"response": []
+				},
+				{
 					"name": "Actualizar Estado de Conteo",
 					"request": {
 						"method": "PATCH",
@@ -1402,6 +1420,74 @@
 							"path": ["api", "inventario-conteo", "1", "estado"]
 						}
 					}
+				},
+				{
+					"name": "Actualizar Cantidad de Detalle",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cantidad_conteada\": 50\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo/1/detalle/ART001/cantidad",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo", "1", "detalle", "ART001", "cantidad"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Buscar Detalle de Conteo",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo/1/detalle/buscar?codigo=ART001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo", "1", "detalle", "buscar"],
+							"query": [
+								{
+									"key": "codigo",
+									"value": "ART001"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Verificar Artículo en Detalle",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inventario-conteo/1/detalle/verificar/ART001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventario-conteo", "1", "detalle", "verificar", "ART001"]
+						}
+					},
+					"response": []
 				}
 			]
 		},
@@ -1579,7 +1665,7 @@
 			"name": "Parámetros",
 			"item": [
 				{
-					"name": "Obtener Parámetros",
+					"name": "Obtener Todos los Parámetros",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -1593,7 +1679,161 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "parametros"]
 						}
-					}
+					},
+					"response": [
+						{
+							"name": "Lista de Parámetros",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"parametros": [
+									{
+										"par_cod": "pedido_minimo",
+										"par_value": "100000"
+									},
+									{
+										"par_cod": "otro_parametro",
+										"par_value": "valor_ejemplo"
+									}
+								],
+								"total": 2
+							}
+						}
+					]
+				},
+				{
+					"name": "Obtener Parámetro por Código",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/parametros/pedido_minimo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "parametros", "pedido_minimo"]
+						}
+					},
+					"response": [
+						{
+							"name": "Parámetro Encontrado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"parametro": {
+									"par_cod": "pedido_minimo",
+									"par_value": "100000"
+								}
+							}
+						},
+						{
+							"name": "Parámetro No Encontrado",
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": false,
+								"error": "Parámetro no encontrado"
+							}
+						}
+					]
+				},
+				{
+					"name": "Actualizar Parámetro",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"par_value\": \"150000\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/parametros/pedido_minimo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "parametros", "pedido_minimo"]
+						}
+					},
+					"response": [
+						{
+							"name": "Parámetro Actualizado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"message": "Parámetro actualizado exitosamente",
+								"parametro": {
+									"par_cod": "pedido_minimo",
+									"par_value": "150000"
+								}
+							}
+						},
+						{
+							"name": "Parámetro No Encontrado",
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": false,
+								"error": "Parámetro no encontrado"
+							}
+						},
+						{
+							"name": "Valor Requerido",
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": false,
+								"error": "El valor del parámetro (par_value) es requerido"
+							}
+						}
+					]
+				},
+				{
+					"name": "Obtener Pedido Mínimo",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/parametros/pedido-minimo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "parametros", "pedido-minimo"]
+						}
+					},
+					"response": [
+						{
+							"name": "Pedido Mínimo",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": {
+								"success": true,
+								"pedido_minimo": 100000
+							}
+						}
+					]
 				}
 			]
 		},
@@ -1668,6 +1908,610 @@
 							"path": ["api", "documento-inventario"]
 						}
 					}
+				}
+			]
+		},
+		{
+			"name": "Eventos Promocionales",
+			"item": [
+				{
+					"name": "Crear Evento Promocional",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombre\": \"Black Friday PrettyMakeup 2025\",\n    \"fecha_inicio\": \"2025-11-01T00:00:00.000Z\",\n    \"fecha_fin\": \"2025-11-07T23:59:59.000Z\",\n    \"descuento_detal\": 30,\n    \"descuento_mayor\": 8,\n    \"activo\": \"S\",\n    \"observaciones\": \"Evento promocional anual\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/eventos-promocionales",
+							"host": ["{{base_url}}"],
+							"path": ["api", "eventos-promocionales"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Actualizar Evento Promocional",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombre\": \"Black Friday Actualizado\",\n    \"descuento_detal\": 35,\n    \"descuento_mayor\": 10\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/eventos-promocionales/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "eventos-promocionales", "1"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Eventos Promocionales",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/eventos-promocionales?activo=S&fecha=2025-11-05",
+							"host": ["{{base_url}}"],
+							"path": ["api", "eventos-promocionales"],
+							"query": [
+								{
+									"key": "activo",
+									"value": "S",
+									"disabled": true
+								},
+								{
+									"key": "fecha",
+									"value": "2025-11-05",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Evento Promocional por ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/eventos-promocionales/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "eventos-promocionales", "1"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Evento Activo",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/eventos-promocionales/activo?fecha=2025-11-05",
+							"host": ["{{base_url}}"],
+							"path": ["api", "eventos-promocionales", "activo"],
+							"query": [
+								{
+									"key": "fecha",
+									"value": "2025-11-05",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Promociones",
+			"item": [
+				{
+					"name": "Crear Promoción",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"codigo\": \"PROM001\",\n    \"descripcion\": \"Promoción de prueba\",\n    \"fecha_inicio\": \"2024-01-01\",\n    \"fecha_fin\": \"2024-12-31\",\n    \"tipo\": \"OFERTA\",\n    \"articulos\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"precio_oferta\": 80.00,\n            \"descuento_porcentaje\": null,\n            \"estado\": \"A\"\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/promociones",
+							"host": ["{{base_url}}"],
+							"path": ["api", "promociones"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Actualizar Promoción",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"descripcion\": \"Promoción actualizada\",\n    \"articulos\": [\n        {\n            \"art_sec\": \"ART001\",\n            \"precio_oferta\": 75.00\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/promociones/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "promociones", "1"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Promociones",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/promociones",
+							"host": ["{{base_url}}"],
+							"path": ["api", "promociones"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Promoción por ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/promociones/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "promociones", "1"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Sincronizar Precios de Promoción",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/promociones/1/sincronizar-precios",
+							"host": ["{{base_url}}"],
+							"path": ["api", "promociones", "1", "sincronizar-precios"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Sincronizar Múltiples Promociones",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/promociones/sincronizar-multiples",
+							"host": ["{{base_url}}"],
+							"path": ["api", "promociones", "sincronizar-multiples"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Artículos para Sincronización",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/promociones/1/articulos-sincronizacion",
+							"host": ["{{base_url}}"],
+							"path": ["api", "promociones", "1", "articulos-sincronizacion"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Test Sincronización Directa",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/promociones/test/sincronizacion-directa",
+							"host": ["{{base_url}}"],
+							"path": ["api", "promociones", "test", "sincronizacion-directa"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Diagnostic",
+			"item": [
+				{
+					"name": "Diagnosticar Producto",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/diagnostic/product/ART001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "diagnostic", "product", "ART001"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Comparar Producto",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"sku\": \"ART001\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/diagnostic/compare",
+							"host": ["{{base_url}}"],
+							"path": ["api", "diagnostic", "compare"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Comparar Múltiples Productos",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"skus\": [\"ART001\", \"ART002\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/diagnostic/multiple",
+							"host": ["{{base_url}}"],
+							"path": ["api", "diagnostic", "multiple"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Diagnosticar Promoción",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"pro_sec\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/diagnostic/promotion",
+							"host": ["{{base_url}}"],
+							"path": ["api", "diagnostic", "promotion"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Test Sync",
+			"item": [
+				{
+					"name": "Test Sync",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/test/test-sync",
+							"host": ["{{base_url}}"],
+							"path": ["api", "test", "test-sync"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Logs de Sincronización",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/test/sync-logs",
+							"host": ["{{base_url}}"],
+							"path": ["api", "test", "sync-logs"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Log de Sincronización por ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/test/sync-logs/1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "test", "sync-logs", "1"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "WooCommerce Sync",
+			"item": [
+				{
+					"name": "Sincronizar Productos WooCommerce",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/sync",
+							"host": ["{{base_url}}"],
+							"path": ["api", "woo", "sync"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Logs de WooCommerce",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/test-logs",
+							"host": ["{{base_url}}"],
+							"path": ["api", "woo", "test-logs"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Actualizar Stock de Orden",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"order_id\": 12345\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/woo/update-order-stock",
+							"host": ["{{base_url}}"],
+							"path": ["api", "woo", "update-order-stock"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Actualizar Imágenes de Artículos",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/update-article-images",
+							"host": ["{{base_url}}"],
+							"path": ["api", "woo", "update-article-images"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Sincronizar Imagen de Artículo",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/sync-article-image/ART001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "woo", "sync-article-image", "ART001"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Inventory Differences",
+			"item": [
+				{
+					"name": "Obtener Diferencias de Inventario",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inventory-differences/differences",
+							"host": ["{{base_url}}"],
+							"path": ["api", "inventory-differences", "differences"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Update Woo Stock",
+			"item": [
+				{
+					"name": "Actualizar Stock WooCommerce",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/updateWooStock/ART001",
+							"host": ["{{base_url}}"],
+							"path": ["api", "updateWooStock", "ART001"]
+						}
+					},
+					"response": []
 				}
 			]
 		}

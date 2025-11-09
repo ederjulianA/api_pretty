@@ -6,7 +6,7 @@ const { getOrdenes, updateOrder, anularDocumento } = require('../models/orderMod
 const updateOrderEndpoint = async (req, res) => {
   try {
     const { fac_nro } = req.params;
-    const { fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs } = req.body;
+    const { fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_descuento_general, fac_est_woo } = req.body;
 
     if (!fac_nro || !fac_tip_cod || !nit_sec || !fac_est_fac || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
       return res.status(400).json({
@@ -16,7 +16,7 @@ const updateOrderEndpoint = async (req, res) => {
     }
 
     // Se espera que cada ítem de details tenga: art_sec, kar_uni, precio_de_venta y kar_lis_pre_cod
-    const result = await updateOrder({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs });
+    const result = await updateOrder({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_descuento_general, fac_est_woo });
     return res.json({ success: true, ...result });
   } catch (error) {
     console.error("Error al actualizar el pedido:", error);
@@ -26,14 +26,14 @@ const updateOrderEndpoint = async (req, res) => {
 
 const createCompleteOrder = async (req, res) => {
   try {
-    const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs } = req.body;
+    const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general } = req.body;
     console.log(req.body);
     // Validar que se envíe el nit del cliente y al menos un detalle
     if (!nit_sec || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
       return res.status(400).json({ error: "Debe enviar 'nit_sec' y un arreglo no vacío de 'detalles'." });
     }
 
-    const result = await orderModel.createCompleteOrder({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs });
+    const result = await orderModel.createCompleteOrder({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general });
     res.status(201).json({
       success: true,
       fac_sec: result.fac_sec,

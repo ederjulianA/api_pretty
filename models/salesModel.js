@@ -14,7 +14,8 @@ const getSalesSummary = async (start_date, end_date) => {
           f.fac_nro,
           n.nit_nom,
           n.nit_ide,
-          SUM(fd.kar_total) AS total_pedido,
+          SUM(fd.kar_total) - ISNULL(MAX(f.fac_descuento_general), 0) AS total_pedido,
+          ISNULL(MAX(f.fac_descuento_general), 0) AS descuento_general,
           f.fac_nro_woo
       FROM dbo.factura f
       INNER JOIN dbo.nit n
@@ -32,7 +33,8 @@ const getSalesSummary = async (start_date, end_date) => {
           f.fac_nro, 
           n.nit_nom, 
           n.nit_ide,
-          f.fac_nro_woo
+          f.fac_nro_woo,
+          f.fac_sec
       ORDER BY f.fac_fec DESC
     `);
   
@@ -45,7 +47,8 @@ const getSalesSummary = async (start_date, end_date) => {
     .query(`
       SELECT 
           f.fac_fec,
-          SUM(fd.kar_total) AS total_ventas_diarias
+          SUM(fd.kar_total) - ISNULL(SUM(f.fac_descuento_general), 0) AS total_ventas_diarias,
+          ISNULL(SUM(f.fac_descuento_general), 0) AS total_descuentos_diarios
       FROM dbo.factura f
       INNER JOIN dbo.facturakardes fd
           ON f.fac_sec = fd.fac_sec

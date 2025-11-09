@@ -442,18 +442,23 @@ const createOrder = async (orderData, nitSec, usuario) => {
             .input('fac_nro', sql.VarChar(20), facNro)
             .input('fac_usu_cod_cre', sql.VarChar(20), usuario)
             .input('fac_est_woo', sql.VarChar(50), normalizedStatus)
+            .input('fac_descuento_general', sql.Decimal(17, 2), orderData.descuentoGeneral || 0)
+            .input('fac_total_woo', sql.Decimal(17, 2), orderData.totalWoo > 0 ? orderData.totalWoo : null)
             .query(`
                 INSERT INTO dbo.factura (
                     fac_sec, fac_fec, fac_tip_cod, f_tip_cod, nit_sec,
-                    fac_est_fac, fac_obs, fac_nro_woo, fac_nro, fac_usu_cod_cre, fac_est_woo
+                    fac_est_fac, fac_obs, fac_nro_woo, fac_nro, fac_usu_cod_cre, fac_est_woo,
+                    fac_descuento_general, fac_total_woo
                 )
                 VALUES (
                     @fac_sec, @fac_fec, @fac_tip_cod, @f_tip_cod, @nit_sec,
-                    @fac_est_fac, @fac_obs, @fac_nro_woo, @fac_nro, @fac_usu_cod_cre, @fac_est_woo
+                    @fac_est_fac, @fac_obs, @fac_nro_woo, @fac_nro, @fac_usu_cod_cre, @fac_est_woo,
+                    @fac_descuento_general, @fac_total_woo
                 )
             `);
 
         console.log(`[CREATE_ORDER] Factura insertada exitosamente con fac_est_woo: ${normalizedStatus} (original: ${orderData.status})`);
+        console.log(`[CREATE_ORDER] Descuento general aplicado: ${orderData.descuentoGeneral || 0}, Total WooCommerce: ${orderData.totalWoo || 'N/A'}`);
 
         console.log('Procesando items del pedido...');
         // Procesar items del pedido
@@ -601,15 +606,20 @@ const updateOrder = async (orderData, facSec, usuario) => {
             .input('fac_obs', sql.VarChar(500), orderData.observations || '')
             .input('fac_usu_cod_cre', sql.VarChar(20), usuario)
             .input('fac_est_woo', sql.VarChar(50), normalizedStatus)
+            .input('fac_descuento_general', sql.Decimal(17, 2), orderData.descuentoGeneral || 0)
+            .input('fac_total_woo', sql.Decimal(17, 2), orderData.totalWoo > 0 ? orderData.totalWoo : null)
             .query(`
                 UPDATE dbo.factura 
                 SET fac_obs = @fac_obs,
                     fac_usu_cod_cre = @fac_usu_cod_cre,
-                    fac_est_woo = @fac_est_woo
+                    fac_est_woo = @fac_est_woo,
+                    fac_descuento_general = @fac_descuento_general,
+                    fac_total_woo = @fac_total_woo
                 WHERE fac_sec = @fac_sec
             `);
 
         console.log(`[UPDATE_ORDER] Factura actualizada exitosamente con fac_est_woo: ${normalizedStatus} (original: ${orderData.status})`);
+        console.log(`[UPDATE_ORDER] Descuento general aplicado: ${orderData.descuentoGeneral || 0}, Total WooCommerce: ${orderData.totalWoo || 'N/A'}`);
 
         console.log('Eliminando detalles existentes...');
         // Eliminar detalles existentes
@@ -969,6 +979,40 @@ export const syncWooOrders = async (req, res) => {
                         orderStatus = 'unknown';
                     }
 
+                    // Calcular descuento general de fee_lines (solo los negativos que son descuentos)
+                    const feeLines = order.fee_lines || [];
+                    const descuentoGeneral = feeLines
+                        .filter(fee => parseFloat(fee.total) < 0)
+                        .reduce((sum, fee) => sum + Math.abs(parseFloat(fee.total)), 0);
+                    
+                    // Log de fee_lines para debugging
+                    if (feeLines.length > 0) {
+                        console.log(`[${new Date().toISOString()}] 💰 Fee lines encontrados:`, {
+                            orderNumber: order.number,
+                            feeLinesCount: feeLines.length,
+                            feeLines: feeLines.map(fee => ({
+                                id: fee.id,
+                                name: fee.name,
+                                total: fee.total,
+                                amount: fee.amount
+                            })),
+                            descuentoGeneralCalculado: descuentoGeneral
+                        });
+                    }
+                    
+                    // Construir observaciones con cupones y descuentos generales
+                    let observations = [];
+                    if (order.coupon_lines && order.coupon_lines.length > 0) {
+                        observations.push(`Cupón de descuento (${order.coupon_lines[0].code.trim()})`);
+                    }
+                    if (descuentoGeneral > 0) {
+                        const descuentosFeeLines = feeLines
+                            .filter(fee => parseFloat(fee.total) < 0)
+                            .map(fee => fee.name || 'Descuento general')
+                            .join(', ');
+                        observations.push(`Descuento general: ${descuentosFeeLines} (${descuentoGeneral.toFixed(2)})`);
+                    }
+
                     const orderData = {
                         number: order.number,
                         email: order.billing.email,
@@ -979,10 +1023,11 @@ export const syncWooOrders = async (req, res) => {
                         dateCreated: order.date_created,
                         lineItems: order.line_items,
                         metaData: order.meta_data,
+                        feeLines: feeLines,
+                        descuentoGeneral: descuentoGeneral,
+                        totalWoo: parseFloat(order.total) || 0,
                         status: orderStatus, // Estado de WooCommerce
-                        observations: order.coupon_lines.length > 0 
-                            ? `Cupón de descuento (${order.coupon_lines[0].code.trim()})`
-                            : ''
+                        observations: observations.join(' | ') || ''
                     };
 
                     // Log inmediato para verificar el estado extraído
@@ -1005,7 +1050,10 @@ export const syncWooOrders = async (req, res) => {
                         statusType: typeof orderData.status,
                         statusValue: orderData.status,
                         lineItemsCount: orderData.lineItems?.length || 0,
-                        hasCoupon: order.coupon_lines.length > 0
+                        hasCoupon: order.coupon_lines.length > 0,
+                        descuentoGeneral: orderData.descuentoGeneral,
+                        totalWoo: orderData.totalWoo,
+                        feeLinesCount: orderData.feeLines?.length || 0
                     });
 
                     // Normalizar el estado para logging y debugging
