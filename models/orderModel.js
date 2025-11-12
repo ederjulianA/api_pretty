@@ -130,9 +130,18 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       // 5.1 Usar información de precios y ofertas que viene desde syncWooOrders o calcular si no está disponible
       let precioInfo;
       
-      // Verificar si los campos de promociones están presentes en el detalle
-      if (detail.kar_pre_pub_detal !== undefined && detail.kar_pre_pub_mayor !== undefined && 
-          detail.kar_tiene_oferta !== undefined && detail.kar_codigo_promocion !== undefined) {
+      // Verificar si los campos de promociones están presentes en el detalle y son válidos
+      // Validar que no sean undefined, null o cadenas vacías
+      const tieneCamposPromocion = detail.kar_pre_pub_detal !== undefined && 
+                                    detail.kar_pre_pub_mayor !== undefined && 
+                                    detail.kar_tiene_oferta !== undefined && 
+                                    detail.kar_codigo_promocion !== undefined &&
+                                    detail.kar_pre_pub_detal !== null &&
+                                    detail.kar_pre_pub_mayor !== null &&
+                                    detail.kar_tiene_oferta !== null &&
+                                    detail.kar_tiene_oferta !== '';
+      
+      if (tieneCamposPromocion) {
         // Usar los valores que vienen desde syncWooOrders
         precioInfo = {
           precio_detal: detail.kar_pre_pub_detal || 0,
@@ -143,6 +152,15 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
           descripcion_promocion: detail.kar_descripcion_promocion || null,
           tiene_oferta: detail.kar_tiene_oferta || 'N'
         };
+        
+        // Asegurar que si no tiene oferta, todos los campos de promoción sean NULL
+        if (precioInfo.tiene_oferta !== 'S') {
+          precioInfo.precio_oferta = null;
+          precioInfo.descuento_porcentaje = null;
+          precioInfo.codigo_promocion = null;
+          precioInfo.descripcion_promocion = null;
+          precioInfo.tiene_oferta = 'N';
+        }
         
         console.log(`[UPDATE_ORDER] Usando información de promociones desde syncWooOrders para artículo ${detail.art_sec}:`, {
           tiene_oferta: precioInfo.tiene_oferta,
@@ -157,13 +175,29 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
           SELECT 
             ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
             ISNULL(ad2.art_bod_pre, 0) AS precio_mayor,
-            pd.pro_det_precio_oferta AS precio_oferta,
-            pd.pro_det_descuento_porcentaje AS descuento_porcentaje,
+            -- Solo devolver valores de promoción si la promoción está realmente activa
+            CASE 
+                WHEN p.pro_codigo IS NOT NULL
+                     AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                          OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
+                THEN pd.pro_det_precio_oferta
+                ELSE NULL
+            END AS precio_oferta,
+            CASE 
+                WHEN p.pro_codigo IS NOT NULL
+                     AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                          OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
+                THEN pd.pro_det_descuento_porcentaje
+                ELSE NULL
+            END AS descuento_porcentaje,
             p.pro_codigo AS codigo_promocion,
             p.pro_descripcion AS descripcion_promocion,
             CASE 
-                WHEN (pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
-                     OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0)
+                -- Solo marcar como oferta si la promoción está realmente activa (p.pro_codigo IS NOT NULL)
+                -- Y tiene valores válidos de precio o descuento
+                WHEN p.pro_codigo IS NOT NULL
+                     AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                          OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
                 THEN 'S' 
                 ELSE 'N' 
             END AS tiene_oferta
@@ -192,9 +226,21 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
           tiene_oferta: 'N'
         };
         
+        // Asegurar que si no tiene oferta, todos los campos de promoción sean NULL
+        if (precioInfo.tiene_oferta !== 'S') {
+          precioInfo.precio_oferta = null;
+          precioInfo.descuento_porcentaje = null;
+          precioInfo.codigo_promocion = null;
+          precioInfo.descripcion_promocion = null;
+          precioInfo.tiene_oferta = 'N';
+        }
+        
         console.log(`[UPDATE_ORDER] Calculando información de promociones localmente para artículo ${detail.art_sec}:`, {
           tiene_oferta: precioInfo.tiene_oferta,
-          codigo_promocion: precioInfo.codigo_promocion
+          codigo_promocion: precioInfo.codigo_promocion,
+          precio_oferta: precioInfo.precio_oferta,
+          descuento_porcentaje: precioInfo.descuento_porcentaje,
+          razon: 'Campos de promoción no válidos o no presentes, recalculando desde BD'
         });
       }
 
@@ -577,9 +623,18 @@ const createCompleteOrder = async ({
       // 5.2 Usar información de precios y ofertas que viene desde syncWooOrders o calcular si no está disponible
       let precioInfo;
       
-      // Verificar si los campos de promociones están presentes en el detalle
-      if (detalle.kar_pre_pub_detal !== undefined && detalle.kar_pre_pub_mayor !== undefined && 
-          detalle.kar_tiene_oferta !== undefined && detalle.kar_codigo_promocion !== undefined) {
+      // Verificar si los campos de promociones están presentes en el detalle y son válidos
+      // Validar que no sean undefined, null o cadenas vacías
+      const tieneCamposPromocion = detalle.kar_pre_pub_detal !== undefined && 
+                                    detalle.kar_pre_pub_mayor !== undefined && 
+                                    detalle.kar_tiene_oferta !== undefined && 
+                                    detalle.kar_codigo_promocion !== undefined &&
+                                    detalle.kar_pre_pub_detal !== null &&
+                                    detalle.kar_pre_pub_mayor !== null &&
+                                    detalle.kar_tiene_oferta !== null &&
+                                    detalle.kar_tiene_oferta !== '';
+      
+      if (tieneCamposPromocion) {
         // Usar los valores que vienen desde syncWooOrders
         precioInfo = {
           precio_detal: detalle.kar_pre_pub_detal || 0,
@@ -590,6 +645,15 @@ const createCompleteOrder = async ({
           descripcion_promocion: detalle.kar_descripcion_promocion || null,
           tiene_oferta: detalle.kar_tiene_oferta || 'N'
         };
+        
+        // Asegurar que si no tiene oferta, todos los campos de promoción sean NULL
+        if (precioInfo.tiene_oferta !== 'S') {
+          precioInfo.precio_oferta = null;
+          precioInfo.descuento_porcentaje = null;
+          precioInfo.codigo_promocion = null;
+          precioInfo.descripcion_promocion = null;
+          precioInfo.tiene_oferta = 'N';
+        }
         
         console.log(`[CREATE_ORDER] Usando información de promociones desde syncWooOrders para artículo ${detalle.art_sec}:`, {
           tiene_oferta: precioInfo.tiene_oferta,
@@ -604,13 +668,29 @@ const createCompleteOrder = async ({
           SELECT 
             ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
             ISNULL(ad2.art_bod_pre, 0) AS precio_mayor,
-            pd.pro_det_precio_oferta AS precio_oferta,
-            pd.pro_det_descuento_porcentaje AS descuento_porcentaje,
+            -- Solo devolver valores de promoción si la promoción está realmente activa
+            CASE 
+                WHEN p.pro_codigo IS NOT NULL
+                     AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                          OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
+                THEN pd.pro_det_precio_oferta
+                ELSE NULL
+            END AS precio_oferta,
+            CASE 
+                WHEN p.pro_codigo IS NOT NULL
+                     AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                          OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
+                THEN pd.pro_det_descuento_porcentaje
+                ELSE NULL
+            END AS descuento_porcentaje,
             p.pro_codigo AS codigo_promocion,
             p.pro_descripcion AS descripcion_promocion,
             CASE 
-                WHEN (pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
-                     OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0)
+                -- Solo marcar como oferta si la promoción está realmente activa (p.pro_codigo IS NOT NULL)
+                -- Y tiene valores válidos de precio o descuento
+                WHEN p.pro_codigo IS NOT NULL
+                     AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                          OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
                 THEN 'S' 
                 ELSE 'N' 
             END AS tiene_oferta
@@ -639,9 +719,21 @@ const createCompleteOrder = async ({
           tiene_oferta: 'N'
         };
         
+        // Asegurar que si no tiene oferta, todos los campos de promoción sean NULL
+        if (precioInfo.tiene_oferta !== 'S') {
+          precioInfo.precio_oferta = null;
+          precioInfo.descuento_porcentaje = null;
+          precioInfo.codigo_promocion = null;
+          precioInfo.descripcion_promocion = null;
+          precioInfo.tiene_oferta = 'N';
+        }
+        
         console.log(`[CREATE_ORDER] Calculando información de promociones localmente para artículo ${detalle.art_sec}:`, {
           tiene_oferta: precioInfo.tiene_oferta,
-          codigo_promocion: precioInfo.codigo_promocion
+          codigo_promocion: precioInfo.codigo_promocion,
+          precio_oferta: precioInfo.precio_oferta,
+          descuento_porcentaje: precioInfo.descuento_porcentaje,
+          razon: 'Campos de promoción no válidos o no presentes, recalculando desde BD'
         });
       }
 

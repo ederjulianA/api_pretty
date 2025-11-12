@@ -285,16 +285,28 @@ const getArticuloPromocionInfo = async (art_sec, fecha) => {
                 -- Precios base
                 ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
                 ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
-                -- Información de promoción
-                pd.pro_det_precio_oferta,
-                pd.pro_det_descuento_porcentaje,
+                -- Información de promoción (solo devolver valores si la promoción está activa)
+                CASE 
+                    WHEN p.pro_codigo IS NOT NULL
+                         AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                              OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
+                    THEN pd.pro_det_precio_oferta
+                    ELSE NULL
+                END AS precio_oferta,
+                CASE 
+                    WHEN p.pro_codigo IS NOT NULL
+                         AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0) 
+                              OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
+                    THEN pd.pro_det_descuento_porcentaje
+                    ELSE NULL
+                END AS descuento_porcentaje,
                 p.pro_fecha_inicio,
                 p.pro_fecha_fin,
                 p.pro_codigo AS codigo_promocion,
                 p.pro_descripcion AS descripcion_promocion,
                 -- Determinar si tiene oferta activa
                 CASE
-                    WHEN p.pro_sec IS NOT NULL
+                    WHEN p.pro_codigo IS NOT NULL
                          AND ((pd.pro_det_precio_oferta IS NOT NULL AND pd.pro_det_precio_oferta > 0)
                               OR (pd.pro_det_descuento_porcentaje IS NOT NULL AND pd.pro_det_descuento_porcentaje > 0))
                     THEN 'S'
@@ -322,18 +334,18 @@ const getArticuloPromocionInfo = async (art_sec, fecha) => {
     let precioFinalMayor = data.precio_mayor_original;
    
     if (data.tiene_oferta === 'S') {
-        if (data.pro_det_precio_oferta && data.pro_det_precio_oferta > 0) {
-            precioFinalDetal = data.pro_det_precio_oferta;
-            precioFinalMayor = data.pro_det_precio_oferta;
-        } else if (data.pro_det_descuento_porcentaje && data.pro_det_descuento_porcentaje > 0) {
-            const factorDescuento = 1 - (data.pro_det_descuento_porcentaje / 100);
+        if (data.precio_oferta && data.precio_oferta > 0) {
+            precioFinalDetal = data.precio_oferta;
+            precioFinalMayor = data.precio_oferta;
+        } else if (data.descuento_porcentaje && data.descuento_porcentaje > 0) {
+            const factorDescuento = 1 - (data.descuento_porcentaje / 100);
             precioFinalDetal = data.precio_detal_original * factorDescuento;
             precioFinalMayor = data.precio_mayor_original * factorDescuento;
         }
     }
    
-    // Siempre devolver un objeto con los precios base, incluso cuando no hay promoción
-    return {
+    // Preparar objeto de retorno
+    const promocionInfo = {
         art_sec: data.art_sec,
         art_cod: data.art_cod,
         art_nom: data.art_nom,
@@ -341,14 +353,25 @@ const getArticuloPromocionInfo = async (art_sec, fecha) => {
         precio_mayor_original: data.precio_mayor_original,
         precio_detal: precioFinalDetal,
         precio_mayor: precioFinalMayor,
-        precio_oferta: data.pro_det_precio_oferta,
-        descuento_porcentaje: data.pro_det_descuento_porcentaje,
+        precio_oferta: data.precio_oferta,
+        descuento_porcentaje: data.descuento_porcentaje,
         pro_fecha_inicio: data.pro_fecha_inicio,
         pro_fecha_fin: data.pro_fecha_fin,
         codigo_promocion: data.codigo_promocion,
         descripcion_promocion: data.descripcion_promocion,
         tiene_oferta: data.tiene_oferta
     };
+    
+    // Asegurar que si no tiene oferta, todos los campos de promoción sean NULL
+    if (promocionInfo.tiene_oferta !== 'S') {
+        promocionInfo.precio_oferta = null;
+        promocionInfo.descuento_porcentaje = null;
+        promocionInfo.codigo_promocion = null;
+        promocionInfo.descripcion_promocion = null;
+        promocionInfo.tiene_oferta = 'N';
+    }
+   
+    return promocionInfo;
 };
 
 /**
@@ -512,6 +535,13 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 tienePromocion: !!promocionInfo
             });
 
+            // Determinar valores de promoción (asegurar que sean NULL si no hay oferta activa)
+            const tieneOferta = promocionInfo && promocionInfo.tiene_oferta === 'S' ? 'S' : 'N';
+            const precioOferta = tieneOferta === 'S' && promocionInfo ? promocionInfo.precio_oferta : null;
+            const descuentoPorcentaje = tieneOferta === 'S' && promocionInfo ? promocionInfo.descuento_porcentaje : null;
+            const codigoPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.codigo_promocion : null;
+            const descripcionPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.descripcion_promocion : null;
+
             await transaction.request()
                 .input('fac_sec', sql.Int, facSec)
                 .input('kar_sec', sql.Int, item.id)
@@ -527,11 +557,11 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 .input('kar_total', sql.Decimal(18, 2), quantity * item.price)
                 .input('kar_pre_pub_detal', sql.Decimal(18, 2), precioDetalFinal)
                 .input('kar_pre_pub_mayor', sql.Decimal(18, 2), precioMayorFinal)
-                .input('kar_tiene_oferta', sql.VarChar(1), promocionInfo ? promocionInfo.tiene_oferta : 'N')
-                .input('kar_precio_oferta', sql.Decimal(18, 2), promocionInfo ? promocionInfo.precio_oferta : null)
-                .input('kar_descuento_porcentaje', sql.Decimal(18, 2), promocionInfo ? promocionInfo.descuento_porcentaje : null)
-                .input('kar_codigo_promocion', sql.VarChar(50), promocionInfo ? promocionInfo.codigo_promocion : null)
-                .input('kar_descripcion_promocion', sql.VarChar(200), promocionInfo ? promocionInfo.descripcion_promocion : null)
+                .input('kar_tiene_oferta', sql.VarChar(1), tieneOferta)
+                .input('kar_precio_oferta', sql.Decimal(18, 2), precioOferta)
+                .input('kar_descuento_porcentaje', sql.Decimal(18, 2), descuentoPorcentaje)
+                .input('kar_codigo_promocion', sql.VarChar(50), codigoPromocion)
+                .input('kar_descripcion_promocion', sql.VarChar(200), descripcionPromocion)
                 .query(`
                     INSERT INTO dbo.facturakardes (
                         fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni,
@@ -679,6 +709,13 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 tienePromocion: !!promocionInfo
             });
 
+            // Determinar valores de promoción (asegurar que sean NULL si no hay oferta activa)
+            const tieneOferta = promocionInfo && promocionInfo.tiene_oferta === 'S' ? 'S' : 'N';
+            const precioOferta = tieneOferta === 'S' && promocionInfo ? promocionInfo.precio_oferta : null;
+            const descuentoPorcentaje = tieneOferta === 'S' && promocionInfo ? promocionInfo.descuento_porcentaje : null;
+            const codigoPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.codigo_promocion : null;
+            const descripcionPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.descripcion_promocion : null;
+
             await transaction.request()
                 .input('fac_sec', sql.Int, facSec)
                 .input('kar_sec', sql.Int, item.id)
@@ -694,11 +731,11 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 .input('kar_total', sql.Decimal(18, 2), quantity * item.price)
                 .input('kar_pre_pub_detal', sql.Decimal(18, 2), precioDetalFinal)
                 .input('kar_pre_pub_mayor', sql.Decimal(18, 2), precioMayorFinal)
-                .input('kar_tiene_oferta', sql.VarChar(1), promocionInfo ? promocionInfo.tiene_oferta : 'N')
-                .input('kar_precio_oferta', sql.Decimal(18, 2), promocionInfo ? promocionInfo.precio_oferta : null)
-                .input('kar_descuento_porcentaje', sql.Decimal(18, 2), promocionInfo ? promocionInfo.descuento_porcentaje : null)
-                .input('kar_codigo_promocion', sql.VarChar(50), promocionInfo ? promocionInfo.codigo_promocion : null)
-                .input('kar_descripcion_promocion', sql.VarChar(200), promocionInfo ? promocionInfo.descripcion_promocion : null)
+                .input('kar_tiene_oferta', sql.VarChar(1), tieneOferta)
+                .input('kar_precio_oferta', sql.Decimal(18, 2), precioOferta)
+                .input('kar_descuento_porcentaje', sql.Decimal(18, 2), descuentoPorcentaje)
+                .input('kar_codigo_promocion', sql.VarChar(50), codigoPromocion)
+                .input('kar_descripcion_promocion', sql.VarChar(200), descripcionPromocion)
                 .query(`
                     INSERT INTO dbo.facturakardes (
                         fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni,
