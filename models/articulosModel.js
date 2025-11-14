@@ -317,7 +317,7 @@ WITH ArticulosBase AS (
 )
 SELECT *
 FROM ArticulosBase
-ORDER BY art_nom
+ORDER BY CAST(art_sec AS INT) DESC
 OFFSET (@PageNumber - 1) * @PageSize ROWS
 FETCH NEXT @PageSize ROWS ONLY
 OPTION (RECOMPILE);
