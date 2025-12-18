@@ -1930,7 +1930,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"nombre\": \"Black Friday PrettyMakeup 2025\",\n    \"fecha_inicio\": \"2025-11-01T00:00:00.000Z\",\n    \"fecha_fin\": \"2025-11-07T23:59:59.000Z\",\n    \"descuento_detal\": 30,\n    \"descuento_mayor\": 8,\n    \"activo\": \"S\",\n    \"observaciones\": \"Evento promocional anual\"\n}"
+							"raw": "{\n    \"nombre\": \"Black Friday PrettyMakeup 2025\",\n    \"fecha_inicio\": \"2025-11-01T00:00:00.000Z\",\n    \"fecha_fin\": \"2025-11-07T23:59:59.000Z\",\n    \"descuento_detal\": 30,\n    \"descuento_mayor\": 8,\n    \"monto_mayorista_minimo\": 500000,\n    \"activo\": \"S\",\n    \"observaciones\": \"Evento promocional anual\"\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/eventos-promocionales",
@@ -1938,7 +1938,37 @@
 							"path": ["api", "eventos-promocionales"]
 						}
 					},
-					"response": []
+					"response": [
+						{
+							"name": "Evento Creado Exitosamente",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-access-token",
+										"value": "{{token}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"nombre\": \"Black Friday PrettyMakeup 2025\",\n    \"fecha_inicio\": \"2025-11-01T00:00:00.000Z\",\n    \"fecha_fin\": \"2025-11-07T23:59:59.000Z\",\n    \"descuento_detal\": 30,\n    \"descuento_mayor\": 8,\n    \"monto_mayorista_minimo\": 500000,\n    \"activo\": \"S\",\n    \"observaciones\": \"Evento promocional anual\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/eventos-promocionales",
+									"host": ["{{base_url}}"],
+									"path": ["api", "eventos-promocionales"]
+								}
+							},
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"body": "{\n    \"success\": true,\n    \"message\": \"Evento promocional creado exitosamente\",\n    \"evento\": {\n        \"eve_sec\": 1,\n        \"eve_nombre\": \"Black Friday PrettyMakeup 2025\",\n        \"eve_fecha_inicio\": \"2025-11-01T00:00:00.000Z\",\n        \"eve_fecha_fin\": \"2025-11-07T23:59:59.000Z\",\n        \"eve_descuento_detal\": 30.00,\n        \"eve_descuento_mayor\": 8.00,\n        \"eve_monto_mayorista_minimo\": 500000.00,\n        \"eve_activo\": \"S\",\n        \"eve_observaciones\": \"Evento promocional anual\",\n        \"eve_fecha_creacion\": \"2025-12-15T10:30:00.000Z\",\n        \"eve_usuario_creacion\": \"SISTEMA\"\n    }\n}"
+						}
+					]
 				},
 				{
 					"name": "Actualizar Evento Promocional",
@@ -1956,7 +1986,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"nombre\": \"Black Friday Actualizado\",\n    \"descuento_detal\": 35,\n    \"descuento_mayor\": 10\n}"
+							"raw": "{\n    \"nombre\": \"Black Friday Actualizado\",\n    \"descuento_detal\": 35,\n    \"descuento_mayor\": 10,\n    \"monto_mayorista_minimo\": 600000\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/eventos-promocionales/1",
@@ -1964,7 +1994,37 @@
 							"path": ["api", "eventos-promocionales", "1"]
 						}
 					},
-					"response": []
+					"response": [
+						{
+							"name": "Evento Actualizado Exitosamente",
+							"originalRequest": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "x-access-token",
+										"value": "{{token}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"nombre\": \"Black Friday Actualizado\",\n    \"descuento_detal\": 35,\n    \"descuento_mayor\": 10,\n    \"monto_mayorista_minimo\": 600000\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/eventos-promocionales/1",
+									"host": ["{{base_url}}"],
+									"path": ["api", "eventos-promocionales", "1"]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": "{\n    \"success\": true,\n    \"message\": \"Evento promocional actualizado exitosamente\",\n    \"evento\": {\n        \"eve_sec\": 1,\n        \"eve_nombre\": \"Black Friday Actualizado\",\n        \"eve_fecha_inicio\": \"2025-11-01T00:00:00.000Z\",\n        \"eve_fecha_fin\": \"2025-11-07T23:59:59.000Z\",\n        \"eve_descuento_detal\": 35.00,\n        \"eve_descuento_mayor\": 10.00,\n        \"eve_monto_mayorista_minimo\": 600000.00,\n        \"eve_activo\": \"S\",\n        \"eve_observaciones\": \"Evento promocional anual\",\n        \"eve_fecha_creacion\": \"2025-12-15T10:30:00.000Z\",\n        \"eve_usuario_creacion\": \"SISTEMA\",\n        \"eve_fecha_modificacion\": \"2025-12-15T11:00:00.000Z\",\n        \"eve_usuario_modificacion\": \"SISTEMA\"\n    }\n}"
+						}
+					]
 				},
 				{
 					"name": "Obtener Eventos Promocionales",
@@ -1977,7 +2037,7 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/eventos-promocionales?activo=S&fecha=2025-11-05",
+							"raw": "{{base_url}}/api/eventos-promocionales?activo=S&fecha_inicio=2025-11-01&fecha_fin=2025-11-30",
 							"host": ["{{base_url}}"],
 							"path": ["api", "eventos-promocionales"],
 							"query": [
@@ -1989,12 +2049,33 @@
 								{
 									"key": "fecha",
 									"value": "2025-11-05",
+									"description": "Filtrar eventos que contengan esta fecha específica",
 									"disabled": true
+								},
+								{
+									"key": "fecha_inicio",
+									"value": "2025-11-01",
+									"description": "Fecha inicial del rango de búsqueda",
+									"disabled": false
+								},
+								{
+									"key": "fecha_fin",
+									"value": "2025-11-30",
+									"description": "Fecha final del rango de búsqueda",
+									"disabled": false
 								}
 							]
 						}
 					},
-					"response": []
+					"response": [
+						{
+							"name": "Lista de Eventos",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": "{\n    \"success\": true,\n    \"eventos\": [\n        {\n            \"eve_sec\": 1,\n            \"eve_nombre\": \"Black Friday PrettyMakeup 2025\",\n            \"eve_fecha_inicio\": \"2025-11-01T00:00:00.000Z\",\n            \"eve_fecha_fin\": \"2025-11-07T23:59:59.000Z\",\n            \"eve_descuento_detal\": 30.00,\n            \"eve_descuento_mayor\": 8.00,\n            \"eve_monto_mayorista_minimo\": 500000.00,\n            \"eve_activo\": \"S\",\n            \"eve_observaciones\": \"Evento promocional anual\",\n            \"eve_fecha_creacion\": \"2025-12-15T10:30:00.000Z\",\n            \"eve_usuario_creacion\": \"SISTEMA\",\n            \"eve_fecha_modificacion\": null,\n            \"eve_usuario_modificacion\": null,\n            \"eve_en_curso\": \"N\"\n        }\n    ],\n    \"total\": 1\n}"
+						}
+					]
 				},
 				{
 					"name": "Obtener Evento Promocional por ID",
@@ -2012,7 +2093,15 @@
 							"path": ["api", "eventos-promocionales", "1"]
 						}
 					},
-					"response": []
+					"response": [
+						{
+							"name": "Evento Encontrado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": "{\n    \"success\": true,\n    \"evento\": {\n        \"eve_sec\": 1,\n        \"eve_nombre\": \"Black Friday PrettyMakeup 2025\",\n        \"eve_fecha_inicio\": \"2025-11-01T00:00:00.000Z\",\n        \"eve_fecha_fin\": \"2025-11-07T23:59:59.000Z\",\n        \"eve_descuento_detal\": 30.00,\n        \"eve_descuento_mayor\": 8.00,\n        \"eve_monto_mayorista_minimo\": 500000.00,\n        \"eve_activo\": \"S\",\n        \"eve_observaciones\": \"Evento promocional anual\",\n        \"eve_fecha_creacion\": \"2025-12-15T10:30:00.000Z\",\n        \"eve_usuario_creacion\": \"SISTEMA\",\n        \"eve_fecha_modificacion\": null,\n        \"eve_usuario_modificacion\": null,\n        \"eve_en_curso\": \"N\"\n    }\n}"
+						}
+					]
 				},
 				{
 					"name": "Obtener Evento Activo",
@@ -2037,7 +2126,22 @@
 							]
 						}
 					},
-					"response": []
+					"response": [
+						{
+							"name": "Evento Activo Encontrado",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": "{\n    \"success\": true,\n    \"evento\": {\n        \"eve_sec\": 1,\n        \"eve_nombre\": \"Black Friday PrettyMakeup 2025\",\n        \"eve_fecha_inicio\": \"2025-11-01T00:00:00.000Z\",\n        \"eve_fecha_fin\": \"2025-11-07T23:59:59.000Z\",\n        \"eve_descuento_detal\": 30.00,\n        \"eve_descuento_mayor\": 8.00,\n        \"eve_monto_mayorista_minimo\": 500000.00,\n        \"eve_activo\": \"S\",\n        \"eve_observaciones\": \"Evento promocional anual\"\n    }\n}"
+						},
+						{
+							"name": "No Hay Evento Activo",
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"body": "{\n    \"success\": true,\n    \"evento\": null,\n    \"message\": \"No hay eventos promocionales activos en la fecha especificada\"\n}"
+						}
+					]
 				}
 			]
 		},

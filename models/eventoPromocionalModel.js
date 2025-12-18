@@ -65,20 +65,21 @@ const crearEventoPromocional = async (eventoData) => {
             .input('fecha_fin', sql.DateTime, fechaFin)
             .input('descuento_detal', sql.Decimal(5, 2), eventoData.descuento_detal)
             .input('descuento_mayor', sql.Decimal(5, 2), eventoData.descuento_mayor)
+            .input('monto_mayorista_minimo', sql.Decimal(17, 2), eventoData.monto_mayorista_minimo || null)
             .input('activo', sql.Char(1), eventoData.activo !== undefined ? eventoData.activo : 'S')
             .input('observaciones', sql.VarChar(500), eventoData.observaciones || null)
             .input('usuario', sql.VarChar(50), eventoData.usuario || 'SISTEMA')
             .query(`
                 INSERT INTO dbo.eventos_promocionales 
                 (eve_nombre, eve_fecha_inicio, eve_fecha_fin, eve_descuento_detal, 
-                 eve_descuento_mayor, eve_activo, eve_observaciones, eve_usuario_creacion)
+                 eve_descuento_mayor, eve_monto_mayorista_minimo, eve_activo, eve_observaciones, eve_usuario_creacion)
                 OUTPUT INSERTED.eve_sec, INSERTED.eve_nombre, INSERTED.eve_fecha_inicio, 
                        INSERTED.eve_fecha_fin, INSERTED.eve_descuento_detal, 
-                       INSERTED.eve_descuento_mayor, INSERTED.eve_activo, 
-                       INSERTED.eve_observaciones, INSERTED.eve_fecha_creacion, 
+                       INSERTED.eve_descuento_mayor, INSERTED.eve_monto_mayorista_minimo, 
+                       INSERTED.eve_activo, INSERTED.eve_observaciones, INSERTED.eve_fecha_creacion, 
                        INSERTED.eve_usuario_creacion
                 VALUES (@nombre, @fecha_inicio, @fecha_fin, @descuento_detal, 
-                        @descuento_mayor, @activo, @observaciones, @usuario)
+                        @descuento_mayor, @monto_mayorista_minimo, @activo, @observaciones, @usuario)
             `);
         
         await transaction.commit();
@@ -153,6 +154,13 @@ const actualizarEventoPromocional = async (eve_sec, eventoData) => {
             }
         }
         
+        // Validar monto mayorista mínimo si se proporciona
+        if (eventoData.monto_mayorista_minimo !== undefined) {
+            if (eventoData.monto_mayorista_minimo < 0) {
+                throw new Error('El monto mayorista mínimo debe ser mayor o igual a 0');
+            }
+        }
+        
         // Verificar solapamiento de fechas (excluyendo el evento actual)
         if (fechaInicio || fechaFin) {
             // Obtener fechas actuales del evento si no se proporcionan
@@ -218,6 +226,11 @@ const actualizarEventoPromocional = async (eve_sec, eventoData) => {
             updateRequest.input('descuento_mayor', sql.Decimal(5, 2), eventoData.descuento_mayor);
         }
         
+        if (eventoData.monto_mayorista_minimo !== undefined) {
+            camposActualizar.push('eve_monto_mayorista_minimo = @monto_mayorista_minimo');
+            updateRequest.input('monto_mayorista_minimo', sql.Decimal(17, 2), eventoData.monto_mayorista_minimo || null);
+        }
+        
         if (eventoData.activo !== undefined) {
             camposActualizar.push('eve_activo = @activo');
             updateRequest.input('activo', sql.Char(1), eventoData.activo);
@@ -242,8 +255,8 @@ const actualizarEventoPromocional = async (eve_sec, eventoData) => {
             SET ${camposActualizar.join(', ')}
             OUTPUT INSERTED.eve_sec, INSERTED.eve_nombre, INSERTED.eve_fecha_inicio, 
                    INSERTED.eve_fecha_fin, INSERTED.eve_descuento_detal, 
-                   INSERTED.eve_descuento_mayor, INSERTED.eve_activo, 
-                   INSERTED.eve_observaciones, INSERTED.eve_fecha_creacion, 
+                   INSERTED.eve_descuento_mayor, INSERTED.eve_monto_mayorista_minimo, 
+                   INSERTED.eve_activo, INSERTED.eve_observaciones, INSERTED.eve_fecha_creacion, 
                    INSERTED.eve_usuario_creacion, INSERTED.eve_fecha_modificacion, 
                    INSERTED.eve_usuario_modificacion
             WHERE eve_sec = @eve_sec
@@ -266,7 +279,7 @@ const actualizarEventoPromocional = async (eve_sec, eventoData) => {
 
 /**
  * Obtiene todos los eventos promocionales
- * @param {Object} filtros - Filtros opcionales (activo, fecha)
+ * @param {Object} filtros - Filtros opcionales (activo, fecha, fecha_inicio, fecha_fin)
  * @returns {Promise<Array>} - Lista de eventos
  */
 const obtenerEventosPromocionales = async (filtros = {}) => {
@@ -281,6 +294,7 @@ const obtenerEventosPromocionales = async (filtros = {}) => {
             eve_fecha_fin,
             eve_descuento_detal,
             eve_descuento_mayor,
+            eve_monto_mayorista_minimo,
             eve_activo,
             eve_observaciones,
             eve_fecha_creacion,
@@ -301,9 +315,52 @@ const obtenerEventosPromocionales = async (filtros = {}) => {
         request.input('activo', sql.Char(1), filtros.activo);
     }
     
+    // Filtro por fecha específica (eventos que contengan esta fecha)
     if (filtros.fecha) {
         query += ' AND @fecha BETWEEN eve_fecha_inicio AND eve_fecha_fin';
         request.input('fecha', sql.DateTime, new Date(filtros.fecha));
+    }
+    
+    // Filtro por rango de fechas (eventos que se solapen con el rango)
+    if (filtros.fecha_inicio || filtros.fecha_fin) {
+        if (filtros.fecha_inicio && filtros.fecha_fin) {
+            // Si se proporcionan ambas fechas, buscar eventos que se solapen con el rango
+            const fechaInicio = new Date(filtros.fecha_inicio);
+            const fechaFin = new Date(filtros.fecha_fin);
+            
+            if (isNaN(fechaInicio.getTime()) || isNaN(fechaFin.getTime())) {
+                throw new Error('Las fechas proporcionadas no son válidas');
+            }
+            
+            if (fechaInicio > fechaFin) {
+                throw new Error('La fecha de inicio debe ser menor o igual a la fecha de fin');
+            }
+            
+            query += ` AND (
+                (@fecha_inicio BETWEEN eve_fecha_inicio AND eve_fecha_fin)
+                OR (@fecha_fin BETWEEN eve_fecha_inicio AND eve_fecha_fin)
+                OR (eve_fecha_inicio BETWEEN @fecha_inicio AND @fecha_fin)
+                OR (eve_fecha_fin BETWEEN @fecha_inicio AND @fecha_fin)
+            )`;
+            request.input('fecha_inicio', sql.DateTime, fechaInicio);
+            request.input('fecha_fin', sql.DateTime, fechaFin);
+        } else if (filtros.fecha_inicio) {
+            // Solo fecha de inicio: eventos que terminen después de esta fecha
+            const fechaInicio = new Date(filtros.fecha_inicio);
+            if (isNaN(fechaInicio.getTime())) {
+                throw new Error('La fecha de inicio no es válida');
+            }
+            query += ' AND eve_fecha_fin >= @fecha_inicio';
+            request.input('fecha_inicio', sql.DateTime, fechaInicio);
+        } else if (filtros.fecha_fin) {
+            // Solo fecha de fin: eventos que comiencen antes de esta fecha
+            const fechaFin = new Date(filtros.fecha_fin);
+            if (isNaN(fechaFin.getTime())) {
+                throw new Error('La fecha de fin no es válida');
+            }
+            query += ' AND eve_fecha_inicio <= @fecha_fin';
+            request.input('fecha_fin', sql.DateTime, fechaFin);
+        }
     }
     
     query += ' ORDER BY eve_fecha_inicio DESC, eve_fecha_creacion DESC';
@@ -334,6 +391,7 @@ const obtenerEventoPromocionalPorId = async (eve_sec) => {
                 eve_fecha_fin,
                 eve_descuento_detal,
                 eve_descuento_mayor,
+                eve_monto_mayorista_minimo,
                 eve_activo,
                 eve_observaciones,
                 eve_fecha_creacion,
@@ -378,6 +436,7 @@ const obtenerEventoActivo = async (fecha = null) => {
                 eve_fecha_fin,
                 eve_descuento_detal,
                 eve_descuento_mayor,
+                eve_monto_mayorista_minimo,
                 eve_activo,
                 eve_observaciones
             FROM dbo.eventos_promocionales

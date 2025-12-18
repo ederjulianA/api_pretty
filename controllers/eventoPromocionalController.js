@@ -13,13 +13,21 @@ import {
  */
 const crearEvento = async (req, res) => {
     try {
-        const { nombre, fecha_inicio, fecha_fin, descuento_detal, descuento_mayor, activo, observaciones } = req.body;
+        const { nombre, fecha_inicio, fecha_fin, descuento_detal, descuento_mayor, monto_mayorista_minimo, activo, observaciones } = req.body;
         
         // Validar campos requeridos
         if (!nombre || !fecha_inicio || !fecha_fin || descuento_detal === undefined || descuento_mayor === undefined) {
             return res.status(400).json({
                 success: false,
                 message: 'Faltan campos requeridos: nombre, fecha_inicio, fecha_fin, descuento_detal, descuento_mayor'
+            });
+        }
+        
+        // Validar monto mayorista mínimo si se proporciona
+        if (monto_mayorista_minimo !== undefined && parseFloat(monto_mayorista_minimo) < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'El monto mayorista mínimo debe ser mayor o igual a 0'
             });
         }
         
@@ -32,6 +40,7 @@ const crearEvento = async (req, res) => {
             fecha_fin,
             descuento_detal: parseFloat(descuento_detal),
             descuento_mayor: parseFloat(descuento_mayor),
+            monto_mayorista_minimo: monto_mayorista_minimo !== undefined ? parseFloat(monto_mayorista_minimo) : null,
             activo: activo || 'S',
             observaciones,
             usuario
@@ -54,12 +63,20 @@ const crearEvento = async (req, res) => {
 const actualizarEvento = async (req, res) => {
     try {
         const { eve_sec } = req.params;
-        const { nombre, fecha_inicio, fecha_fin, descuento_detal, descuento_mayor, activo, observaciones } = req.body;
+        const { nombre, fecha_inicio, fecha_fin, descuento_detal, descuento_mayor, monto_mayorista_minimo, activo, observaciones } = req.body;
         
         if (!eve_sec) {
             return res.status(400).json({
                 success: false,
                 message: 'El ID del evento (eve_sec) es requerido'
+            });
+        }
+        
+        // Validar monto mayorista mínimo si se proporciona
+        if (monto_mayorista_minimo !== undefined && parseFloat(monto_mayorista_minimo) < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'El monto mayorista mínimo debe ser mayor o igual a 0'
             });
         }
         
@@ -73,6 +90,9 @@ const actualizarEvento = async (req, res) => {
         if (fecha_fin !== undefined) datosActualizacion.fecha_fin = fecha_fin;
         if (descuento_detal !== undefined) datosActualizacion.descuento_detal = parseFloat(descuento_detal);
         if (descuento_mayor !== undefined) datosActualizacion.descuento_mayor = parseFloat(descuento_mayor);
+        if (monto_mayorista_minimo !== undefined) {
+            datosActualizacion.monto_mayorista_minimo = monto_mayorista_minimo !== null ? parseFloat(monto_mayorista_minimo) : null;
+        }
         if (activo !== undefined) datosActualizacion.activo = activo;
         if (observaciones !== undefined) datosActualizacion.observaciones = observaciones;
         datosActualizacion.usuario = usuario;
@@ -95,11 +115,13 @@ const actualizarEvento = async (req, res) => {
  */
 const obtenerEventos = async (req, res) => {
     try {
-        const { activo, fecha } = req.query;
+        const { activo, fecha, fecha_inicio, fecha_fin } = req.query;
         
         const filtros = {};
         if (activo !== undefined) filtros.activo = activo;
         if (fecha !== undefined) filtros.fecha = fecha;
+        if (fecha_inicio !== undefined) filtros.fecha_inicio = fecha_inicio;
+        if (fecha_fin !== undefined) filtros.fecha_fin = fecha_fin;
         
         const resultado = await obtenerEventosPromocionales(filtros);
         
