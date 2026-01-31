@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title><%= metadata.titulo %></title>
+  
+  <!-- Fuentes -->
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+  
+  <!-- Estilos incrustados (se inyectarán desde pdfGenerator.js) -->
+  <style>
+    <%= styles %>
+    
+    @page {
+      size: A4 landscape;
+      margin: 15mm;
+    }
+    
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  </style>
+</head>
+<body>
+  <!-- PORTADA -->
+  <div class="portada">
+    <div class="portada-background"></div>
+    <div class="portada-content">
+      <% if (metadata.empresa.logo) { %>
+        <img src="<%= metadata.empresa.logo %>" alt="Logo" class="portada-logo">
+      <% } %>
+      <h1 class="portada-titulo"><%= metadata.titulo %></h1>
+      <div class="portada-fecha"><%= metadata.fecha %></div>
+      <div class="portada-stats">
+        <div class="stat">
+          <div class="stat-numero"><%= metadata.totalProductos %></div>
+          <div class="stat-label">Productos</div>
+        </div>
+        <div class="stat">
+          <div class="stat-numero"><%= categorias.length %></div>
+          <div class="stat-label">Categorías</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRODUCTOS POR CATEGORÍA -->
+  <% categorias.forEach((categoria, categoriaIndex) => { 
+    const productosCategoria = productos.filter(p => p.categoriaId === categoria.id);
+    if (productosCategoria.length > 0) {
+  %>
+    <div class="categoria-seccion <%= categoriaIndex > 0 ? 'categoria-page-break' : '' %>">
+      <% 
+        // Agrupar productos de 3 en 3 para controlar paginación
+        const grupos = [];
+        for (let i = 0; i < productosCategoria.length; i += 3) {
+          grupos.push(productosCategoria.slice(i, i + 3));
+        }
+      %>
+      
+      <% grupos.forEach((grupo, grupoIndex) => { %>
+        <div class="productos-page-container <%= grupoIndex === 0 ? 'primera-pagina-categoria' : '' %>">
+          <h2 class="categoria-titulo-pagina <%= grupoIndex > 0 ? 'categoria-titulo-repetido' : '' %>"><%= categoria.nombre %></h2>
+          <div class="productos-grid">
+            <% grupo.forEach((producto) => { %>
+            <div class="producto-card <%= producto.stock <= 0 ? 'agotado' : '' %>">
+            <!-- Imagen -->
+            <div class="producto-imagen-container">
+              <% if (producto.imagenOptimizada) { %>
+                <img src="<%= producto.imagenOptimizada %>" 
+                     alt="<%= producto.nombre %>" 
+                     class="producto-imagen"
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                <div class="producto-imagen" style="background: var(--color-background); display: none; align-items: center; justify-content: center; color: var(--color-text-light); font-size: 8pt; padding: 10px; text-align: center;">
+                  Sin imagen
+                </div>
+              <% } else { %>
+                <div class="producto-imagen" style="background: var(--color-background); display: flex; align-items: center; justify-content: center; color: var(--color-text-light); font-size: 8pt; padding: 10px; text-align: center;">
+                  Sin imagen
+                </div>
+              <% } %>
+              <% if (producto.esNuevo) { %>
+                <span class="badge-nuevo">NUEVO</span>
+              <% } %>
+              <% if (producto.stock <= 0) { %>
+                <div class="overlay-agotado">AGOTADO</div>
+              <% } %>
+            </div>
+            
+            <!-- Info -->
+            <div class="producto-info">
+              <div class="producto-categoria">
+                <%= producto.categoria %>
+                <% if (producto.subcategoria) { %> › <%= producto.subcategoria %> <% } %>
+              </div>
+              <h3 class="producto-nombre"><%= producto.nombre %></h3>
+              <div class="producto-sku">SKU: <%= producto.sku %></div>
+              
+              <!-- Precios -->
+              <div class="producto-precios">
+                <div class="precio precio-detal">
+                  <div class="precio-label">Precio Detal</div>
+                  <div class="precio-valor">$<%= producto.precioDetalle.toLocaleString('es-CO') %></div>
+                </div>
+                <div class="precio precio-mayor">
+                  <div class="precio-label">Precio Mayor</div>
+                  <div class="precio-valor">$<%= producto.precioMayor.toLocaleString('es-CO') %></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <% }); %>
+          </div>
+        </div>
+      <% }); %>
+    </div>
+  <% }
+  }); %>
+
+  <!-- MEDIOS DE PAGO -->
+  <% if (secciones.mediosPago && secciones.mediosPago.length > 0) { %>
+    <div class="page-break"></div>
+    <div class="seccion-info">
+      <h2 class="seccion-titulo">Medios de Pago</h2>
+      <div class="medios-grid">
+        <% secciones.mediosPago.forEach(medio => { %>
+          <div class="medio-card">
+            <h3 class="medio-nombre"><%= medio.nombre %></h3>
+            <p class="medio-descripcion"><%= medio.descripcion %></p>
+            <% if (medio.numero) { %>
+              <p class="medio-dato"><%= medio.numero %></p>
+            <% } %>
+            <% if (medio.cuenta) { %>
+              <p class="medio-dato">Cuenta <%= medio.tipo %>: <%= medio.cuenta %></p>
+            <% } %>
+          </div>
+        <% }); %>
+      </div>
+    </div>
+  <% } %>
+
+  <!-- CONDICIONES DE VENTA -->
+  <% if (secciones.condicionesVenta && secciones.condicionesVenta.length > 0) { %>
+    <div class="page-break"></div>
+    <div class="seccion-info">
+      <h2 class="seccion-titulo">Condiciones de Venta</h2>
+      <ul class="condiciones-lista">
+        <% secciones.condicionesVenta.forEach(condicion => { %>
+          <li><%= condicion %></li>
+        <% }); %>
+      </ul>
+    </div>
+  <% } %>
+
+  <!-- CONTACTO -->
+  <% if (secciones.contacto) { %>
+    <div class="page-break"></div>
+    <div class="seccion-info seccion-contacto">
+      <h2 class="seccion-titulo">Información de Contacto</h2>
+      <div class="contacto-grid">
+        <% if (secciones.contacto.telefono) { %>
+          <div class="contacto-item">
+            <div class="contacto-label">Teléfono</div>
+            <div class="contacto-valor"><%= secciones.contacto.telefono %></div>
+          </div>
+        <% } %>
+        <% if (secciones.contacto.email) { %>
+          <div class="contacto-item">
+            <div class="contacto-label">Email</div>
+            <div class="contacto-valor"><%= secciones.contacto.email %></div>
+          </div>
+        <% } %>
+        <% if (secciones.contacto.whatsapp) { %>
+          <div class="contacto-item">
+            <div class="contacto-label">WhatsApp</div>
+            <div class="contacto-valor"><%= secciones.contacto.whatsapp %></div>
+          </div>
+        <% } %>
+        <% if (secciones.contacto.direccion) { %>
+          <div class="contacto-item">
+            <div class="contacto-label">Dirección</div>
+            <div class="contacto-valor"><%= secciones.contacto.direccion %></div>
+          </div>
+        <% } %>
+        <% if (secciones.contacto.horario) { %>
+          <div class="contacto-item">
+            <div class="contacto-label">Horario</div>
+            <div class="contacto-valor"><%= secciones.contacto.horario %></div>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  <% } %>
+</body>
+</html>

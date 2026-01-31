@@ -1,0 +1,40 @@
+{
+  "secciones": {
+    "mediosPago": [
+      {
+        "nombre": "Efectivo",
+        "descripcion": "Pago en efectivo al recibir"
+      },
+      {
+        "nombre": "Nequi",
+        "numero": "300 123 4567",
+        "descripcion": "Transferencia inmediata"
+      },
+      {
+        "nombre": "Bancolombia",
+        "cuenta": "123-456789-00",
+        "tipo": "Ahorros",
+        "descripcion": "Transferencia bancaria"
+      },
+      {
+        "nombre": "Pasarela de Pago",
+        "descripcion": "Tarjetas débito/crédito"
+      }
+    ],
+    "condicionesVenta": [
+      "Precio mayorista aplica para compras mínimas de $500.000",
+      "Todos los precios incluyen IVA",
+      "Válido hasta fin de mes o hasta agotar existencias",
+      "Stock sujeto a disponibilidad",
+      "Envíos a nivel nacional",
+      "Tiempo de entrega: 2-5 días hábiles"
+    ],
+    "contacto": {
+      "telefono": "+57 300 123 4567",
+      "email": "ventas@tuempresa.com",
+      "whatsapp": "+573001234567",
+      "direccion": "Bogotá, Colombia",
+      "horario": "Lunes a Viernes 8am - 6pm, Sábados 9am - 2pm"
+    }
+  }
+}

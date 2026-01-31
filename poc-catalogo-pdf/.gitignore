@@ -1,0 +1,18 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno
+.env
+
+# Archivos generados
+output/*.pdf
+output/*.json
+cache/images/original/*
+cache/images/optimized/*
+
+# Logs
+*.log
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

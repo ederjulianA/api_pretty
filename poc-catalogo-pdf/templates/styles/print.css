@@ -1,0 +1,61 @@
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 15mm;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  .producto-card {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  
+  .medio-card,
+  .contacto-item {
+    page-break-inside: avoid;
+  }
+
+  .categoria-seccion {
+    page-break-before: auto;
+  }
+  
+  /* Evitar que el título de categoría quede solo al final de página */
+  .categoria-titulo {
+    page-break-after: avoid;
+  }
+  
+  /* Permitir que el grid se divida entre páginas si es necesario */
+  .productos-grid {
+    page-break-inside: auto;
+  }
+  
+  /* Evitar páginas en blanco - solo saltar cuando cambia de categoría */
+  .categoria-page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+  
+  /* Permitir que los contenedores fluyan naturalmente sin forzar saltos */
+  .productos-page-container {
+    page-break-inside: auto;
+    break-inside: auto;
+    page-break-after: auto;
+    break-after: auto;
+  }
+  
+  /* Solo el primer grupo de una categoría puede tener salto de página si es necesario */
+  .primera-pagina-categoria {
+    page-break-before: auto;
+  }
+  
+  /* Evitar que el título quede solo al final de página */
+  .categoria-titulo-pagina {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+}
