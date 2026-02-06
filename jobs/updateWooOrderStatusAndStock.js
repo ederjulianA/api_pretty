@@ -255,9 +255,11 @@ const wcApi = new WooCommerceRestApi({
 });
 
 // Función auxiliar para obtener el saldo (stock) actual de un artículo desde la vista vwExistencias
-export const getArticleStock = async (art_sec) => {
-  log(logLevels.INFO, `Consultando stock para art_sec: ${art_sec}`);
-  await logEder(`Consultando stock para art_sec: ${art_sec}`);
+export const getArticleStock = async (art_sec, { silent = false } = {}) => {
+  if (!silent) {
+    log(logLevels.INFO, `Consultando stock para art_sec: ${art_sec}`);
+    await logEder(`Consultando stock para art_sec: ${art_sec}`);
+  }
   try {
     const pool = await poolPromise;
     const result = await pool.request()
@@ -265,24 +267,30 @@ export const getArticleStock = async (art_sec) => {
       .query("SELECT existencia FROM dbo.vwExistencias WHERE art_sec = @art_sec");
 
     const stock = result.recordset.length > 0 ? Number(result.recordset[0].existencia) : 0;
-    log(logLevels.INFO, `Stock encontrado para art_sec ${art_sec}: ${stock}`, { art_sec, stock });
-    await logEder(`Stock encontrado para art_sec ${art_sec}: ${stock}`);
+    if (!silent) {
+      log(logLevels.INFO, `Stock encontrado para art_sec ${art_sec}: ${stock}`, { art_sec, stock });
+      await logEder(`Stock encontrado para art_sec ${art_sec}: ${stock}`);
+    }
     return stock;
   } catch (error) {
-    log(logLevels.ERROR, `Error obteniendo stock para art_sec ${art_sec}`, {
-      error: error.message,
-      stack: error.stack,
-      art_sec
-    });
-    await logEder(`Error obteniendo stock para art_sec ${art_sec}: ${error.message}`);
+    if (!silent) {
+      log(logLevels.ERROR, `Error obteniendo stock para art_sec ${art_sec}`, {
+        error: error.message,
+        stack: error.stack,
+        art_sec
+      });
+      await logEder(`Error obteniendo stock para art_sec ${art_sec}: ${error.message}`);
+    }
     throw error;
   }
 };
 
-// Función auxiliar para obtener el art_woo_id 
-export const getArticleWooId = async (art_sec) => {
-  log(logLevels.INFO, `Buscando art_woo_id para art_sec: ${art_sec}`);
-  await logEder(`Buscando art_woo_id para art_sec: ${art_sec}`);
+// Función auxiliar para obtener el art_woo_id
+export const getArticleWooId = async (art_sec, { silent = false } = {}) => {
+  if (!silent) {
+    log(logLevels.INFO, `Buscando art_woo_id para art_sec: ${art_sec}`);
+    await logEder(`Buscando art_woo_id para art_sec: ${art_sec}`);
+  }
   try {
     const pool = await poolPromise;
     const result = await pool.request()
@@ -290,16 +298,20 @@ export const getArticleWooId = async (art_sec) => {
       .query("SELECT art_woo_id FROM dbo.articulos WHERE art_sec = @art_sec");
 
     const artWooId = result.recordset.length > 0 ? result.recordset[0].art_woo_id : '';
-    log(logLevels.INFO, `art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`, { art_sec, artWooId });
-    await logEder(`art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`);
+    if (!silent) {
+      log(logLevels.INFO, `art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`, { art_sec, artWooId });
+      await logEder(`art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`);
+    }
     return artWooId;
   } catch (error) {
-    log(logLevels.ERROR, `Error buscando art_woo_id para art_sec ${art_sec}`, {
-      error: error.message,
-      stack: error.stack,
-      art_sec
-    });
-    await logEder(`Error buscando art_woo_id para art_sec ${art_sec}: ${error.message}`);
+    if (!silent) {
+      log(logLevels.ERROR, `Error buscando art_woo_id para art_sec ${art_sec}`, {
+        error: error.message,
+        stack: error.stack,
+        art_sec
+      });
+      await logEder(`Error buscando art_woo_id para art_sec ${art_sec}: ${error.message}`);
+    }
     throw error;
   }
 };

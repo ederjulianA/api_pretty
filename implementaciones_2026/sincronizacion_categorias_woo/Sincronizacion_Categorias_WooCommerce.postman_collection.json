@@ -1,0 +1,460 @@
+{
+	"info": {
+		"_postman_id": "sync-categories-woo-2026",
+		"name": "Sincronización Categorías WooCommerce",
+		"description": "Collection completa para sincronización de categorías entre SQL Server y WooCommerce.\n\n**Fecha:** Febrero 2026\n**Fuente de verdad:** WooCommerce\n\n## Variables de entorno requeridas:\n- `base_url`: URL base de la API (ej: http://localhost:3000)\n- `token`: JWT token de autenticación (se obtiene del endpoint de login)\n\n## Flujo recomendado:\n1. Autenticarse (Login)\n2. Sincronizar productos desde WooCommerce\n3. Auditar discrepancias\n4. Simular sincronización masiva (dry_run=true)\n5. Aplicar sincronización masiva (dry_run=false)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "api-pretty-2026"
+	},
+	"item": [
+		{
+			"name": "0. Autenticación",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// Guardar token automáticamente en variable de entorno",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.token) {",
+									"        pm.environment.set(\"token\", jsonData.token);",
+									"        console.log(\"✅ Token guardado en variable de entorno\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"usu_cod\": \"tu_usuario\",\n  \"usu_pass\": \"tu_contraseña\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Autenticación de usuario para obtener JWT token.\n\n**Respuesta exitosa:**\n```json\n{\n  \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"user\": {\n    \"usu_cod\": \"admin\",\n    \"usu_nombre\": \"Administrador\"\n  }\n}\n```\n\nEl token se guarda automáticamente en la variable de entorno `token`."
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoint de autenticación para obtener el JWT token necesario para los demás endpoints."
+		},
+		{
+			"name": "1. Sincronización Principal",
+			"item": [
+				{
+					"name": "Sincronizar Todos los Productos",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/sync",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"sync"
+							]
+						},
+						"description": "Sincroniza TODOS los productos desde WooCommerce a ArticuloHook.\n\n**Query Parameters (todos opcionales):**\n- `stock_status`: Filtrar por stock ('instock', 'outofstock', 'onbackorder')\n- `status`: Filtrar por estado ('publish', 'draft', 'pending') - default: 'publish'\n- `limit`: Número máximo de productos a procesar\n- `min_stock`: Stock mínimo para procesar\n- `process_images`: 'true' | 'false' - Procesar imágenes (default: 'false')\n\n**Características:**\n- Extrae categorías del sistema local y WooCommerce\n- Compara por IDs de WooCommerce\n- Logs optimizados con progreso en tiempo real\n- Procesamiento en lotes de 100 productos"
+					},
+					"response": []
+				},
+				{
+					"name": "Sincronizar Solo Productos con Stock",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/sync?stock_status=instock",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"sync"
+							],
+							"query": [
+								{
+									"key": "stock_status",
+									"value": "instock",
+									"description": "Solo productos con stock disponible"
+								}
+							]
+						},
+						"description": "Sincroniza SOLO los productos que tienen stock disponible (~600 productos).\n\n**Ventajas:**\n- Más rápido que sincronizar todos\n- Enfocado en productos vendibles\n- Reduce tiempo de procesamiento"
+					},
+					"response": []
+				},
+				{
+					"name": "Sincronizar Primeros 100 Productos (Testing)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/sync?stock_status=instock&limit=100",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"sync"
+							],
+							"query": [
+								{
+									"key": "stock_status",
+									"value": "instock"
+								},
+								{
+									"key": "limit",
+									"value": "100",
+									"description": "Limitar a 100 productos para pruebas"
+								}
+							]
+						},
+						"description": "Sincroniza solo los primeros 100 productos para pruebas rápidas.\n\n**Ideal para:**\n- Testing de funcionalidad\n- Validación de cambios\n- Debug de errores\n\n**Tiempo estimado:** ~30-60 segundos"
+					},
+					"response": []
+				},
+				{
+					"name": "Sincronizar con Imágenes",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/sync?stock_status=instock&process_images=true",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"sync"
+							],
+							"query": [
+								{
+									"key": "stock_status",
+									"value": "instock"
+								},
+								{
+									"key": "process_images",
+									"value": "true",
+									"description": "Procesar y guardar imágenes de productos"
+								}
+							]
+						},
+						"description": "Sincroniza productos E IMÁGENES desde WooCommerce.\n\n**⚠️ Advertencia:**\n- Proceso MÁS LENTO (~0.5-1 producto/segundo)\n- ~600 productos pueden tomar 10-20 minutos\n- Solo usar cuando se necesiten imágenes\n\n**Por defecto:** Las imágenes NO se procesan para optimizar velocidad"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints principales de sincronización desde WooCommerce hacia ArticuloHook."
+		},
+		{
+			"name": "2. Auditoría de Categorías",
+			"item": [
+				{
+					"name": "Ver Todas las Categorías",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/audit-categories",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"audit-categories"
+							]
+						},
+						"description": "Obtiene listado completo de productos con sus categorías.\n\n**Incluye:**\n- Productos con categorías que coinciden\n- Productos con discrepancias\n- Productos sin verificar\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"stats\": {\n    \"total\": 599,\n    \"coincidencias\": 550,\n    \"discrepancias\": 49,\n    \"sinVerificar\": 0\n  },\n  \"data\": [\n    {\n      \"sku\": \"9168\",\n      \"nombre\": \"Producto ejemplo\",\n      \"categoria_sistema\": \"MAQUILLAJE\",\n      \"subcategoria_sistema\": \"LABIOS\",\n      \"categoria_woocommerce\": \"Maquillaje\",\n      \"subcategoria_woocommerce\": \"Labiales\",\n      \"estado\": \"Coincide\",\n      \"fecha_verificacion\": \"2026-02-06T15:30:00.000Z\"\n    }\n  ]\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Ver Solo Discrepancias",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/audit-categories?onlyMismatches=true",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"audit-categories"
+							],
+							"query": [
+								{
+									"key": "onlyMismatches",
+									"value": "true",
+									"description": "Filtrar solo productos con discrepancias"
+								}
+							]
+						},
+						"description": "Obtiene SOLO los productos con discrepancias de categorías.\n\n**Filtra:**\n- ✅ Solo productos verificados con discrepancias\n- ❌ Excluye productos sin verificar\n- ❌ Excluye productos que coinciden\n\n**Útil para:**\n- Identificar productos que necesitan corrección\n- Revisar antes de sincronización masiva\n- Generar reportes de inconsistencias"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints para auditar y revisar el estado de las categorías entre sistemas."
+		},
+		{
+			"name": "3. Corrección de Categorías",
+			"item": [
+				{
+					"name": "Corregir Producto Individual (desde WooCommerce)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"art_cod\": \"9168\",\n  \"action\": \"sync-from-woo\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/woo/fix-category",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"fix-category"
+							]
+						},
+						"description": "Corrige la categoría de UN producto específico sincronizando desde WooCommerce al sistema local.\n\n**✅ ACCIÓN RECOMENDADA:** `sync-from-woo`\n\n**Body Parameters:**\n- `art_cod` (string, requerido): SKU del producto\n- `action` (string, requerido): 'sync-from-woo' | 'sync-to-woo'\n\n**Proceso:**\n1. Obtiene categoría de WooCommerce desde ArticuloHook\n2. Mapea ID de WooCommerce a código del sistema local\n3. Actualiza tabla `articulos` con nueva categoría\n4. Marca producto como sincronizado en ArticuloHook\n\n**Respuesta exitosa:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Categoría actualizada en el sistema local desde WooCommerce\",\n  \"action\": \"sync-from-woo\",\n  \"product\": \"9168\",\n  \"oldCategory\": {\n    \"woo\": \"Maquillaje\",\n    \"subcategoria\": \"Labiales\"\n  },\n  \"newCategory\": {\n    \"codigo\": \"LAB\",\n    \"nombre\": \"LABIOS\"\n  }\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Corregir Producto Individual (hacia WooCommerce)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"art_cod\": \"9168\",\n  \"action\": \"sync-to-woo\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/woo/fix-category",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"fix-category"
+							]
+						},
+						"description": "Corrige la categoría de UN producto sincronizando desde el sistema local hacia WooCommerce.\n\n**⚠️ USAR SOLO EN CASOS ESPECÍFICOS**\n\nWooCommerce es la fuente de verdad. Esta acción debe usarse solo cuando:\n- Se corrigió manualmente la categoría en el sistema local\n- Se necesita sobrescribir la categoría de WooCommerce\n- Hay casos excepcionales autorizados\n\n**Body Parameters:**\n- `art_cod` (string, requerido): SKU del producto\n- `action` (string, requerido): 'sync-to-woo'\n\n**Respuesta incluye:**\n```json\n{\n  \"warning\": \"Nota: WooCommerce es la fuente de verdad. Use esta acción solo en casos específicos.\"\n}\n```"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints para corregir categorías de productos individuales."
+		},
+		{
+			"name": "4. Sincronización Masiva",
+			"item": [
+				{
+					"name": "Simular Sincronización Masiva (Dry Run)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/fix-all-categories?dry_run=true",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"fix-all-categories"
+							],
+							"query": [
+								{
+									"key": "dry_run",
+									"value": "true",
+									"description": "Modo simulación (NO aplica cambios)"
+								}
+							]
+						},
+						"description": "Simula la sincronización masiva SIN aplicar cambios reales.\n\n**✅ SIEMPRE EJECUTAR PRIMERO ANTES DE APLICAR CAMBIOS**\n\n**Características:**\n- NO modifica base de datos\n- Muestra qué productos se sincronizarían\n- Identifica errores potenciales\n- Muestra productos sin mapeo\n\n**Proceso:**\n1. Busca todos los productos con discrepancias\n2. Valida mapeo de categorías WooCommerce → Sistema local\n3. Simula actualización (sin ejecutar)\n4. Retorna resultados y errores\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Simulación completada. 45 productos pueden sincronizarse correctamente.\",\n  \"stats\": {\n    \"totalProcessed\": 49,\n    \"totalSuccess\": 45,\n    \"totalFailed\": 0,\n    \"totalSkipped\": 4\n  },\n  \"dry_run\": true,\n  \"results\": [\n    {\n      \"sku\": \"9168\",\n      \"nombre\": \"Producto ejemplo\",\n      \"categoria_woo\": \"Maquillaje > Labiales\",\n      \"nueva_categoria_sistema\": \"LABIOS (LAB)\",\n      \"aplicado\": false\n    }\n  ],\n  \"errors\": [\n    {\n      \"sku\": \"1234\",\n      \"nombre\": \"Producto sin mapeo\",\n      \"error\": \"No hay mapeo para categoría WooCommerce...\"\n    }\n  ]\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Aplicar Sincronización Masiva (REAL)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/woo/fix-all-categories?dry_run=false",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"woo",
+								"fix-all-categories"
+							],
+							"query": [
+								{
+									"key": "dry_run",
+									"value": "false",
+									"description": "Modo REAL (APLICA cambios en BD)"
+								}
+							]
+						},
+						"description": "Aplica la sincronización masiva de categorías REALMENTE.\n\n**⚠️ ADVERTENCIA: MODIFICA LA BASE DE DATOS**\n\n**Antes de ejecutar:**\n1. ✅ Ejecutar primero en modo simulación (dry_run=true)\n2. ✅ Revisar resultados y errores\n3. ✅ Confirmar que los cambios son correctos\n4. ✅ Asegurar que hay respaldo de BD\n\n**Proceso:**\n1. Obtiene productos con discrepancias\n2. Para cada producto:\n   - Mapea categoría WooCommerce → Sistema local\n   - Actualiza tabla `articulos`\n   - Marca como sincronizado en `ArticuloHook`\n3. Muestra progreso cada 10 productos\n4. Retorna estadísticas finales\n\n**Características:**\n- Actualiza múltiples productos automáticamente\n- Logs en tiempo real\n- Manejo robusto de errores\n- Validaciones de integridad\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Sincronización completada. 45 productos actualizados.\",\n  \"stats\": {\n    \"totalProcessed\": 49,\n    \"totalSuccess\": 45,\n    \"totalFailed\": 0,\n    \"totalSkipped\": 4\n  },\n  \"dry_run\": false,\n  \"results\": [...],\n  \"errors\": [...]\n}\n```"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints para sincronizar categorías de forma masiva desde WooCommerce al sistema local."
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Script que se ejecuta antes de cada request",
+					"console.log('🚀 Ejecutando request a:', pm.request.url.toString());"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Script que se ejecuta después de cada request",
+					"const responseTime = pm.response.responseTime;",
+					"const statusCode = pm.response.code;",
+					"",
+					"console.log('⏱️ Tiempo de respuesta:', responseTime, 'ms');",
+					"console.log('📊 Status code:', statusCode);",
+					"",
+					"// Validar respuesta exitosa",
+					"if (statusCode === 200 || statusCode === 201) {",
+					"    console.log('✅ Request exitoso');",
+					"} else if (statusCode >= 400) {",
+					"    console.log('❌ Request falló');",
+					"    console.log('Respuesta:', pm.response.json());",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
