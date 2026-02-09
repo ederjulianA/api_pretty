@@ -1,40 +1,58 @@
 {
   "secciones": {
+    "bienvenida": {
+      "titulo": "GRACIAS por Tu compra",
+      "mensaje": "Bienvenida a esta comunidad de mujeres emprendedoras que sueñan en grande. ¿Estás lista para que tu marca crezca y brille más que nunca?",
+      "instagram": "@prettymakeup.co"
+    },
+    "ubicacion": {
+      "ciudad": "BUCARAMANGA",
+      "departamento": "S/DER"
+    },
+    "politicas": {
+      "titulo": "POLÍTICAS DE VENTA",
+      "contenido": [
+        "Agradecemos tu interés en hacer parte de esta familia @prettystore2.a",
+        "A continuación explicaremos algunas condiciones e información importante que debes tener en cuenta:",
+        "Todos nuestros productos son 100% originales, absolutamente todos cuentan con registro INVIMA e incluyen IVA.",
+        "Somos distribuidores autorizados de todas nuestras marcas.",
+        "Monto mayorista: $100.000 mil pesos"
+      ]
+    },
     "mediosPago": [
       {
-        "nombre": "Efectivo",
-        "descripcion": "Pago en efectivo al recibir"
+        "nombre": "Bancolombia",
+        "titular": "Laura Álvarez",
+        "cuenta": "40356037237",
+        "tipo": "Ahorros",
+        "descripcion": "Transferencia o consignación bancaria"
       },
       {
         "nombre": "Nequi",
-        "numero": "300 123 4567",
-        "descripcion": "Transferencia inmediata"
+        "titular": "Laura Álvarez",
+        "numero": "3214207398",
+        "descripcion": "Transferencia inmediata desde tu celular"
       },
       {
-        "nombre": "Bancolombia",
-        "cuenta": "123-456789-00",
-        "tipo": "Ahorros",
-        "descripcion": "Transferencia bancaria"
-      },
-      {
-        "nombre": "Pasarela de Pago",
-        "descripcion": "Tarjetas débito/crédito"
+        "nombre": "Efecty",
+        "titular": "Laura Álvarez",
+        "numero": "1088974037",
+        "descripcion": "Pago en efectivo en puntos Efecty"
       }
     ],
-    "condicionesVenta": [
-      "Precio mayorista aplica para compras mínimas de $500.000",
-      "Todos los precios incluyen IVA",
-      "Válido hasta fin de mes o hasta agotar existencias",
-      "Stock sujeto a disponibilidad",
-      "Envíos a nivel nacional",
-      "Tiempo de entrega: 2-5 días hábiles"
-    ],
+    "procesoCompra": {
+      "titulo": "PROCESO DE COMPRA",
+      "pasos": [
+        "Debes enviarnos una lista de tu pedido ya listo",
+        "Para luego ser verificado, una vez confirmado tu pedido",
+        "Debes enviarnos foto del comprobante de pago al número de WhatsApp 3214207398"
+      ]
+    },
     "contacto": {
-      "telefono": "+57 300 123 4567",
-      "email": "ventas@tuempresa.com",
-      "whatsapp": "+573001234567",
-      "direccion": "Bogotá, Colombia",
-      "horario": "Lunes a Viernes 8am - 6pm, Sábados 9am - 2pm"
+      "whatsapp": "3214207398",
+      "instagram": "@prettymakeup.co",
+      "website": "www.prettymakeupcol.com",
+      "mensaje": "Estamos ubicados en Bucaramanga S/DER"
     }
   }
 }

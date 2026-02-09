@@ -16,27 +16,67 @@ const OPTIMIZATION_CONFIG = {
   withMetadata: false
 };
 
-// Tamaño de chunk para procesamiento paralelo
-const CHUNK_SIZE = 20;
+// Tamaño de chunk para procesamiento paralelo - REDUCIDO para estabilidad
+const CHUNK_SIZE = 5;
 
 // Timeout para descargas (30 segundos)
 const DOWNLOAD_TIMEOUT = 30000;
+
+// Configurar Sharp para liberar recursos
+sharp.cache(false);
+sharp.concurrency(1);
+
+/**
+ * Valida si una URL es válida y completa
+ */
+function esUrlValida(url) {
+  if (!url || typeof url !== 'string') return false;
+
+  // Verificar que la URL esté completa (no truncada)
+  if (url.length < 20) return false;
+
+  // Verificar que termine con una extensión de imagen válida
+  const extensionesValidas = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+  const urlLower = url.toLowerCase();
+  const tieneExtensionValida = extensionesValidas.some(ext => {
+    // Verificar extensión al final o antes de parámetros de query
+    return urlLower.includes(ext) && !urlLower.endsWith(':');
+  });
+
+  if (!tieneExtensionValida) {
+    return false;
+  }
+
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Descarga una imagen desde una URL
  */
 async function descargarImagen(urlImagen) {
   try {
+    // Validar URL antes de intentar descargar
+    if (!esUrlValida(urlImagen)) {
+      throw new Error('URL inválida o truncada');
+    }
+
     const response = await axios.get(urlImagen, {
       responseType: 'arraybuffer',
       timeout: DOWNLOAD_TIMEOUT,
+      maxContentLength: 10 * 1024 * 1024, // Máximo 10MB
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       }
     });
+
     return Buffer.from(response.data);
   } catch (error) {
-    throw new Error(`Error descargando imagen desde ${urlImagen}: ${error.message}`);
+    throw new Error(`Error descargando imagen: ${error.message}`);
   }
 }
 
@@ -55,44 +95,65 @@ async function optimizarImagen(urlImagen, sku, baseDir) {
   const cacheDir = path.join(baseDir, 'cache/images');
   const originalDir = path.join(cacheDir, 'original');
   const optimizedDir = path.join(cacheDir, 'optimized');
-  
+
   // Asegurar que los directorios existen
   await fs.mkdir(originalDir, { recursive: true });
   await fs.mkdir(optimizedDir, { recursive: true });
-  
+
+  let sharpInstance = null;
+
   try {
-    // 1. Descargar imagen desde URL
+    // 1. Validar URL antes de intentar descargar
+    if (!esUrlValida(urlImagen)) {
+      throw new Error('URL inválida o truncada');
+    }
+
+    // 2. Descargar imagen desde URL
     const buffer = await descargarImagen(urlImagen);
     const pesoOriginal = buffer.length / 1024; // KB
-    
-    // 2. Guardar original (para comparación/debugging)
+
+    // 3. Guardar original (para comparación/debugging) - SKIP para ahorrar espacio
+    // const nombreArchivo = `${sku.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
+    // const rutaOriginal = path.join(originalDir, nombreArchivo);
+    // await fs.writeFile(rutaOriginal, buffer);
+
     const nombreArchivo = `${sku.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
-    const rutaOriginal = path.join(originalDir, nombreArchivo);
-    await fs.writeFile(rutaOriginal, buffer);
-    
-    // 3. Optimizar con Sharp
-    const optimized = await sharp(buffer)
+
+    // 4. Optimizar con Sharp con mejor manejo de errores
+    sharpInstance = sharp(buffer, {
+      failOnError: false,
+      limitInputPixels: 268402689 // Límite de seguridad
+    });
+
+    const optimized = await sharpInstance
       .resize(OPTIMIZATION_CONFIG.width, OPTIMIZATION_CONFIG.height, {
         fit: OPTIMIZATION_CONFIG.fit,
-        position: OPTIMIZATION_CONFIG.position
+        position: OPTIMIZATION_CONFIG.position,
+        withoutEnlargement: false
       })
       .jpeg({
         quality: OPTIMIZATION_CONFIG.quality,
         progressive: OPTIMIZATION_CONFIG.progressive,
-        mozjpeg: OPTIMIZATION_CONFIG.mozjpeg
+        mozjpeg: OPTIMIZATION_CONFIG.mozjpeg,
+        force: true // Forzar conversión a JPEG
       })
       .toBuffer();
-    
-    // 4. Guardar optimizada
+
+    // 5. Guardar optimizada
     const rutaOptimizada = path.join(optimizedDir, nombreArchivo);
     await fs.writeFile(rutaOptimizada, optimized);
-    
-    // 5. Calcular métricas
+
+    // 6. Calcular métricas
     const pesoOptimizado = optimized.length / 1024; // KB
-    const reduccion = pesoOriginal > 0 
-      ? ((pesoOriginal - pesoOptimizado) / pesoOriginal) * 100 
+    const reduccion = pesoOriginal > 0
+      ? ((pesoOriginal - pesoOptimizado) / pesoOriginal) * 100
       : 0;
-    
+
+    // Liberar recursos de Sharp
+    if (sharpInstance) {
+      sharpInstance.destroy();
+    }
+
     return {
       sku,
       exito: true,
@@ -102,9 +163,18 @@ async function optimizarImagen(urlImagen, sku, baseDir) {
       rutaOptimizada: rutaOptimizada,
       rutaRelativa: `./cache/images/optimized/${nombreArchivo}`
     };
-    
+
   } catch (error) {
-    console.warn(`⚠️  Error optimizando imagen ${sku}:`, error.message);
+    // Liberar recursos en caso de error
+    if (sharpInstance) {
+      try {
+        sharpInstance.destroy();
+      } catch (e) {
+        // Ignorar errores al destruir
+      }
+    }
+
+    // No imprimir el error aquí, se manejará en el nivel superior
     return {
       sku,
       exito: false,
@@ -122,12 +192,22 @@ async function optimizarImagenSafe(urlImagen, sku, baseDir) {
   if (!baseDir) {
     baseDir = path.join(__dirname, '..');
   }
+
   try {
+    // Validar URL antes de procesar
+    if (!esUrlValida(urlImagen)) {
+      return {
+        sku,
+        exito: false,
+        error: 'URL inválida o truncada',
+        rutaOptimizada: null,
+        rutaRelativa: null
+      };
+    }
+
     const resultado = await optimizarImagen(urlImagen, sku, baseDir);
     return resultado;
   } catch (error) {
-    console.warn(`⚠️  Error con imagen ${sku}:`, error.message);
-    
     // Retornar resultado con error (se usará placeholder en el template)
     return {
       sku,
@@ -160,18 +240,37 @@ async function optimizarImagenes(productos, baseDir) {
   console.log(`   → ${productosConImagen.length} productos con imagen`);
   console.log(`   → ${productosSinImagen.length} productos sin imagen (usarán placeholder)`);
   
-  // Procesar en chunks para no sobrecargar
+  // Procesar en chunks para no sobrecargar - MEJORADO con delay entre chunks
   for (let i = 0; i < productosConImagen.length; i += CHUNK_SIZE) {
     const chunk = productosConImagen.slice(i, i + CHUNK_SIZE);
-    const promesas = chunk.map(p => 
+    const promesas = chunk.map(p =>
       optimizarImagenSafe(p.imagenUrl, p.sku || p.art_cod, baseDir)
     );
-    
+
     const resultadosChunk = await Promise.all(promesas);
     resultados.push(...resultadosChunk);
-    
+
+    // Contar errores en este chunk
+    const erroresChunk = resultadosChunk.filter(r => !r.exito);
+    if (erroresChunk.length > 0 && erroresChunk.length <= 3) {
+      // Mostrar solo algunos errores para no saturar la consola
+      erroresChunk.slice(0, 2).forEach(error => {
+        console.warn(`⚠️  ${error.sku}: ${error.error}`);
+      });
+    }
+
     const procesados = Math.min(i + CHUNK_SIZE, productosConImagen.length);
     console.log(`   → Progreso: ${procesados}/${productosConImagen.length} imágenes procesadas`);
+
+    // Pequeño delay entre chunks para liberar memoria
+    if (i + CHUNK_SIZE < productosConImagen.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Forzar garbage collection si está disponible
+    if (global.gc) {
+      global.gc();
+    }
   }
   
   // Agregar productos sin imagen al resultado

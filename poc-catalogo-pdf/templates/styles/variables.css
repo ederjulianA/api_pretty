@@ -1,19 +1,22 @@
 :root {
-  /* Colores - Pretty Makeup Brand Colors - Más vibrantes */
-  --color-primary: #f58ea3; /* Color principal de la marca */
-  --color-secondary: #ffb3c6; /* Rosa claro para gradientes y fondos */
-  --color-accent: #ff6b9d; /* Rosa más vibrante para acentos */
-  --color-primary-dark: #e67a8f; /* Variante oscura */
-  --color-primary-light: #ffc0d3; /* Rosa más claro y vibrante */
-  --color-pink-bright: #ff8fab; /* Rosa brillante */
-  --color-pink-soft: #ffe5eb; /* Rosa muy suave */
+  /* Colores de la marca Pretty Makeup */
+  --color-primary: #f58ea3; /* Rosa principal */
+  --color-secondary: #a5762f; /* Dorado/café */
+  --color-accent: #f7b3c2; /* Rosa claro */
+  --color-pink-light: #f5cad4; /* Rosa pastel */
+  --color-pink-soft: #f4dbe1; /* Rosa muy suave */
+  --color-cream: #fffafe; /* Crema casi blanco */
+  --color-peach: #ffd2d2; /* Durazno */
+  --color-beige: #fff9e9; /* Beige claro */
+  --color-light-bg: #edf3f9; /* Fondo claro azulado */
+
+  /* Colores de texto */
   --color-dark: #1a1a1a;
-  --color-text: #2d2d2d;
+  --color-text: #333333;
   --color-text-light: #666666;
   --color-background: #FFFFFF;
-  --color-background-light: #FFF0F3; /* Fondo rosa más visible */
   --color-white: #FFFFFF;
-  --color-border: #ffd6e0;
+  --color-border: #CCCCCC;
   
   /* Tipografía */
   --font-primary: 'Montserrat', sans-serif;
@@ -34,13 +37,13 @@
   --spacing-lg: 20mm;
   
   /* Bordes */
-  --border-radius: 8mm;
-  --border-color: #f0f0f0;
-  --border-color-light: #f8f8f8;
-  
-  /* Sombras - Más pronunciadas para dar profundidad */
-  --box-shadow: 0 4mm 16mm rgba(245, 142, 163, 0.25);
-  --box-shadow-soft: 0 2mm 8mm rgba(245, 142, 163, 0.2);
-  --box-shadow-hover: 0 6mm 20mm rgba(245, 142, 163, 0.3);
-  --box-shadow-card: 0 3mm 12mm rgba(255, 107, 157, 0.15);
+  --border-radius: 2mm;
+  --border-color: #CCCCCC;
+  --border-color-light: #EEEEEE;
+
+  /* Sombras - Eliminadas para impresión limpia */
+  --box-shadow: none;
+  --box-shadow-soft: none;
+  --box-shadow-hover: none;
+  --box-shadow-card: none;
 }

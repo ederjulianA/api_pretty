@@ -3,19 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <title><%= metadata.titulo %></title>
-  
+
   <!-- Fuentes -->
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
-  
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;800&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+
   <!-- Estilos incrustados (se inyectarán desde pdfGenerator.js) -->
   <style>
     <%= styles %>
-    
+
     @page {
       size: A4 landscape;
-      margin: 15mm;
+      margin: 0;
     }
-    
+
+    @page productos {
+      size: A4 landscape;
+      margin: 0;
+    }
+
     * {
       box-sizing: border-box;
       -webkit-print-color-adjust: exact;
@@ -46,20 +51,37 @@
     </div>
   </div>
 
+  <!-- PÁGINA 2: GRACIAS -->
+  <% if (metadata.imagenGracias) { %>
+    <div class="page-break"></div>
+    <div class="pagina-imagen-completa">
+      <img src="<%= metadata.imagenGracias %>" alt="Gracias" class="imagen-pagina-completa">
+    </div>
+  <% } %>
+
+  <!-- PÁGINA 3: FORMAS DE PAGO -->
+  <% if (metadata.imagenFormasPago) { %>
+    <div class="page-break"></div>
+    <div class="pagina-imagen-completa">
+      <img src="<%= metadata.imagenFormasPago %>" alt="Formas de Pago" class="imagen-pagina-completa">
+    </div>
+  <% } %>
+
   <!-- PRODUCTOS POR CATEGORÍA -->
-  <% categorias.forEach((categoria, categoriaIndex) => { 
+  <% categorias.forEach((categoria, categoriaIndex) => {
     const productosCategoria = productos.filter(p => p.categoriaId === categoria.id);
     if (productosCategoria.length > 0) {
   %>
-    <div class="categoria-seccion <%= categoriaIndex > 0 ? 'categoria-page-break' : '' %>">
-      <% 
+    <div class="page-break"></div>
+    <div class="categoria-seccion">
+      <%
         // Agrupar productos de 3 en 3 para controlar paginación
         const grupos = [];
         for (let i = 0; i < productosCategoria.length; i += 3) {
           grupos.push(productosCategoria.slice(i, i + 3));
         }
       %>
-      
+
       <% grupos.forEach((grupo, grupoIndex) => { %>
         <div class="productos-page-container <%= grupoIndex === 0 ? 'primera-pagina-categoria' : '' %>">
           <h2 class="categoria-titulo-pagina <%= grupoIndex > 0 ? 'categoria-titulo-repetido' : '' %>"><%= categoria.nombre %></h2>
@@ -69,8 +91,8 @@
             <!-- Imagen -->
             <div class="producto-imagen-container">
               <% if (producto.imagenOptimizada) { %>
-                <img src="<%= producto.imagenOptimizada %>" 
-                     alt="<%= producto.nombre %>" 
+                <img src="<%= producto.imagenOptimizada %>"
+                     alt="<%= producto.nombre %>"
                      class="producto-imagen"
                      onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                 <div class="producto-imagen" style="background: var(--color-background); display: none; align-items: center; justify-content: center; color: var(--color-text-light); font-size: 8pt; padding: 10px; text-align: center;">
@@ -88,7 +110,7 @@
                 <div class="overlay-agotado">AGOTADO</div>
               <% } %>
             </div>
-            
+
             <!-- Info -->
             <div class="producto-info">
               <div class="producto-categoria">
@@ -97,7 +119,7 @@
               </div>
               <h3 class="producto-nombre"><%= producto.nombre %></h3>
               <div class="producto-sku">SKU: <%= producto.sku %></div>
-              
+
               <!-- Precios -->
               <div class="producto-precios">
                 <div class="precio precio-detal">
@@ -118,80 +140,5 @@
     </div>
   <% }
   }); %>
-
-  <!-- MEDIOS DE PAGO -->
-  <% if (secciones.mediosPago && secciones.mediosPago.length > 0) { %>
-    <div class="page-break"></div>
-    <div class="seccion-info">
-      <h2 class="seccion-titulo">Medios de Pago</h2>
-      <div class="medios-grid">
-        <% secciones.mediosPago.forEach(medio => { %>
-          <div class="medio-card">
-            <h3 class="medio-nombre"><%= medio.nombre %></h3>
-            <p class="medio-descripcion"><%= medio.descripcion %></p>
-            <% if (medio.numero) { %>
-              <p class="medio-dato"><%= medio.numero %></p>
-            <% } %>
-            <% if (medio.cuenta) { %>
-              <p class="medio-dato">Cuenta <%= medio.tipo %>: <%= medio.cuenta %></p>
-            <% } %>
-          </div>
-        <% }); %>
-      </div>
-    </div>
-  <% } %>
-
-  <!-- CONDICIONES DE VENTA -->
-  <% if (secciones.condicionesVenta && secciones.condicionesVenta.length > 0) { %>
-    <div class="page-break"></div>
-    <div class="seccion-info">
-      <h2 class="seccion-titulo">Condiciones de Venta</h2>
-      <ul class="condiciones-lista">
-        <% secciones.condicionesVenta.forEach(condicion => { %>
-          <li><%= condicion %></li>
-        <% }); %>
-      </ul>
-    </div>
-  <% } %>
-
-  <!-- CONTACTO -->
-  <% if (secciones.contacto) { %>
-    <div class="page-break"></div>
-    <div class="seccion-info seccion-contacto">
-      <h2 class="seccion-titulo">Información de Contacto</h2>
-      <div class="contacto-grid">
-        <% if (secciones.contacto.telefono) { %>
-          <div class="contacto-item">
-            <div class="contacto-label">Teléfono</div>
-            <div class="contacto-valor"><%= secciones.contacto.telefono %></div>
-          </div>
-        <% } %>
-        <% if (secciones.contacto.email) { %>
-          <div class="contacto-item">
-            <div class="contacto-label">Email</div>
-            <div class="contacto-valor"><%= secciones.contacto.email %></div>
-          </div>
-        <% } %>
-        <% if (secciones.contacto.whatsapp) { %>
-          <div class="contacto-item">
-            <div class="contacto-label">WhatsApp</div>
-            <div class="contacto-valor"><%= secciones.contacto.whatsapp %></div>
-          </div>
-        <% } %>
-        <% if (secciones.contacto.direccion) { %>
-          <div class="contacto-item">
-            <div class="contacto-label">Dirección</div>
-            <div class="contacto-valor"><%= secciones.contacto.direccion %></div>
-          </div>
-        <% } %>
-        <% if (secciones.contacto.horario) { %>
-          <div class="contacto-item">
-            <div class="contacto-label">Horario</div>
-            <div class="contacto-valor"><%= secciones.contacto.horario %></div>
-          </div>
-        <% } %>
-      </div>
-    </div>
-  <% } %>
 </body>
 </html>

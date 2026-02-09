@@ -1,8 +1,12 @@
 const path = require('path');
+// Cargar .env desde el directorio raíz del proyecto ANTES de importar cualquier módulo
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
+
 const fs = require('fs').promises;
 const imageOptimizer = require('./lib/imageOptimizer');
 const pdfGenerator = require('./lib/pdfGenerator');
-const dbCatalog = require('./lib/dbCatalog');
+// Usar versión simplificada que NO carga WooCommerce (evita errores de dependencias)
+const dbCatalog = require('./lib/dbCatalogSimple');
 
 // Obtener directorio base del script (poc-catalogo-pdf/)
 const baseDir = __dirname;
@@ -24,7 +28,7 @@ async function generarCatalogo() {
       tieneExistencia: 1,      // 1 = solo productos con stock
       // inv_gru_cod: null,        // Filtrar por categoría (opcional)
       // inv_sub_gru_cod: null,     // Filtrar por subcategoría (opcional)
-      // limite: 600                // Límite de productos (opcional)
+      // limite: null              // Sin límite - generar catálogo completo
     });
     console.log(`   ✓ ${data.productos.length} productos obtenidos`);
     console.log(`   ✓ ${data.categorias.length} categorías encontradas`);

@@ -9,13 +9,13 @@ const path = require('path');
 async function cargarEstilos(baseDir) {
   // baseDir debe ser poc-catalogo-pdf/, no poc-catalogo-pdf/lib/
   const stylesDir = path.join(baseDir, 'templates/styles');
-  
+
   try {
     const variablesCSS = await fs.readFile(
       path.join(stylesDir, 'variables.css'),
       'utf8'
     );
-    const mainCSS = await fs.readFile(
+    let mainCSS = await fs.readFile(
       path.join(stylesDir, 'main.css'),
       'utf8'
     );
@@ -23,7 +23,27 @@ async function cargarEstilos(baseDir) {
       path.join(stylesDir, 'print.css'),
       'utf8'
     );
-    
+
+    // Convertir la imagen de fondo a base64
+    const fondoPath = path.join(baseDir, 'assets', 'fondo_1.png');
+    try {
+      const fondoBase64 = await convertirImagenABase64(fondoPath, baseDir);
+      if (fondoBase64) {
+        // Reemplazar la URL relativa con la versión base64
+        const regex = /url\(['"]?\.\.\/assets\/fondo_1\.png['"]?\)/g;
+        const matches = mainCSS.match(regex);
+        console.log('   → Referencias a fondo_1.png encontradas:', matches ? matches.length : 0);
+
+        mainCSS = mainCSS.replace(regex, `url('${fondoBase64}')`);
+        console.log('   ✓ Imagen de fondo convertida a base64');
+        console.log('   → Tamaño base64:', (fondoBase64.length / 1024).toFixed(2), 'KB');
+      } else {
+        console.warn('   ⚠️  fondoBase64 es null o vacío');
+      }
+    } catch (error) {
+      console.warn('   ⚠️  No se pudo convertir fondo_1.png a base64:', error.message);
+    }
+
     return `${variablesCSS}\n\n${mainCSS}\n\n${printCSS}`;
   } catch (error) {
     console.error('Error cargando estilos CSS:', error);
@@ -77,14 +97,14 @@ async function convertirImagenABase64(rutaImagen, baseDir) {
 
 /**
  * Prepara las imágenes en los datos para Puppeteer
- * Convierte imágenes locales a base64 e incrusta en HTML
+ * NUEVA ESTRATEGIA: Usa file:// URLs en lugar de base64 para mejor rendimiento
  */
 async function prepararImagenes(datos, baseDir) {
   if (!baseDir) {
     baseDir = path.join(__dirname, '..');
   }
-  
-  // Preparar logo de empresa
+
+  // Preparar logo de empresa (solo este en base64 porque es pequeño)
   if (datos.metadata.empresa.logo) {
     const logoBase64 = await convertirImagenABase64(
       datos.metadata.empresa.logo,
@@ -94,43 +114,45 @@ async function prepararImagenes(datos, baseDir) {
       datos.metadata.empresa.logo = logoBase64;
     }
   }
-  
-  // Preparar imágenes de productos (convertir a base64 si son locales)
-  console.log('   → Convirtiendo imágenes a base64...');
+
+  // Preparar imágenes de productos - USAR FILE:// URLS en lugar de base64
+  console.log('   → Preparando rutas de imágenes para Puppeteer...');
   let procesadas = 0;
   for (let i = 0; i < datos.productos.length; i++) {
     const producto = datos.productos[i];
     if (producto.imagenOptimizada) {
       // Si es URL HTTP/HTTPS, dejarla tal cual
-      if (producto.imagenOptimizada.startsWith('http://') || 
+      if (producto.imagenOptimizada.startsWith('http://') ||
           producto.imagenOptimizada.startsWith('https://')) {
         // Ya es una URL, Puppeteer puede cargarla directamente
         continue;
       }
-      
-      // Si es ruta local, convertir a base64
-      const imagenBase64 = await convertirImagenABase64(
-        producto.imagenOptimizada,
-        baseDir
-      );
-      if (imagenBase64) {
-        producto.imagenOptimizada = imagenBase64;
-        procesadas++;
+
+      // Si es ruta local, convertir a file:// URL
+      let rutaAbsoluta;
+      if (path.isAbsolute(producto.imagenOptimizada)) {
+        rutaAbsoluta = producto.imagenOptimizada;
       } else {
-        // Si falla la conversión, intentar usar URL original
-        if (producto.imagenUrl) {
-          producto.imagenOptimizada = producto.imagenUrl;
+        // Limpiar ruta relativa
+        let rutaLimpia = producto.imagenOptimizada;
+        if (rutaLimpia.startsWith('./')) {
+          rutaLimpia = rutaLimpia.substring(2);
         }
+        rutaAbsoluta = path.resolve(baseDir, rutaLimpia);
       }
-      
-      // Log de progreso cada 50 imágenes
-      if ((i + 1) % 50 === 0) {
+
+      // Convertir a file:// URL para Puppeteer
+      producto.imagenOptimizada = `file://${rutaAbsoluta}`;
+      procesadas++;
+
+      // Log de progreso cada 100 imágenes
+      if ((i + 1) % 100 === 0) {
         console.log(`   → Progreso: ${i + 1}/${datos.productos.length} imágenes procesadas`);
       }
     }
   }
-  console.log(`   ✓ ${procesadas} imágenes locales convertidas a base64`);
-  
+  console.log(`   ✓ ${procesadas} imágenes preparadas con file:// URLs`);
+
   return datos;
 }
 
@@ -160,7 +182,30 @@ async function generar(datos, baseDir) {
       JSON.parse(JSON.stringify(datos)),
       baseDir
     );
-    
+
+    // 3. Convertir imágenes de páginas completas a base64
+    console.log('   → Preparando imágenes de páginas completas...');
+
+    // Imagen de Gracias
+    const graciasPath = path.join(baseDir, 'assets', 'gracias.png');
+    const graciasBase64 = await convertirImagenABase64(graciasPath, baseDir);
+    if (graciasBase64) {
+      datosPreparados.metadata.imagenGracias = graciasBase64;
+      console.log('   ✓ Imagen de gracias preparada');
+    } else {
+      console.warn('   ⚠️ No se pudo cargar la imagen de gracias');
+    }
+
+    // Imagen de Formas de Pago
+    const formasPagoPath = path.join(baseDir, 'assets', 'formas_de_pago.png');
+    const formasPagoBase64 = await convertirImagenABase64(formasPagoPath, baseDir);
+    if (formasPagoBase64) {
+      datosPreparados.metadata.imagenFormasPago = formasPagoBase64;
+      console.log('   ✓ Imagen de formas de pago preparada');
+    } else {
+      console.warn('   ⚠️ No se pudo cargar la imagen de formas de pago');
+    }
+
     // Agregar estilos a los datos para el template
     datosPreparados.styles = styles;
     
@@ -171,36 +216,49 @@ async function generar(datos, baseDir) {
       root: path.join(baseDir, 'templates')
     });
     
-    // 4. Configurar Puppeteer
+    // 4. Configurar Puppeteer para macOS ARM con nueva API (v24+)
     console.log('   → Iniciando Puppeteer...');
     const browser = await puppeteer.launch({
-      headless: true,
+      headless: true, // En Puppeteer 24+, true = nuevo headless
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu'
+        '--disable-web-security', // Permitir carga de imágenes externas
+        '--allow-file-access-from-files' // Permitir acceso a archivos locales
       ]
     });
-    
+
     const page = await browser.newPage();
-    
-    // 5. Cargar HTML en Puppeteer
+    page.setDefaultTimeout(300000); // 5 minutos
+
+    // Habilitar intercepción de requests para debugging
+    await page.setRequestInterception(false);
+
+    // 5. Guardar HTML temporalmente y cargar desde archivo (permite carga de recursos externos)
     console.log('   → Cargando contenido HTML...');
-    // Usar 'load' en lugar de 'networkidle0' para evitar timeouts con muchas imágenes
-    // Aumentar timeout significativamente para 584 productos con imágenes en base64
-    await page.setContent(html, {
-      waitUntil: 'load',
-      timeout: 180000 // 180 segundos (3 minutos) para manejar muchas imágenes
+    console.log(`   → Tamaño HTML: ${(html.length / 1024).toFixed(2)} KB`);
+
+    const tempHtmlPath = path.join(baseDir, 'output', 'temp-catalog.html');
+    await fs.writeFile(tempHtmlPath, html, 'utf8');
+
+    // Cargar desde archivo HTML permite que Puppeteer cargue recursos externos
+    await page.goto(`file://${tempHtmlPath}`, {
+      waitUntil: 'networkidle0', // Esperar hasta que se carguen todas las imágenes
+      timeout: 300000
     });
-    
-    // Esperar un poco más para que todas las imágenes se rendericen
-    await page.waitForTimeout(2000); // 2 segundos adicionales
+
+    console.log('   → Esperando renderizado completo...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     // 6. Configurar PDF con nombre único (timestamp)
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5); // Formato: 2025-01-29T14-30-00
     const nombreArchivo = `catalogo-${timestamp}.pdf`;
-    const outputPath = path.join(baseDir, 'output', nombreArchivo);
+    const outputDir = path.join(baseDir, 'output');
+    const outputPath = path.join(outputDir, nombreArchivo);
+
+    // Asegurar que el directorio output existe
+    await fs.mkdir(outputDir, { recursive: true });
     const pdfConfig = {
       path: outputPath,
       format: 'A4',
@@ -240,14 +298,20 @@ async function generar(datos, baseDir) {
     };
     
     // 7. Generar PDF
-    console.log('   → Generando PDF...');
-    // Configurar timeout para la operación de PDF
-    page.setDefaultTimeout(180000); // 3 minutos
+    console.log('   → Generando PDF (esto puede tardar varios minutos)...');
     await page.pdf(pdfConfig);
     
-    // 8. Cerrar browser
+    // 8. Cerrar browser y limpiar archivo temporal
     await browser.close();
-    
+
+    // Limpiar HTML temporal
+    try {
+      const tempHtmlPath = path.join(baseDir, 'output', 'temp-catalog.html');
+      await fs.unlink(tempHtmlPath);
+    } catch (e) {
+      // Ignorar si no se puede eliminar
+    }
+
     // 9. Calcular métricas
     const tiempoTotal = (Date.now() - inicio) / 1000;
     const stats = await fs.stat(outputPath);
@@ -255,11 +319,11 @@ async function generar(datos, baseDir) {
     
     // Calcular número de páginas aproximado
     // Portada: 1 página
+    // Gracias: 1 página
+    // Formas de Pago: 1 página
     // Productos: 3 por página (1 fila x 3 columnas)
-    // Secciones informativas: ~3 páginas
     const paginasProductos = Math.ceil(datos.productos.length / 3);
-    const paginasSecciones = 3; // Medios de pago, condiciones, contacto
-    const totalPaginas = 1 + paginasProductos + paginasSecciones;
+    const totalPaginas = 1 + 1 + 1 + paginasProductos; // Portada + Gracias + Formas de Pago + Productos
     
     console.log('✓ PDF generado exitosamente');
     
