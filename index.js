@@ -40,6 +40,7 @@ import productPhotoRoutes from './routes/productPhotoRoutes.js';
 import promocionRoutes from './routes/promocionRoutes.js';
 import diagnosticRoutes from './routes/diagnosticRoutes.js';
 import eventoPromocionalRoutes from './routes/eventoPromocionalRoutes.js';
+import variableProductRoutes from './routes/variableProductRoutes.js';
 
 // Middleware
 app.use(express.json());
@@ -61,6 +62,7 @@ app.get("/api/woo/test", (req, res) => {
 });
 
 app.use("/api/categorias", inventarioGrupoRoutes);
+app.use("/api/articulos/variable", variableProductRoutes);
 app.use("/api/articulos", articulosRoutes);
 app.use("/api/nits", nitsRoutes);
 app.use("/api/order", orderRoutes);

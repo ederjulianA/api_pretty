@@ -117,20 +117,21 @@ const getArticuloPreciosBase = async (art_sec) => {
 }
 
 // Función para obtener información de promociones de un artículo en una fecha específica
+// Si el artículo es una variación, busca promociones del producto padre
 const getArticuloPromocionInfo = async (art_sec, fecha) => {
   const pool = await poolPromise;
   const result = await pool.request()
     .input("art_sec", sql.VarChar(30), art_sec)
     .input("fecha", sql.DateTime, fecha)
     .query(`
-      SELECT 
+      SELECT
         a.art_sec,
         a.art_cod,
         a.art_nom,
-        -- Precios base
+        -- Precios base (de la variación o producto simple)
         ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
         ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
-        -- Información de promoción
+        -- Información de promoción (busca en el padre si es variación)
         pd.pro_det_precio_oferta,
         pd.pro_det_descuento_porcentaje,
         p.pro_fecha_inicio,
@@ -148,8 +149,10 @@ const getArticuloPromocionInfo = async (art_sec, fecha) => {
       FROM dbo.articulos a
       LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
       LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
-      LEFT JOIN dbo.promociones_detalle pd ON a.art_sec = pd.art_sec AND pd.pro_det_estado = 'A'
-      LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec 
+      -- Buscar promociones: si es variación (art_sec_padre != NULL), buscar en el padre
+      LEFT JOIN dbo.promociones_detalle pd
+        ON COALESCE(a.art_sec_padre, a.art_sec) = pd.art_sec AND pd.pro_det_estado = 'A'
+      LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec
         AND p.pro_activa = 'S'
         AND @fecha BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
       WHERE a.art_sec = @art_sec

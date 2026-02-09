@@ -43,7 +43,7 @@ const validateArticulo = async ({ art_cod, art_woo_id }) => {
     throw error;
   }
 };
-const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null) => {
+const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null, categoria = null, subcategoria = null) => {
   console.log(`[UPDATE_WOO_PRODUCT] Iniciando actualización en WooCommerce`, {
     art_woo_id,
     art_cod,
@@ -52,9 +52,11 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
     precio_mayor,
     actualiza_fecha,
     fac_fec,
+    categoria,
+    subcategoria,
     timestamp: new Date().toISOString()
   });
-  
+
   try {
     const api = new WooCommerceRestApi({
       url: process.env.WC_URL,
@@ -76,6 +78,36 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
         { key: '_precio_mayorista', value: precio_mayor }
       ]
     };
+
+    // Incluir categorías si se proporcionan
+    if (categoria && subcategoria) {
+      const pool = await poolPromise;
+      const catRequest = pool.request();
+      catRequest.input('categoria', sql.VarChar(50), categoria);
+      catRequest.input('subcategoria', sql.VarChar(50), subcategoria);
+      const catQueryResult = await catRequest.query(`
+        SELECT g.inv_gru_woo_id, s.inv_sub_gru_woo_id
+        FROM dbo.inventario_subgrupo s
+        INNER JOIN dbo.inventario_grupo g ON g.inv_gru_cod = s.inv_gru_cod
+        WHERE s.inv_gru_cod = @categoria AND s.inv_sub_gru_cod = @subcategoria
+      `);
+
+      const categories = [];
+      if (catQueryResult.recordset.length > 0) {
+        const { inv_gru_woo_id, inv_sub_gru_woo_id } = catQueryResult.recordset[0];
+        if (inv_gru_woo_id) {
+          categories.push({ id: parseInt(inv_gru_woo_id, 10) });
+        }
+        if (inv_sub_gru_woo_id) {
+          categories.push({ id: parseInt(inv_sub_gru_woo_id, 10) });
+        }
+      }
+
+      if (categories.length > 0) {
+        data.categories = categories;
+        console.log('[UPDATE_WOO_PRODUCT] Categorías WooCommerce:', JSON.stringify(categories, null, 2));
+      }
+    }
 
     // Solo incluir la fecha si actualiza_fecha es 'S' y hay una fecha válida
     if (actualiza_fecha === 'S' && fac_fec) {
@@ -261,7 +293,8 @@ WITH ArticulosBase AS (
         END AS tiene_oferta,
         ISNULL(e.existencia, 0) AS existencia,
         a.art_woo_sync_status,
-        a.art_woo_sync_message
+        a.art_woo_sync_message,
+        ISNULL(a.art_woo_type, 'simple') AS art_woo_type
     FROM dbo.articulos a
         INNER JOIN dbo.inventario_subgrupo isg
             ON a.inv_sub_gru_cod = isg.inv_sub_gru_cod
@@ -455,16 +488,17 @@ const createArticulo = async (articuloData) => {
       catRequest.input('categoria', sql.VarChar(50), articuloData.categoria);
       catRequest.input('subcategoria', sql.VarChar(50), articuloData.subcategoria);
       const catQueryResult = await catRequest.query(`
-        SELECT inv_sub_gru_parend_woo, inv_sub_gru_woo_id 
-        FROM dbo.inventario_subgrupo 
-        WHERE inv_gru_cod = @categoria AND inv_sub_gru_cod = @subcategoria
+        SELECT g.inv_gru_woo_id, s.inv_sub_gru_woo_id
+        FROM dbo.inventario_subgrupo s
+        INNER JOIN dbo.inventario_grupo g ON g.inv_gru_cod = s.inv_gru_cod
+        WHERE s.inv_gru_cod = @categoria AND s.inv_sub_gru_cod = @subcategoria
       `);
 
       const categories = [];
       if (catQueryResult.recordset.length > 0) {
-        const { inv_sub_gru_parend_woo, inv_sub_gru_woo_id } = catQueryResult.recordset[0];
-        if (inv_sub_gru_parend_woo) {
-          categories.push({ id: parseInt(inv_sub_gru_parend_woo, 10) });
+        const { inv_gru_woo_id, inv_sub_gru_woo_id } = catQueryResult.recordset[0];
+        if (inv_gru_woo_id) {
+          categories.push({ id: parseInt(inv_gru_woo_id, 10) });
         }
         if (inv_sub_gru_woo_id) {
           categories.push({ id: parseInt(inv_sub_gru_woo_id, 10) });
@@ -673,13 +707,17 @@ const getArticulo = async (art_sec) => {
             ELSE 'N' 
         END AS tiene_oferta,
         a.art_woo_sync_status,
-        a.art_woo_sync_message
+        a.art_woo_sync_message,
+        ISNULL(a.art_woo_type, 'simple') AS art_woo_type,
+        a.art_variable,
+        a.art_sec_padre,
+        a.art_variation_attributes
         FROM dbo.articulos a
 	      LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
 	      left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
-        LEFT JOIN dbo.articulosdetalle ad1 
+        LEFT JOIN dbo.articulosdetalle ad1
         ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
-        LEFT JOIN dbo.articulosdetalle ad2 
+        LEFT JOIN dbo.articulosdetalle ad2
         ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
         -- Subquery para obtener la promoción más prioritaria por artículo
         LEFT JOIN (
@@ -811,7 +849,7 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
 
     // Actualización en WooCommerce
     try {
-      const wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec);
+      const wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria);
       
       // Actualizar estado de sincronización
       await pool.request()
@@ -951,4 +989,704 @@ const getNextArticuloCodigo = async () => {
   }
 };
 
-module.exports = { getArticulos, validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod, getNextArticuloCodigo };
+/**
+ * Crea un producto variable (padre) que puede tener variaciones
+ * @param {Object} productData - Datos del producto padre
+ * @returns {Promise<Object>}
+ */
+const createVariableProduct = async (productData) => {
+  const {
+    art_nom,
+    art_cod,       // Codigo base OBLIGATORIO (ej: "LAB001")
+    subcategoria,  // inv_sub_gru_cod (SMALLINT)
+    categoria,     // inv_gru_cod (solo para buscar WooCommerce categories)
+    precio_detal_referencia,
+    precio_mayor_referencia,
+    attributes,    // [{name: "Tono", options: ["Rojo", "Rosa", "Ciruela", "Coral"]}]
+    images
+  } = productData;
+
+  const pool = await poolPromise;
+  let transaction = null;
+  let art_sec = null;
+  let art_woo_id = null;
+  const errors = {};
+
+  try {
+    // Validar que art_cod sea proporcionado (NOT NULL en BD)
+    if (!art_cod || !art_cod.trim()) {
+      throw new Error('art_cod es obligatorio para productos variables (NOT NULL en BD)');
+    }
+
+    if (art_cod.length > 30) {
+      throw new Error('art_cod no puede exceder 30 caracteres');
+    }
+
+    if (!attributes || !Array.isArray(attributes) || attributes.length === 0) {
+      throw new Error('Se deben proporcionar atributos para el producto variable');
+    }
+
+    const validAttributes = attributes.filter(
+      attr => attr.name === 'Tono' || attr.name === 'Color'
+    );
+
+    if (validAttributes.length === 0) {
+      throw new Error('Solo se permite el atributo "Tono" o "Color" en esta fase');
+    }
+
+    // Iniciar transaccion
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    const request = new sql.Request(transaction);
+
+    // 1. Generar art_sec usando dbo.secuencia (seguro para concurrencia)
+    const secResult = await request.query(`
+      SELECT sec_num + 1 AS NewArtSec
+      FROM dbo.secuencia WITH (UPDLOCK, HOLDLOCK)
+      WHERE sec_cod = 'ARTICULOS'
+    `);
+    art_sec = secResult.recordset[0].NewArtSec;
+
+    await request
+      .input('newSecNum', sql.Decimal(18, 0), art_sec)
+      .query(`
+        UPDATE dbo.secuencia
+        SET sec_num = @newSecNum
+        WHERE sec_cod = 'ARTICULOS'
+      `);
+
+    console.log('Nuevo art_sec generado para producto variable:', art_sec);
+
+    // 2. Insertar producto padre en dbo.articulos
+    // NOTA: art_sec=VARCHAR(30), inv_sub_gru_cod=SMALLINT, pre_sec obligatorio
+    // NO existen: inv_gru_cod, art_est en esta tabla
+    await request
+      .input('art_sec', sql.VarChar(30), art_sec.toString())
+      .input('art_cod', sql.VarChar(30), art_cod)
+      .input('art_nom', sql.VarChar(100), art_nom)
+      .input('subcategoria', sql.SmallInt, parseInt(subcategoria, 10))
+      .query(`
+        INSERT INTO dbo.articulos (
+          art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec,
+          art_variable, art_woo_type
+        )
+        VALUES (
+          @art_sec, @art_cod, @art_nom, @subcategoria, '1',
+          'S', 'variable'
+        )
+      `);
+
+    console.log('Producto variable padre creado en BD');
+
+    // 3. Subir imagenes a Cloudinary si se proporcionan
+    let imageUrls = [];
+    if (images && images.length > 0) {
+      try {
+        const uploadPromises = images.map((image, index) => {
+          const base64Image = `data:${image.mimetype};base64,${image.data.toString('base64')}`;
+          return cloudinary.uploader.upload(base64Image, {
+            folder: 'productos_variables',
+            public_id: `${art_cod}_${index + 1}`
+          });
+        });
+
+        const uploadResults = await Promise.all(uploadPromises);
+        imageUrls = uploadResults.map(result => result.secure_url);
+
+        if (imageUrls.length > 0) {
+          await request
+            .input('imageUrl', sql.VarChar(1000), imageUrls[0])
+            .input('artSecImage', sql.VarChar(30), art_sec.toString())
+            .query(`
+              UPDATE dbo.articulos
+              SET art_url_img_servi = @imageUrl
+              WHERE art_sec = @artSecImage
+            `);
+        }
+      } catch (error) {
+        errors.cloudinary = {
+          message: 'Error al subir imagenes a Cloudinary',
+          details: error.message
+        };
+        console.error('Error al subir imagenes:', error);
+      }
+    }
+
+    // 4. Insertar precios de referencia
+    if (precio_detal_referencia) {
+      await request
+        .input('artSecDetal', sql.VarChar(30), art_sec.toString())
+        .input('precio_detal', sql.Decimal(17, 2), precio_detal_referencia)
+        .query(`
+          INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
+          VALUES (@artSecDetal, '1', 1, @precio_detal)
+        `);
+    }
+
+    if (precio_mayor_referencia) {
+      await request
+        .input('artSecMayor', sql.VarChar(30), art_sec.toString())
+        .input('precio_mayor', sql.Decimal(17, 2), precio_mayor_referencia)
+        .query(`
+          INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
+          VALUES (@artSecMayor, '1', 2, @precio_mayor)
+        `);
+    }
+
+    // Commit de la transaccion local
+    await transaction.commit();
+    transaction = null;
+
+    // 5. Crear producto variable en WooCommerce
+    try {
+      const catRequest = pool.request();
+      catRequest.input('categoria', sql.VarChar(16), categoria);
+      catRequest.input('subcategoria_woo', sql.SmallInt, parseInt(subcategoria, 10));
+      const catResult = await catRequest.query(`
+        SELECT g.inv_gru_woo_id, s.inv_sub_gru_woo_id
+        FROM dbo.inventario_subgrupo s
+        INNER JOIN dbo.inventario_grupo g ON g.inv_gru_cod = s.inv_gru_cod
+        WHERE s.inv_gru_cod = @categoria AND s.inv_sub_gru_cod = @subcategoria_woo
+      `);
+
+      const categories = [];
+      if (catResult.recordset.length > 0) {
+        const { inv_gru_woo_id, inv_sub_gru_woo_id } = catResult.recordset[0];
+        if (inv_gru_woo_id) {
+          categories.push({ id: parseInt(inv_gru_woo_id, 10) });
+        }
+        if (inv_sub_gru_woo_id) {
+          categories.push({ id: parseInt(inv_sub_gru_woo_id, 10) });
+        }
+      }
+
+      const wooAttributes = validAttributes.map(attr => ({
+        name: attr.name,
+        visible: true,
+        variation: true,
+        options: attr.options
+      }));
+
+      const wooData = {
+        name: art_nom,
+        type: 'variable',
+        sku: art_cod,
+        attributes: wooAttributes,
+        categories: categories,
+        images: imageUrls.map(url => ({ src: url }))
+      };
+
+      console.log('Creando producto variable en WooCommerce:', JSON.stringify(wooData, null, 2));
+
+      const wooProduct = await wcApi.post('products', wooData);
+      art_woo_id = wooProduct.data.id;
+
+      console.log('Producto variable creado en WooCommerce con ID:', art_woo_id);
+
+      // Actualizar art_woo_id en la base de datos
+      await pool.request()
+        .input('art_woo_id', sql.Int, art_woo_id)
+        .input('artSecWoo', sql.VarChar(30), art_sec.toString())
+        .query(`
+          UPDATE dbo.articulos
+          SET art_woo_id = @art_woo_id
+          WHERE art_sec = @artSecWoo
+        `);
+
+      // Registrar fotos en producto_fotos
+      if (wooProduct.data.images && wooProduct.data.images.length > 0) {
+        for (let i = 0; i < wooProduct.data.images.length; i++) {
+          const image = wooProduct.data.images[i];
+          const photo = new ProductPhoto({
+            id: uuidv4(),
+            art_sec: art_sec.toString(),
+            nombre: `${art_cod}_${i + 1}`,
+            url: image.src,
+            tipo: images[i] ? images[i].mimetype : 'image/jpeg',
+            tamanio: images[i] ? images[i].size : 0,
+            fecha_creacion: new Date(),
+            woo_photo_id: image.id.toString(),
+            es_principal: i === 0,
+            posicion: i,
+            estado: 'woo'
+          });
+          await photo.save();
+        }
+      }
+
+    } catch (wooError) {
+      errors.wooCommerce = {
+        message: 'Error al crear producto variable en WooCommerce',
+        details: wooError.message,
+        response: wooError.response?.data
+      };
+      console.error('Error en WooCommerce:', errors.wooCommerce);
+    }
+
+    return {
+      success: true,
+      data: {
+        art_sec: art_sec.toString(),
+        art_cod,
+        art_nom,
+        art_woo_id,
+        art_woo_type: 'variable',
+        attributes: validAttributes,
+        images: imageUrls
+      },
+      errors: Object.keys(errors).length > 0 ? errors : undefined
+    };
+
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error("Error en rollback:", rollbackError);
+      }
+    }
+    throw {
+      success: false,
+      message: 'Error al crear producto variable',
+      error: error.message
+    };
+  }
+};
+
+/**
+ * Crea una variacion de un producto variable
+ * @param {Object} variationData - Datos de la variacion
+ * @returns {Promise<Object>}
+ */
+const createProductVariation = async (variationData) => {
+  const {
+    parent_art_sec,    // art_sec del producto padre (VARCHAR(30))
+    art_nom,
+    attributes,        // {Tono: "Rojo Pasion"}
+    precio_detal,
+    precio_mayor,
+    images
+  } = variationData;
+
+  const pool = await poolPromise;
+  let transaction = null;
+  let art_sec = null;
+  let art_woo_variation_id = null;
+  const errors = {};
+
+  try {
+    // Validar que el producto padre exista y sea tipo 'variable'
+    const parentResult = await pool.request()
+      .input('parent_art_sec', sql.VarChar(30), parent_art_sec)
+      .query(`
+        SELECT art_sec, art_cod, art_nom, art_woo_id, art_woo_type, inv_sub_gru_cod
+        FROM dbo.articulos
+        WHERE art_sec = @parent_art_sec
+      `);
+
+    if (parentResult.recordset.length === 0) {
+      throw new Error('El producto padre no existe');
+    }
+
+    const parentProduct = parentResult.recordset[0];
+
+    if (parentProduct.art_woo_type !== 'variable') {
+      throw new Error('El producto padre no es de tipo variable');
+    }
+
+    if (!parentProduct.art_woo_id) {
+      throw new Error('El producto padre no tiene art_woo_id (no fue sincronizado a WooCommerce)');
+    }
+
+    // Validar atributos y generar SKU
+    const { validateVariationAttributes, generateVariationSKU, skuExists } = require('../utils/variationUtils');
+
+    if (!validateVariationAttributes(attributes)) {
+      throw new Error('Atributos de variacion invalidos. Solo se permite "Tono" o "Color"');
+    }
+
+    const art_cod = generateVariationSKU(parentProduct.art_cod, attributes);
+
+    if (await skuExists(art_cod)) {
+      throw new Error(`El SKU ${art_cod} ya existe en la base de datos`);
+    }
+
+    // Iniciar transaccion
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    const request = new sql.Request(transaction);
+
+    // 1. Generar art_sec usando dbo.secuencia (seguro para concurrencia)
+    const secResult = await request.query(`
+      SELECT sec_num + 1 AS NewArtSec
+      FROM dbo.secuencia WITH (UPDLOCK, HOLDLOCK)
+      WHERE sec_cod = 'ARTICULOS'
+    `);
+    art_sec = secResult.recordset[0].NewArtSec;
+
+    await request
+      .input('newSecNum', sql.Decimal(18, 0), art_sec)
+      .query(`
+        UPDATE dbo.secuencia
+        SET sec_num = @newSecNum
+        WHERE sec_cod = 'ARTICULOS'
+      `);
+
+    console.log('Nuevo art_sec para variacion:', art_sec);
+
+    // 2. Insertar variacion en dbo.articulos
+    // art_sec=VARCHAR(30), inv_sub_gru_cod=SMALLINT, pre_sec obligatorio
+    await request
+      .input('art_sec', sql.VarChar(30), art_sec.toString())
+      .input('art_cod', sql.VarChar(30), art_cod)
+      .input('art_nom', sql.VarChar(100), art_nom)
+      .input('parent_art_sec', sql.VarChar(30), parent_art_sec)
+      .input('parent_woo_id', sql.Int, parentProduct.art_woo_id)
+      .input('attributes_json', sql.NVarChar(sql.MAX), JSON.stringify(attributes))
+      .input('subcategoria', sql.SmallInt, parentProduct.inv_sub_gru_cod)
+      .query(`
+        INSERT INTO dbo.articulos (
+          art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec,
+          art_woo_type, art_sec_padre, art_parent_woo_id,
+          art_variation_attributes
+        )
+        VALUES (
+          @art_sec, @art_cod, @art_nom, @subcategoria, '1',
+          'variation', @parent_art_sec, @parent_woo_id,
+          @attributes_json
+        )
+      `);
+
+    console.log('Variacion creada en BD con SKU:', art_cod);
+
+    // 3. Insertar precios
+    await request
+      .input('artSecDetal', sql.VarChar(30), art_sec.toString())
+      .input('precio_detal', sql.Decimal(17, 2), precio_detal)
+      .query(`
+        INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
+        VALUES (@artSecDetal, '1', 1, @precio_detal)
+      `);
+
+    await request
+      .input('artSecMayor', sql.VarChar(30), art_sec.toString())
+      .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
+      .query(`
+        INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
+        VALUES (@artSecMayor, '1', 2, @precio_mayor)
+      `);
+
+    // Commit
+    await transaction.commit();
+    transaction = null;
+
+    // 4. Subir imagenes a Cloudinary si se proporcionan
+    let imageUrls = [];
+    if (images && images.length > 0) {
+      try {
+        const uploadPromises = images.map((image, index) => {
+          const base64Image = `data:${image.mimetype};base64,${image.data.toString('base64')}`;
+          return cloudinary.uploader.upload(base64Image, {
+            folder: 'productos_variaciones',
+            public_id: `${art_cod}_${index + 1}`
+          });
+        });
+
+        const uploadResults = await Promise.all(uploadPromises);
+        imageUrls = uploadResults.map(result => result.secure_url);
+
+        if (imageUrls.length > 0) {
+          await pool.request()
+            .input('imageUrl', sql.VarChar(1000), imageUrls[0])
+            .input('artSecImage', sql.VarChar(30), art_sec.toString())
+            .query(`
+              UPDATE dbo.articulos
+              SET art_url_img_servi = @imageUrl
+              WHERE art_sec = @artSecImage
+            `);
+        }
+      } catch (error) {
+        errors.cloudinary = {
+          message: 'Error al subir imagenes',
+          details: error.message
+        };
+        console.error('Error al subir imagenes:', error);
+      }
+    }
+
+    // 5. Crear variacion en WooCommerce
+    try {
+      // 5a. Recopilar TODAS las opciones de variaciones existentes en BD + la nueva
+      const allVariationsResult = await pool.request()
+        .input('parent_sec', sql.VarChar(30), parent_art_sec)
+        .query(`
+          SELECT art_variation_attributes
+          FROM dbo.articulos
+          WHERE art_sec_padre = @parent_sec AND art_woo_type = 'variation'
+        `);
+
+      // Recopilar todas las opciones por nombre de atributo
+      const allOptionsByAttr = {};
+      for (const row of allVariationsResult.recordset) {
+        try {
+          const attrs = typeof row.art_variation_attributes === 'string'
+            ? JSON.parse(row.art_variation_attributes)
+            : row.art_variation_attributes;
+          if (attrs) {
+            for (const [name, value] of Object.entries(attrs)) {
+              if (!allOptionsByAttr[name]) allOptionsByAttr[name] = new Set();
+              allOptionsByAttr[name].add(value);
+            }
+          }
+        } catch (e) { /* ignorar JSON inválido */ }
+      }
+
+      // Agregar las opciones de la variación actual
+      for (const [name, value] of Object.entries(attributes)) {
+        if (!allOptionsByAttr[name]) allOptionsByAttr[name] = new Set();
+        allOptionsByAttr[name].add(value);
+      }
+
+      // Obtener atributos actuales del padre en WooCommerce y actualizar opciones
+      const parentWooProduct = await wcApi.get(`products/${parentProduct.art_woo_id}`);
+      const currentAttributes = parentWooProduct.data.attributes || [];
+
+      const updatedAttributes = currentAttributes.map(attr => {
+        const dbOptions = allOptionsByAttr[attr.name];
+        if (dbOptions) {
+          // Combinar opciones de WooCommerce + BD (sin duplicados)
+          const mergedOptions = [...new Set([...attr.options, ...dbOptions])];
+          return { ...attr, options: mergedOptions };
+        }
+        return attr;
+      });
+
+      const hasChanges = updatedAttributes.some((attr, i) =>
+        attr.options.length !== currentAttributes[i].options.length
+      );
+
+      if (hasChanges) {
+        await wcApi.put(`products/${parentProduct.art_woo_id}`, {
+          attributes: updatedAttributes
+        });
+        console.log('Atributos del padre actualizados en WooCommerce:', JSON.stringify(updatedAttributes, null, 2));
+      }
+
+      // 5b. Crear la variacion
+      const wooAttributes = Object.entries(attributes).map(([name, option]) => ({
+        name: name,
+        option: option
+      }));
+
+      const wooVariationData = {
+        sku: art_cod,
+        regular_price: precio_detal.toString(),
+        manage_stock: true,
+        stock_quantity: 0,
+        attributes: wooAttributes,
+        meta_data: [
+          {
+            key: "_precio_mayorista",
+            value: precio_mayor.toString()
+          }
+        ],
+        image: imageUrls.length > 0 ? { src: imageUrls[0] } : undefined
+      };
+
+      console.log('Creando variacion en WooCommerce:', JSON.stringify(wooVariationData, null, 2));
+
+      const wooVariation = await wcApi.post(
+        `products/${parentProduct.art_woo_id}/variations`,
+        wooVariationData
+      );
+
+      art_woo_variation_id = wooVariation.data.id;
+
+      console.log('Variacion creada en WooCommerce con ID:', art_woo_variation_id);
+
+      // Actualizar art_woo_variation_id en la BD
+      await pool.request()
+        .input('variation_id', sql.Int, art_woo_variation_id)
+        .input('artSecWoo', sql.VarChar(30), art_sec.toString())
+        .query(`
+          UPDATE dbo.articulos
+          SET art_woo_variation_id = @variation_id
+          WHERE art_sec = @artSecWoo
+        `);
+
+      // Registrar imagen en producto_fotos
+      if (wooVariation.data.image && imageUrls.length > 0) {
+        const photo = new ProductPhoto({
+          id: uuidv4(),
+          art_sec: art_sec.toString(),
+          nombre: `${art_cod}_1`,
+          url: wooVariation.data.image.src,
+          tipo: images[0] ? images[0].mimetype : 'image/jpeg',
+          tamanio: images[0] ? images[0].size : 0,
+          fecha_creacion: new Date(),
+          woo_photo_id: wooVariation.data.image.id.toString(),
+          es_principal: true,
+          posicion: 0,
+          estado: 'woo'
+        });
+        await photo.save();
+      }
+
+    } catch (wooError) {
+      errors.wooCommerce = {
+        message: 'Error al crear variacion en WooCommerce',
+        details: wooError.message,
+        response: wooError.response?.data
+      };
+      console.error('Error en WooCommerce:', errors.wooCommerce);
+    }
+
+    return {
+      success: true,
+      data: {
+        art_sec: art_sec.toString(),
+        art_cod,
+        art_nom,
+        parent_art_sec,
+        art_woo_variation_id,
+        art_woo_type: 'variation',
+        attributes,
+        precio_detal,
+        precio_mayor,
+        images: imageUrls
+      },
+      errors: Object.keys(errors).length > 0 ? errors : undefined
+    };
+
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error("Error en rollback:", rollbackError);
+      }
+    }
+    throw {
+      success: false,
+      message: 'Error al crear variacion',
+      error: error.message
+    };
+  }
+};
+
+const syncVariableProductAttributes = async (parent_art_sec) => {
+  try {
+    const pool = await poolPromise;
+
+    // 1. Verificar que el padre existe y es variable
+    const parentResult = await pool.request()
+      .input('art_sec', sql.VarChar(30), parent_art_sec)
+      .query(`
+        SELECT art_sec, art_cod, art_nom, art_woo_id, art_woo_type, art_variable
+        FROM dbo.articulos
+        WHERE art_sec = @art_sec
+      `);
+
+    if (parentResult.recordset.length === 0) {
+      throw new Error('Producto padre no encontrado');
+    }
+
+    const parent = parentResult.recordset[0];
+
+    if (parent.art_woo_type !== 'variable' || parent.art_variable !== 'S') {
+      throw new Error('El producto no es de tipo variable');
+    }
+
+    if (!parent.art_woo_id) {
+      throw new Error('El producto padre no tiene art_woo_id en WooCommerce');
+    }
+
+    // 2. Obtener TODAS las variaciones de la BD
+    const variationsResult = await pool.request()
+      .input('parent_sec', sql.VarChar(30), parent_art_sec)
+      .query(`
+        SELECT art_sec, art_cod, art_nom, art_variation_attributes
+        FROM dbo.articulos
+        WHERE art_sec_padre = @parent_sec AND art_woo_type = 'variation'
+      `);
+
+    if (variationsResult.recordset.length === 0) {
+      return {
+        success: true,
+        message: 'No hay variaciones registradas en la BD para sincronizar',
+        parent_art_sec,
+        variations_count: 0
+      };
+    }
+
+    // 3. Recopilar todas las opciones por atributo
+    const allOptionsByAttr = {};
+    for (const row of variationsResult.recordset) {
+      try {
+        const attrs = typeof row.art_variation_attributes === 'string'
+          ? JSON.parse(row.art_variation_attributes)
+          : row.art_variation_attributes;
+        if (attrs) {
+          for (const [name, value] of Object.entries(attrs)) {
+            if (!allOptionsByAttr[name]) allOptionsByAttr[name] = new Set();
+            allOptionsByAttr[name].add(value);
+          }
+        }
+      } catch (e) { /* ignorar JSON inválido */ }
+    }
+
+    // 4. Obtener atributos actuales del padre en WooCommerce
+    const parentWooProduct = await wcApi.get(`products/${parent.art_woo_id}`);
+    const currentAttributes = parentWooProduct.data.attributes || [];
+
+    // 5. Fusionar opciones de BD con las de WooCommerce
+    const updatedAttributes = currentAttributes.map(attr => {
+      const dbOptions = allOptionsByAttr[attr.name];
+      if (dbOptions) {
+        const mergedOptions = [...new Set([...attr.options, ...dbOptions])];
+        return { ...attr, options: mergedOptions };
+      }
+      return attr;
+    });
+
+    const hasChanges = updatedAttributes.some((attr, i) =>
+      attr.options.length !== currentAttributes[i].options.length
+    );
+
+    if (!hasChanges) {
+      return {
+        success: true,
+        message: 'Los atributos ya están sincronizados, no se requieren cambios',
+        parent_art_sec,
+        art_woo_id: parent.art_woo_id,
+        variations_count: variationsResult.recordset.length,
+        attributes: updatedAttributes.map(a => ({ name: a.name, options: a.options }))
+      };
+    }
+
+    // 6. Actualizar atributos en WooCommerce
+    await wcApi.put(`products/${parent.art_woo_id}`, {
+      attributes: updatedAttributes
+    });
+
+    console.log('Atributos sincronizados en WooCommerce para producto:', parent.art_cod, JSON.stringify(updatedAttributes, null, 2));
+
+    return {
+      success: true,
+      message: 'Atributos sincronizados exitosamente en WooCommerce',
+      parent_art_sec,
+      art_woo_id: parent.art_woo_id,
+      variations_count: variationsResult.recordset.length,
+      attributes: updatedAttributes.map(a => ({ name: a.name, options: a.options }))
+    };
+
+  } catch (error) {
+    throw {
+      success: false,
+      message: 'Error al sincronizar atributos',
+      error: error.message
+    };
+  }
+};
+
+module.exports = { getArticulos, validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod, getNextArticuloCodigo, createVariableProduct, createProductVariation, syncVariableProductAttributes };

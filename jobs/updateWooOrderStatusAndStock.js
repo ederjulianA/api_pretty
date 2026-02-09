@@ -295,12 +295,26 @@ export const getArticleWooId = async (art_sec, { silent = false } = {}) => {
     const pool = await poolPromise;
     const result = await pool.request()
       .input("art_sec", sql.VarChar(50), art_sec)
-      .query("SELECT art_woo_id FROM dbo.articulos WHERE art_sec = @art_sec");
+      .query("SELECT art_woo_id, art_woo_type, art_woo_variation_id, art_sec_padre FROM dbo.articulos WHERE art_sec = @art_sec");
 
-    const artWooId = result.recordset.length > 0 ? result.recordset[0].art_woo_id : '';
+    if (result.recordset.length === 0) {
+      if (!silent) {
+        log(logLevels.INFO, `art_woo_id no encontrado para art_sec ${art_sec}`, { art_sec });
+        await logEder(`art_woo_id no encontrado para art_sec ${art_sec}`);
+      }
+      return '';
+    }
+
+    const row = result.recordset[0];
+    const artWooId = row.art_woo_id;
     if (!silent) {
-      log(logLevels.INFO, `art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`, { art_sec, artWooId });
-      await logEder(`art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`);
+      log(logLevels.INFO, `art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`, {
+        art_sec, artWooId,
+        art_woo_type: row.art_woo_type,
+        art_woo_variation_id: row.art_woo_variation_id,
+        art_sec_padre: row.art_sec_padre
+      });
+      await logEder(`art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'} (type: ${row.art_woo_type})`);
     }
     return artWooId;
   } catch (error) {
@@ -311,6 +325,46 @@ export const getArticleWooId = async (art_sec, { silent = false } = {}) => {
         art_sec
       });
       await logEder(`Error buscando art_woo_id para art_sec ${art_sec}: ${error.message}`);
+    }
+    throw error;
+  }
+};
+
+// Función auxiliar para obtener info completa de WooCommerce (simple o variación)
+export const getArticleWooInfo = async (art_sec, { silent = false } = {}) => {
+  if (!silent) {
+    log(logLevels.INFO, `Buscando info WooCommerce para art_sec: ${art_sec}`);
+  }
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input("art_sec", sql.VarChar(50), art_sec)
+      .query(`
+        SELECT a.art_woo_id, a.art_woo_type, a.art_woo_variation_id, a.art_sec_padre,
+               p.art_woo_id AS parent_woo_id
+        FROM dbo.articulos a
+        LEFT JOIN dbo.articulos p ON a.art_sec_padre = p.art_sec
+        WHERE a.art_sec = @art_sec
+      `);
+
+    if (result.recordset.length === 0) {
+      return null;
+    }
+
+    const row = result.recordset[0];
+    return {
+      art_woo_id: row.art_woo_id,
+      art_woo_type: row.art_woo_type || 'simple',
+      art_woo_variation_id: row.art_woo_variation_id,
+      art_sec_padre: row.art_sec_padre,
+      parent_woo_id: row.parent_woo_id
+    };
+  } catch (error) {
+    if (!silent) {
+      log(logLevels.ERROR, `Error buscando info WooCommerce para art_sec ${art_sec}`, {
+        error: error.message,
+        art_sec
+      });
     }
     throw error;
   }
@@ -437,26 +491,56 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
       }
     }
 
-    // Preparar datos para actualización por lotes
+    // Preparar datos para actualización por lotes (productos simples y variables)
     const productUpdates = [];
+    // Variaciones se actualizan individualmente (requieren ruta products/{parent}/variations/{id})
+    const variationUpdates = [];
+
     for (const item of orderDetails) {
       try {
         const art_sec = item.art_sec;
-        const artWooId = await getArticleWooId(art_sec);
+        const wooInfo = await getArticleWooInfo(art_sec);
 
-        if (!artWooId) {
-          log(logLevels.WARN, `No se encontró art_woo_id para art_sec: ${art_sec}`);
-          messages.push(`No se encontró art_woo_id para art_sec: ${art_sec}.`);
+        if (!wooInfo) {
+          log(logLevels.WARN, `No se encontró artículo para art_sec: ${art_sec}`);
+          messages.push(`No se encontró artículo para art_sec: ${art_sec}.`);
           skippedCount++;
           continue;
         }
 
         const newStock = await getArticleStock(art_sec);
-        productUpdates.push({
-          id: artWooId,
-          date_created: formattedDate,
-          stock_quantity: newStock
-        });
+
+        if (wooInfo.art_woo_type === 'variation') {
+          // Variación: necesita parent_woo_id y art_woo_variation_id
+          if (!wooInfo.art_woo_variation_id || !wooInfo.parent_woo_id) {
+            log(logLevels.WARN, `Variación art_sec ${art_sec} sin IDs de WooCommerce`, {
+              art_woo_variation_id: wooInfo.art_woo_variation_id,
+              parent_woo_id: wooInfo.parent_woo_id
+            });
+            messages.push(`Variación art_sec ${art_sec}: falta art_woo_variation_id o parent_woo_id.`);
+            skippedCount++;
+            continue;
+          }
+          variationUpdates.push({
+            art_sec,
+            parent_woo_id: wooInfo.parent_woo_id,
+            variation_id: wooInfo.art_woo_variation_id,
+            stock_quantity: newStock
+          });
+        } else {
+          // Producto simple o variable (padre): usa art_woo_id
+          if (!wooInfo.art_woo_id) {
+            log(logLevels.WARN, `No se encontró art_woo_id para art_sec: ${art_sec}`);
+            messages.push(`No se encontró art_woo_id para art_sec: ${art_sec}.`);
+            skippedCount++;
+            continue;
+          }
+          productUpdates.push({
+            id: wooInfo.art_woo_id,
+            date_created: formattedDate,
+            stock_quantity: newStock
+          });
+        }
       } catch (error) {
         log(logLevels.ERROR, `Error preparando actualización para art_sec ${item.art_sec}`, {
           error: error.message
@@ -465,46 +549,85 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
       }
     }
 
-    // Procesar actualizaciones en lotes más pequeños
-    const batches = chunkArray(productUpdates, BATCH_SIZE);
-    
-    for (const [batchIndex, batch] of batches.entries()) {
+    // Procesar productos simples/variables en lotes
+    if (productUpdates.length > 0) {
+      const batches = chunkArray(productUpdates, BATCH_SIZE);
+
+      for (const [batchIndex, batch] of batches.entries()) {
+        try {
+          const batchData = { update: batch };
+          const response = await retryOperation(async () => {
+            const result = await wcApi.post('products/batch', batchData);
+            if (!result || !result.data) {
+              throw new Error('Respuesta inválida de WooCommerce');
+            }
+            return result;
+          }, 2, 1000);
+
+          const successfulUpdates = response.data.update.filter(item => !item.error);
+          const failedUpdates = response.data.update.filter(item => item.error);
+
+          successCount += successfulUpdates.length;
+          errorCount += failedUpdates.length;
+
+          successfulUpdates.forEach(item => {
+            messages.push(`Producto ${item.id} actualizado con nuevo stock: ${item.stock_quantity}`);
+          });
+
+          failedUpdates.forEach(item => {
+            const errorMessage = item.error?.message || 'Error desconocido';
+            messages.push(`Error actualizando producto ${item.id}: ${errorMessage}`);
+          });
+
+        } catch (batchError) {
+          const errorMessage = `Error procesando lote ${batchIndex + 1}: ${batchError.message}`;
+          log(logLevels.ERROR, errorMessage);
+          errorCount += batch.length;
+          messages.push(errorMessage);
+        }
+      }
+    }
+
+    // Procesar variaciones individualmente (WooCommerce requiere ruta /products/{parent}/variations/{id})
+    for (const variation of variationUpdates) {
       try {
-        const batchData = { update: batch };
-        const response = await retryOperation(async () => {
-          const result = await wcApi.post('products/batch', batchData);
+        const variationData = {
+          stock_quantity: variation.stock_quantity,
+          manage_stock: true
+        };
+
+        await retryOperation(async () => {
+          const result = await wcApi.put(
+            `products/${variation.parent_woo_id}/variations/${variation.variation_id}`,
+            variationData
+          );
           if (!result || !result.data) {
             throw new Error('Respuesta inválida de WooCommerce');
           }
           return result;
-        }, 2, 1000); // Reducir reintentos y tiempo de espera
+        }, 2, 1000);
 
-        const successfulUpdates = response.data.update.filter(item => !item.error);
-        const failedUpdates = response.data.update.filter(item => item.error);
-
-        successCount += successfulUpdates.length;
-        errorCount += failedUpdates.length;
-
-        // Agregar mensajes de éxito y error
-        successfulUpdates.forEach(item => {
-          messages.push(`Producto ${item.id} actualizado con nuevo stock: ${item.stock_quantity}`);
+        successCount++;
+        messages.push(`Variación ${variation.variation_id} (art_sec: ${variation.art_sec}) actualizada con stock: ${variation.stock_quantity}`);
+        log(logLevels.INFO, `Variación actualizada en WooCommerce`, {
+          art_sec: variation.art_sec,
+          variation_id: variation.variation_id,
+          parent_woo_id: variation.parent_woo_id,
+          stock_quantity: variation.stock_quantity
         });
 
-        failedUpdates.forEach(item => {
-          const errorMessage = item.error?.message || 'Error desconocido';
-          messages.push(`Error actualizando producto ${item.id}: ${errorMessage}`);
-        });
-
-      } catch (batchError) {
-        const errorMessage = `Error procesando lote ${batchIndex + 1}: ${batchError.message}`;
+      } catch (varError) {
+        errorCount++;
+        const errorMessage = `Error actualizando variación ${variation.variation_id} (art_sec: ${variation.art_sec}): ${varError.message}`;
         log(logLevels.ERROR, errorMessage);
-        errorCount += batch.length;
         messages.push(errorMessage);
       }
     }
 
     const endTime = new Date();
     const duration = (endTime - startTime) / 1000;
+
+    const totalBatches = productUpdates.length > 0 ? Math.ceil(productUpdates.length / BATCH_SIZE) : 0;
 
     const logData = {
       fac_nro_woo,
@@ -514,7 +637,7 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
       errorCount,
       skippedCount,
       duration,
-      batchesProcessed: batches.length,
+      batchesProcessed: totalBatches,
       messages,
       status: errorCount > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
       errorDetails: null,
@@ -534,7 +657,7 @@ const updateWooOrderStatusAndStock = async (fac_nro_woo, orderDetails, fac_fec =
         errorCount,
         skippedCount,
         duration: `${duration} segundos`,
-        batchesProcessed: batches.length,
+        batchesProcessed: totalBatches,
         logId,
         fac_nro
       },
