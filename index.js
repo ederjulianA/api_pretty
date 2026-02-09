@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import fileUpload from "express-fileupload";
+import { createRequire } from 'module';
 import wooRoutes from './routes/woo.js';
 import updateWooStockRoutes from './routes/updateWooStockRoutes.js';
 import roleRoutes from './routes/roleRoutes.js';
@@ -10,6 +11,10 @@ import wooSyncRoutes from './routes/wooSyncRoutes.js';
 import syncWooOrdersRoutes from './routes/syncWooOrdersRoutes.js';
 import documentoInventarioRoutes from './routes/documentoInventarioRoutes.js';
 dotenv.config();
+
+// Import CommonJS modules
+const require = createRequire(import.meta.url);
+const cargaCostosRoutes = require('./routes/cargaCostosRoutes.js');
 
 const app = express();
 
@@ -91,6 +96,7 @@ app.use("/api/productos", productPhotoRoutes);
 app.use("/api/promociones", promocionRoutes);
 app.use("/api/diagnostic", diagnosticRoutes);
 app.use("/api/eventos-promocionales", eventoPromocionalRoutes);
+app.use("/api/carga-costos", cargaCostosRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });
