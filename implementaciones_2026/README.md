@@ -7,15 +7,21 @@ Esta carpeta contiene las implementaciones y mejoras realizadas durante el año 
 ```
 implementaciones_2026/
 ├── README.md                                    # Este archivo
-├── sincronizacion_categorias_woo/               # 🆕 Sincronización de categorías
+├── sincronizacion_categorias_woo/               # Sincronización de categorías
 │   ├── README.md
 │   ├── documentacion/
 │   ├── sql/
 │   └── scripts/
-├── IMPLEMENTACION_PRODUCTOS_VARIABLES.md        # Documentación productos variables
+├── productos_variables/                         # 🆕 Productos variables
+│   ├── README.md
+│   ├── IMPLEMENTACION_PRODUCTOS_VARIABLES.md
+│   ├── API_Productos_Variables.postman_collection.json
+│   └── sql_scripts/ -> ../sql
 ├── POC-catalogo-pdf-generacion-optimizada.md    # POC catálogo PDF
 ├── sql/                                         # Scripts SQL compartidos
-│   └── 01_alter_articulos_variaciones.sql
+│   ├── 01_alter_articulos_variaciones.sql
+│   ├── 02_verificar_migracion.sql
+│   └── 03_verificar_productos_creados.sql
 ├── test/                                        # Scripts de prueba
 └── scripts/                                     # Scripts de utilidad
 ```
@@ -53,27 +59,42 @@ Sistema completo de sincronización bidireccional de categorías entre SQL Serve
 
 ---
 
-### 2. Productos Variables con Variaciones (2026-02-04)
+### 2. Productos Variables con Variaciones (2026-02-06) ✅ COMPLETADO
 
-**Documento:** [IMPLEMENTACION_PRODUCTOS_VARIABLES.md](IMPLEMENTACION_PRODUCTOS_VARIABLES.md)
+**Carpeta:** [productos_variables/](productos_variables/)
 
 **Descripción:**
-Sistema para manejar productos con variaciones en WooCommerce (ejemplo: labial con diferentes tonos).
+Sistema completo para manejar productos con variaciones en WooCommerce (ejemplo: labial con diferentes tonos).
 
-**Estado:** ✅ Documentado - ⏳ Por implementar
+**Estado:** ✅ Implementado y listo para testing
 
 **Características:**
 - Soporte para productos tipo "variable" (padre)
 - Creación de variaciones (hijos) con atributo Tono/Color
 - Sincronización bidireccional con WooCommerce
-- Promociones aplicadas al producto completo
-- SKUs únicos por variación
+- Promociones heredadas del padre a variaciones
+- SKUs únicos generados automáticamente (max 30 chars)
+- Gestión de stock independiente por variación
 
 **Archivos clave:**
-- SQL: `sql/01_alter_articulos_variaciones.sql`
+- SQL: `../../EstructuraDatos/01_alter_articulos_variaciones.sql`
 - Utilidades: `../utils/variationUtils.js`
-- Controlador: `../controllers/variableProductController.js` (por crear)
-- Rutas: `../routes/variableProductRoutes.js` (por crear)
+- Model: `../models/articulosModel.js` (funciones agregadas)
+- Controller: `../controllers/variableProductController.js`
+- Rutas: `../routes/variableProductRoutes.js`
+- Sync: `../jobs/syncWooOrders.js` (modificado)
+- Postman: `productos_variables/API_Productos_Variables.postman_collection.json`
+
+**Endpoints:**
+- `POST /api/articulos/variable` - Crear producto variable
+- `POST /api/articulos/variable/:parent_art_sec/variations` - Crear variación
+- `GET /api/articulos/variable/:parent_art_sec/variations` - Listar variaciones
+
+**Correcciones v2.0:**
+- 9 bugs críticos corregidos del diseño original
+- Tipos de datos alineados al esquema real
+- Generación de secuencias segura para concurrencia
+- SKU con truncamiento automático a 30 caracteres
 
 ---
 
@@ -99,7 +120,7 @@ POC para generación optimizada de catálogos PDF con hasta 600 productos, optim
 | Implementación | Fecha | Estado | Impacto BD | Endpoints |
 |----------------|-------|--------|------------|-----------|
 | Sincronización Categorías | 2026-02-06 | ✅ Completado | ArticuloHook (+10 campos) | 4 nuevos |
-| Productos Variables | 2026-02-04 | ⏳ Por implementar | articulos (+3 campos) | N/A |
+| Productos Variables | 2026-02-06 | ✅ Completado | articulos (+4 campos, 2 índices) | 3 nuevos |
 | Catálogo PDF | 2026-02-03 | 🧪 POC | N/A | N/A |
 
 ---

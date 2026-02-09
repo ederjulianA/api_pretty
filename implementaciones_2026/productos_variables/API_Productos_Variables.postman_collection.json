@@ -1,0 +1,295 @@
+{
+	"info": {
+		"_postman_id": "productos-variables-collection",
+		"name": "API Pretty - Productos Variables",
+		"description": "Colección de endpoints para gestión de productos variables con variaciones de tono/color.\n\n## Autenticación\nTodos los endpoints (excepto login) requieren el header `x-access-token` con un token JWT válido.\n\n## Flujo de Uso\n1. **Login** para obtener token\n2. **Crear producto variable** (padre)\n3. **Crear variaciones** del producto padre\n4. **Consultar variaciones** de un producto\n\n## Versión\n- **Fecha:** 2026-02-06\n- **Implementación:** Productos Variables v2.0",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Autenticación",
+			"item": [
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"usu_cod\": \"admin\",\n  \"usu_pass\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Autentica un usuario y devuelve un token JWT válido por 24 horas.\n\n**Request Body:**\n```json\n{\n  \"usu_cod\": \"string\",  // Código de usuario\n  \"usu_pass\": \"string\"  // Contraseña\n}\n```\n\n**Response (200):**\n```json\n{\n  \"auth\": true,\n  \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"usuario\": {\n    \"usu_cod\": \"admin\",\n    \"usu_nom\": \"Administrador\",\n    \"rol_cod\": 1\n  }\n}\n```\n\n**Guardar Token:**\nDespués del login, copiar el token de la respuesta y agregarlo al entorno de Postman como variable `{{token}}`, o usar el script de test incluido."
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// Guardar token automáticamente en variables de entorno",
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.token) {",
+									"        pm.environment.set('token', response.token);",
+									"        console.log('Token guardado exitosamente');",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			],
+			"description": "Endpoints de autenticación para obtener el token JWT necesario."
+		},
+		{
+			"name": "Productos Variables",
+			"item": [
+				{
+					"name": "Crear Producto Variable (Padre)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "art_nom",
+									"value": "Labial Mate Professional",
+									"type": "text",
+									"description": "Nombre del producto (requerido)"
+								},
+								{
+									"key": "art_cod",
+									"value": "LAB001",
+									"type": "text",
+									"description": "Código base SKU (requerido, max 30 chars)"
+								},
+								{
+									"key": "categoria",
+									"value": "9",
+									"type": "text",
+									"description": "inv_gru_cod (opcional, para categorías WooCommerce)"
+								},
+								{
+									"key": "subcategoria",
+									"value": "1",
+									"type": "text",
+									"description": "inv_sub_gru_cod (requerido, SMALLINT)"
+								},
+								{
+									"key": "precio_detal_referencia",
+									"value": "45000",
+									"type": "text",
+									"description": "Precio detal de referencia (opcional)"
+								},
+								{
+									"key": "precio_mayor_referencia",
+									"value": "35000",
+									"type": "text",
+									"description": "Precio mayor de referencia (opcional)"
+								},
+								{
+									"key": "attributes",
+									"value": "[{\"name\":\"Tono\",\"options\":[\"Rojo Pasion\",\"Rosa Nude\",\"Ciruela Oscuro\",\"Coral Brillante\"]}]",
+									"type": "text",
+									"description": "Array de atributos (requerido, JSON). Solo 'Tono' o 'Color' permitidos."
+								},
+								{
+									"key": "image1",
+									"type": "file",
+									"description": "Imagen 1 (opcional)",
+									"disabled": true
+								},
+								{
+									"key": "image2",
+									"type": "file",
+									"description": "Imagen 2 (opcional)",
+									"disabled": true
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/articulos/variable",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"articulos",
+								"variable"
+							]
+						},
+						"description": "Crea un producto variable (padre) que puede tener múltiples variaciones.\n\n**Características:**\n- `art_variable = 'S'`\n- `art_woo_type = 'variable'`\n- SKU obligatorio (max 30 caracteres)\n- Precios de referencia opcionales\n- Se sincroniza automáticamente a WooCommerce\n- Soporta hasta 4 imágenes (image1, image2, image3, image4)\n\n**Atributos permitidos:**\n- `Tono`: Para variaciones de color/tono (ej: \"Rojo Pasion\", \"Rosa Nude\")\n- `Color`: Alternativa a Tono\n\n**Response (201):**\n```json\n{\n  \"success\": true,\n  \"data\": {\n    \"art_sec\": \"50001\",\n    \"art_cod\": \"LAB001\",\n    \"art_nom\": \"Labial Mate Professional\",\n    \"art_woo_id\": 12345,\n    \"art_woo_type\": \"variable\",\n    \"attributes\": [\n      {\n        \"name\": \"Tono\",\n        \"options\": [\"Rojo Pasion\", \"Rosa Nude\", \"Ciruela Oscuro\", \"Coral Brillante\"]\n      }\n    ],\n    \"images\": [\"https://cloudinary.com/...\"]\n  },\n  \"errors\": {}  // Si hay errores parciales (ej: Cloudinary falló pero BD OK)\n}\n```\n\n**Errores comunes:**\n- `400`: Faltan campos requeridos\n- `500`: Error en base de datos o WooCommerce"
+					},
+					"response": []
+				},
+				{
+					"name": "Crear Variación",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "art_nom",
+									"value": "Labial Mate Professional - Rojo Pasion",
+									"type": "text",
+									"description": "Nombre de la variación (requerido)"
+								},
+								{
+									"key": "attributes",
+									"value": "{\"Tono\":\"Rojo Pasion\"}",
+									"type": "text",
+									"description": "Atributos específicos de la variación (requerido, JSON object)"
+								},
+								{
+									"key": "precio_detal",
+									"value": "48000",
+									"type": "text",
+									"description": "Precio detal (requerido)"
+								},
+								{
+									"key": "precio_mayor",
+									"value": "38000",
+									"type": "text",
+									"description": "Precio mayor (requerido)"
+								},
+								{
+									"key": "image1",
+									"type": "file",
+									"description": "Imagen específica de esta variación (opcional)",
+									"disabled": true
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/articulos/variable/:parent_art_sec/variations",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"articulos",
+								"variable",
+								":parent_art_sec",
+								"variations"
+							],
+							"variable": [
+								{
+									"key": "parent_art_sec",
+									"value": "50001",
+									"description": "art_sec del producto padre (VARCHAR(30))"
+								}
+							]
+						},
+						"description": "Crea una variación de un producto variable existente.\n\n**Validaciones:**\n- El producto padre debe existir y ser tipo 'variable'\n- El padre debe tener `art_woo_id` (sincronizado a WooCommerce)\n- Atributos deben coincidir con los definidos en el padre\n- SKU se genera automáticamente: `{parent_cod}-{tono_slug}`\n- SKU debe ser único (max 30 caracteres)\n\n**Generación de SKU:**\n```\nPadre: LAB001\nTono: \"Rojo Pasion\"\n→ SKU: \"LAB001-ROJO-PASION\" (max 30 chars, se trunca si excede)\n```\n\n**Características:**\n- `art_woo_type = 'variation'`\n- `art_sec_padre = {parent_art_sec}`\n- `art_parent_woo_id = {parent woo id}`\n- `art_variation_attributes = JSON`\n- Stock independiente\n- Precios propios\n- Se sincroniza a WooCommerce como variación\n\n**Response (201):**\n```json\n{\n  \"success\": true,\n  \"data\": {\n    \"art_sec\": \"50002\",\n    \"art_cod\": \"LAB001-ROJO-PASION\",\n    \"art_nom\": \"Labial Mate Professional - Rojo Pasion\",\n    \"parent_art_sec\": \"50001\",\n    \"art_woo_variation_id\": 12346,\n    \"art_woo_type\": \"variation\",\n    \"attributes\": {\"Tono\": \"Rojo Pasion\"},\n    \"precio_detal\": 48000,\n    \"precio_mayor\": 38000,\n    \"images\": [\"https://cloudinary.com/...\"]\n  },\n  \"errors\": {}\n}\n```\n\n**Errores comunes:**\n- `400`: Faltan campos, producto padre no existe, o no es tipo 'variable'\n- `500`: SKU ya existe, error en BD o WooCommerce"
+					},
+					"response": []
+				},
+				{
+					"name": "Obtener Variaciones de un Producto",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/articulos/variable/:parent_art_sec/variations",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"articulos",
+								"variable",
+								":parent_art_sec",
+								"variations"
+							],
+							"variable": [
+								{
+									"key": "parent_art_sec",
+									"value": "50001",
+									"description": "art_sec del producto padre"
+								}
+							]
+						},
+						"description": "Obtiene todas las variaciones de un producto variable.\n\n**Query SQL:**\n- Filtra por `art_sec_padre = @parent_art_sec`\n- Solo productos con `art_woo_type = 'variation'`\n- Incluye precios (detal y mayor)\n- Incluye stock actual\n- Parsea `art_variation_attributes` de JSON\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"count\": 4,\n  \"data\": [\n    {\n      \"art_sec\": \"50002\",\n      \"art_cod\": \"LAB001-ROJO-PASION\",\n      \"art_nom\": \"Labial Mate Professional - Rojo Pasion\",\n      \"art_woo_variation_id\": 12346,\n      \"art_variation_attributes\": {\"Tono\": \"Rojo Pasion\"},\n      \"precio_detal\": 48000,\n      \"precio_mayor\": 38000,\n      \"existencia\": 15\n    },\n    {\n      \"art_sec\": \"50003\",\n      \"art_cod\": \"LAB001-ROSA-NUDE\",\n      \"art_nom\": \"Labial Mate Professional - Rosa Nude\",\n      \"art_woo_variation_id\": 12347,\n      \"art_variation_attributes\": {\"Tono\": \"Rosa Nude\"},\n      \"precio_detal\": 48000,\n      \"precio_mayor\": 38000,\n      \"existencia\": 22\n    }\n  ]\n}\n```\n\n**Casos de uso:**\n- Listar variaciones en frontend\n- Validar completitud de producto\n- Sincronización con WooCommerce\n- Reportes de inventario\n\n**Errores:**\n- `400`: Falta parent_art_sec\n- `500`: Error en base de datos"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints para gestión de productos variables y sus variaciones.\n\n## Arquitectura\n\n**Producto Padre (Variable):**\n- `art_variable = 'S'`\n- `art_woo_type = 'variable'`\n- `art_sec_padre = NULL`\n- Tiene atributos definidos (ej: Tono)\n- No tiene stock propio\n- Precios de referencia\n\n**Variación (Hija):**\n- `art_woo_type = 'variation'`\n- `art_sec_padre = {parent_art_sec}`\n- SKU único generado automáticamente\n- Stock y precios propios\n- Atributos específicos en JSON\n\n## Promociones\nLas promociones se aplican al **producto padre** y se heredan a todas las variaciones automáticamente."
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Script global: verificar que exista token antes de hacer request",
+					"if (!pm.environment.get('token') && !pm.request.url.path.includes('login')) {",
+					"    console.warn('⚠️ No hay token configurado. Ejecuta el endpoint de Login primero.');",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Script global: logging de respuestas",
+					"console.log(`${pm.request.method} ${pm.request.url.path.join('/')} → ${pm.response.code} ${pm.response.status}`);",
+					"",
+					"// Si hay error, mostrar detalles",
+					"if (pm.response.code >= 400) {",
+					"    console.error('Error:', pm.response.json());",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000",
+			"type": "string"
+		}
+	]
+}
