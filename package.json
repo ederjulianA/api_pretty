@@ -30,7 +30,8 @@
     "sharp": "^0.33.0",
     "validator": "^13.12.0",
     "winston": "^3.11.0",
-    "winston-loki": "^6.0.8"
+    "winston-loki": "^6.0.8",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.20",
