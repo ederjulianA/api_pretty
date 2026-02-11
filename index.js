@@ -15,6 +15,7 @@ dotenv.config();
 // Import CommonJS modules
 const require = createRequire(import.meta.url);
 const cargaCostosRoutes = require('./routes/cargaCostosRoutes.js');
+const bundleRoutes = require('./routes/bundleRoutes.js');
 
 const app = express();
 
@@ -97,6 +98,7 @@ app.use("/api/promociones", promocionRoutes);
 app.use("/api/diagnostic", diagnosticRoutes);
 app.use("/api/eventos-promocionales", eventoPromocionalRoutes);
 app.use("/api/carga-costos", cargaCostosRoutes);
+app.use("/api/bundles", bundleRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });
