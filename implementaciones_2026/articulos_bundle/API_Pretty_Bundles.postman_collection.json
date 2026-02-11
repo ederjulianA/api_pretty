@@ -1,0 +1,150 @@
+{
+  "info": {
+    "name": "API Pretty - Bundles",
+    "description": "Colección para probar Autenticación y endpoints de Artículos Bundle (combos).\n\n**Uso:**\n1. Ejecutar primero «Login» y guardar el token.\n2. El token se usa en rutas protegidas (header `x-access-token`).\n3. Los endpoints de Bundles pueden no requerir auth según tu configuración.\n\n**Variables:**\n- `base_url`: URL base de la API (ej: http://localhost:3000)\n- `token`: JWT devuelto por Login (se rellena automáticamente)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3000" },
+    { "key": "token", "value": "" },
+    { "key": "art_sec_bundle", "value": "", "description": "art_sec del bundle (se puede rellenar tras crear uno)" }
+  ],
+  "item": [
+    {
+      "name": "1. Autenticación",
+      "description": "Login para obtener JWT. El token se guarda en la variable de colección `token` y se usa en el header `x-access-token` para rutas protegidas.",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.token) {",
+                  "    pm.collectionVariables.set('token', res.token);",
+                  "    console.log('Token guardado en variable de colección');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usu_cod\": \"TU_USUARIO\",\n  \"usu_pass\": \"TU_PASSWORD\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "**Body (JSON):**\n- `usu_cod` (string): Código de usuario\n- `usu_pass` (string): Contraseña\n\n**Respuesta exitosa (200):**\n- `token`: JWT para usar en header `x-access-token`\n- `usuario`, `usuario_nombre`, `permisos`, etc.\n\nEl script de Tests guarda `token` en la variable de colección para usarlo en el resto de peticiones."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Bundles",
+      "description": "Endpoints de artículos armados (combos). Base: `{{base_url}}/api/bundles`",
+      "item": [
+        {
+          "name": "Crear bundle",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data && res.data.art_sec) {",
+                  "    pm.collectionVariables.set('art_sec_bundle', res.data.art_sec);",
+                  "    console.log('art_sec_bundle guardado: ' + res.data.art_sec);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-access-token", "value": "{{token}}", "description": "Opcional si las rutas bundles requieren auth" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"art_nom\": \"Combo Amor y Amistad\",\n  \"art_cod\": \"COMBO-AMOR-2024\",\n  \"inv_sub_gru_cod\": 1,\n  \"precio_detal\": 50000,\n  \"precio_mayor\": 45000,\n  \"componentes\": [\n    { \"art_sec\": \"1\", \"cantidad\": 1 },\n    { \"art_sec\": \"2\", \"cantidad\": 1 },\n    { \"art_sec\": \"3\", \"cantidad\": 2 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bundles",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bundles"]
+            },
+            "description": "Crea un nuevo bundle (artículo armado).\n\n**Body (JSON):**\n- `art_nom` (string, requerido): Nombre del bundle\n- `art_cod` (string, requerido): Código único del bundle\n- `inv_sub_gru_cod` (number, requerido) **o** `subcategoria` (number): ID de subcategoría\n- `precio_detal` (number, requerido): Precio lista detal\n- `precio_mayor` (number, requerido): Precio lista mayor\n- `componentes` (array, requerido): Lista de componentes\n  - Cada ítem: `{ \"art_sec\": \"<art_sec>\", \"cantidad\": 1 }`\n\n**Respuesta 201:**\n`{ \"success\": true, \"message\": \"...\", \"data\": { \"art_sec\", \"art_cod\", \"art_bundle\": \"S\", \"componentes_count\" } }`\n\nGuarda el `art_sec` devuelto para usar en GET/PUT/POST validar-stock."
+          }
+        },
+        {
+          "name": "Obtener componentes del bundle",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-access-token", "value": "{{token}}", "description": "Opcional" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/bundles/{{art_sec_bundle}}/componentes",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bundles", "{{art_sec_bundle}}", "componentes"]
+            },
+            "description": "Devuelve el bundle y la lista de componentes con stock.\n\n**Parámetro de path:**\n- `art_sec_bundle`: art_sec del bundle (puedes usar la variable de colección o poner el valor directo, ej: 100)\n\n**Respuesta 200:**\n`{\n  \"success\": true,\n  \"data\": {\n    \"bundle\": { \"art_sec\", \"art_cod\", \"art_nom\", \"precio_detal\", \"precio_mayor\", \"stock_bundle\" },\n    \"componentes\": [ { \"art_sec\", \"art_cod\", \"art_nom\", \"cantidad\", \"stock_disponible\" } ]\n  }\n}`\n\n**404** si el artículo no existe."
+          }
+        },
+        {
+          "name": "Actualizar componentes del bundle",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-access-token", "value": "{{token}}", "description": "Opcional" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"componentes\": [\n    { \"art_sec\": \"1\", \"cantidad\": 2 },\n    { \"art_sec\": \"4\", \"cantidad\": 1 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bundles/{{art_sec_bundle}}/componentes",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bundles", "{{art_sec_bundle}}", "componentes"]
+            },
+            "description": "Reemplaza todos los componentes del bundle.\n\n**Parámetro de path:**\n- `art_sec_bundle`: art_sec del bundle\n\n**Body (JSON):**\n- `componentes` (array): Nueva lista. Cada ítem: `{ \"art_sec\": \"<art_sec>\", \"cantidad\": number }`\n  - Array vacío `[]` deja el bundle sin componentes (no recomendado).\n\n**Respuesta 200:**\n`{ \"success\": true, \"updated\": true }`\n\n**404/400** si el artículo no existe o no es un bundle."
+          }
+        },
+        {
+          "name": "Validar stock del bundle",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-access-token", "value": "{{token}}", "description": "Opcional" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cantidad_bundle\": 5\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bundles/{{art_sec_bundle}}/validar-stock",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bundles", "{{art_sec_bundle}}", "validar-stock"]
+            },
+            "description": "Valida si hay stock suficiente del bundle y de cada componente para la cantidad indicada.\n\n**Parámetro de path:**\n- `art_sec_bundle`: art_sec del bundle\n\n**Body (JSON):**\n- `cantidad_bundle` (number): Cantidad de bundles a validar (ej: 5)\n\n**Respuesta 200:**\n`{\n  \"success\": true,\n  \"puede_vender\": true | false,\n  \"detalles\": [\n    { \"art_sec\", \"art_nom\", \"cantidad_necesaria\", \"stock_disponible\", \"cumple\", \"faltante\"? }\n  ],\n  \"mensaje\": \"...\"\n}`\n\n- `puede_vender`: false si falta stock del bundle o de algún componente.\n- `detalles`: incluye línea del bundle y una por cada componente."
+          }
+        }
+      ]
+    }
+  ]
+}

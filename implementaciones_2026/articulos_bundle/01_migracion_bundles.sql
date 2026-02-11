@@ -69,6 +69,8 @@ GO
 
 PRINT '';
 PRINT 'Paso 2: Agregar campo kar_bundle_padre...';
+PRINT '  IMPORTANTE: Campo con DEFAULT NULL para compatibilidad';
+PRINT '  Los INSERTs existentes que NO especifican kar_bundle_padre seguirán funcionando';
 
 IF NOT EXISTS (
     SELECT 1
@@ -77,10 +79,13 @@ IF NOT EXISTS (
     AND name = 'kar_bundle_padre'
 )
 BEGIN
+    -- CRITICAL: NULL DEFAULT permite compatibilidad con código existente
+    -- que no especifica esta columna en INSERT statements
     ALTER TABLE dbo.facturakardes
-    ADD kar_bundle_padre VARCHAR(30) NULL;
+    ADD kar_bundle_padre VARCHAR(30) NULL DEFAULT NULL;
 
-    PRINT '  ✓ Campo kar_bundle_padre agregado';
+    PRINT '  ✓ Campo kar_bundle_padre agregado con DEFAULT NULL';
+    PRINT '  ✓ Código existente NO se romperá (campo opcional)';
 END
 ELSE
 BEGIN
