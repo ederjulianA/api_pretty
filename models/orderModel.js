@@ -48,6 +48,87 @@ const getCurrentOrderStatus = async (fac_nro) => {
   }
 };
 
+/**
+ * Expande ítems tipo bundle en líneas: una del bundle padre + N de componentes (precio 0).
+ * Si los detalles ya vienen expandidos (COT→VTA: bundle + componentes), no duplica: en la
+ * segunda pasada se omiten líneas cuyo art_sec ya fue añadido como componente de un bundle.
+ * Referencia: implementaciones_2026/articulos_bundle/
+ */
+const expandirBundles = async (pool, detalles) => {
+  /** art_sec que ya se añadieron como componentes de un bundle (evita duplicar al pasar COT→VTA) */
+  const componentesYaAnadidos = new Set();
+  const detallesExpandidos = [];
+
+  // Primera pasada: solo expandir bundles (así no importa el orden bundle/componentes en la lista)
+  for (const detalle of detalles) {
+    const artSec = detalle.art_sec != null ? String(detalle.art_sec) : '';
+    if (!artSec) continue;
+
+    const articuloCheck = await pool.request()
+      .input('art_sec', sql.VarChar(30), artSec)
+      .query('SELECT art_bundle FROM dbo.articulos WHERE art_sec = @art_sec');
+
+    if (articuloCheck.recordset?.[0]?.art_bundle !== 'S') continue;
+
+    detallesExpandidos.push({
+      ...detalle,
+      kar_bundle_padre: null
+    });
+
+    const componentes = await pool.request()
+      .input('bundle_art_sec', sql.VarChar(30), artSec)
+      .query(`
+        SELECT ComArtSec, ConKarUni
+        FROM dbo.articulosArmado
+        WHERE art_sec = @bundle_art_sec
+      `);
+
+    const karUniBase = Number(detalle.kar_uni) || 1;
+    const karNat = detalle.kar_nat || '-';
+
+    for (const comp of (componentes.recordset || [])) {
+      const compSec = comp.ComArtSec != null ? String(comp.ComArtSec) : '';
+      if (compSec) componentesYaAnadidos.add(compSec);
+      detallesExpandidos.push({
+        art_sec: comp.ComArtSec,
+        kar_uni: karUniBase * (comp.ConKarUni || 1),
+        kar_pre_pub: 0,
+        kar_nat: karNat,
+        kar_bundle_padre: artSec,
+        kar_pre_pub_detal: 0,
+        kar_pre_pub_mayor: 0,
+        kar_tiene_oferta: 'N',
+        kar_precio_oferta: null,
+        kar_descuento_porcentaje: null,
+        kar_codigo_promocion: null,
+        kar_descripcion_promocion: null,
+        kar_kar_sec_ori: detalle.kar_kar_sec_ori,
+        kar_fac_sec_ori: detalle.kar_fac_sec_ori
+      });
+    }
+  }
+
+  // Segunda pasada: añadir líneas que no son bundle y no son componentes ya añadidos
+  for (const detalle of detalles) {
+    const artSec = detalle.art_sec != null ? String(detalle.art_sec) : '';
+    if (!artSec) continue;
+    if (componentesYaAnadidos.has(artSec)) continue;
+
+    const articuloCheck = await pool.request()
+      .input('art_sec', sql.VarChar(30), artSec)
+      .query('SELECT art_bundle FROM dbo.articulos WHERE art_sec = @art_sec');
+
+    if (articuloCheck.recordset?.[0]?.art_bundle === 'S') continue;
+
+    detallesExpandidos.push({
+      ...detalle,
+      kar_bundle_padre: detalle.kar_bundle_padre ?? null
+    });
+  }
+
+  return detallesExpandidos;
+};
+
 
 
 
@@ -478,7 +559,8 @@ const getOrder = async (fac_nro) => {
         vw.existencia,
         a.art_cod,
 		    a.art_nom,
-        a.art_url_img_servi
+        a.art_url_img_servi,
+        ISNULL(a.art_bundle, 'N') AS art_bundle
       FROM dbo.facturakardes fd
       INNER JOIN dbo.articulos a ON fd.art_sec = a.art_sec
       LEFT JOIN dbo.vwExistencias vw 
@@ -524,6 +606,10 @@ const createCompleteOrder = async ({
   let transaction;
   try {
     const pool = await poolPromise;
+    // expandirBundles evita duplicar componentes: si llegan bundle + componentes (COT→VTA),
+    // las líneas que ya fueron añadidas como componentes se omiten.
+    const detallesExpandidos = await expandirBundles(pool, detalles);
+
     transaction = new sql.Transaction(pool);
     await transaction.begin();
 
@@ -607,8 +693,8 @@ const createCompleteOrder = async ({
       .input('fac_descuento_general', sql.Decimal(17, 2), fac_descuento_general || 0) // Usar el valor proporcionado o 0 por defecto
       .query(insertHeaderQuery);
 
-    // 5. Insertar cada detalle en la tabla facturakardes
-    for (const detalle of detalles) {
+    // 5. Insertar cada detalle en la tabla facturakardes (bundles ya expandidos)
+    for (const detalle of detallesExpandidos) {
       // 5.1 Obtener el nuevo número de línea (kar_sec) para el detalle
       const detailRequest = new sql.Request(transaction);
       detailRequest.input('fac_sec', sql.Decimal(18, 0), NewFacSec);
@@ -758,7 +844,8 @@ const createCompleteOrder = async ({
       insertRequest.input('kar_descuento_porcentaje', sql.Decimal(5, 2), precioInfo.descuento_porcentaje);
       insertRequest.input('kar_codigo_promocion', sql.VarChar(20), precioInfo.codigo_promocion);
       insertRequest.input('kar_descripcion_promocion', sql.VarChar(200), precioInfo.descripcion_promocion);
-      
+      insertRequest.input('kar_bundle_padre', sql.VarChar(30), detalle.kar_bundle_padre ?? null);
+
       let kar_total = Number(detalle.kar_uni) * Number(detalle.kar_pre_pub);
       if (descuento > 0) {
         kar_total = kar_total * (1 - (descuento / 100));
@@ -768,10 +855,10 @@ const createCompleteOrder = async ({
       const insertDetailQuery = `
         INSERT INTO dbo.facturakardes
           (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori,
-           kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion)
+           kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion, kar_bundle_padre)
         VALUES
           (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori,
-           @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion)
+           @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion, @kar_bundle_padre)
       `;
       await insertRequest.query(insertDetailQuery);
 

@@ -79,12 +79,12 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
       ]
     };
 
-    // Incluir categorías si se proporcionan
-    if (categoria && subcategoria) {
+    // Incluir categorías si se proporcionan (categoria/subcategoria pueden llegar como number desde el front)
+    if (categoria != null && subcategoria != null) {
       const pool = await poolPromise;
       const catRequest = pool.request();
-      catRequest.input('categoria', sql.VarChar(50), categoria);
-      catRequest.input('subcategoria', sql.VarChar(50), subcategoria);
+      catRequest.input('categoria', sql.VarChar(50), String(categoria));
+      catRequest.input('subcategoria', sql.VarChar(50), String(subcategoria));
       const catQueryResult = await catRequest.query(`
         SELECT g.inv_gru_woo_id, s.inv_sub_gru_woo_id
         FROM dbo.inventario_subgrupo s
@@ -294,7 +294,8 @@ WITH ArticulosBase AS (
         ISNULL(e.existencia, 0) AS existencia,
         a.art_woo_sync_status,
         a.art_woo_sync_message,
-        ISNULL(a.art_woo_type, 'simple') AS art_woo_type
+        ISNULL(a.art_woo_type, 'simple') AS art_woo_type,
+        ISNULL(a.art_bundle, 'N') AS art_bundle
     FROM dbo.articulos a
         INNER JOIN dbo.inventario_subgrupo isg
             ON a.inv_sub_gru_cod = isg.inv_sub_gru_cod
@@ -420,7 +421,7 @@ const createArticulo = async (articuloData) => {
       .input('artSecInsert', sql.Decimal(18, 0), art_sec)
       .input('art_cod', sql.VarChar(50), articuloData.art_cod)
       .input('art_nom', sql.VarChar(250), articuloData.art_nom)
-      .input('subcategoria', sql.VarChar(50), articuloData.subcategoria)
+      .input('subcategoria', sql.VarChar(50), String(articuloData.subcategoria ?? ''))
       .query(insertQuery);
 
     // 3. Subir imágenes a Cloudinary si se proporcionaron
@@ -483,10 +484,10 @@ const createArticulo = async (articuloData) => {
 
     // 6. Intentar sincronización con WooCommerce
     try {
-      // Obtener IDs de categorías de WooCommerce
+      // Obtener IDs de categorías de WooCommerce (categoria/subcategoria pueden venir como number)
       const catRequest = pool.request();
-      catRequest.input('categoria', sql.VarChar(50), articuloData.categoria);
-      catRequest.input('subcategoria', sql.VarChar(50), articuloData.subcategoria);
+      catRequest.input('categoria', sql.VarChar(50), String(articuloData.categoria ?? ''));
+      catRequest.input('subcategoria', sql.VarChar(50), String(articuloData.subcategoria ?? ''));
       const catQueryResult = await catRequest.query(`
         SELECT g.inv_gru_woo_id, s.inv_sub_gru_woo_id
         FROM dbo.inventario_subgrupo s
@@ -711,7 +712,8 @@ const getArticulo = async (art_sec) => {
         ISNULL(a.art_woo_type, 'simple') AS art_woo_type,
         a.art_variable,
         a.art_sec_padre,
-        a.art_variation_attributes
+        a.art_variation_attributes,
+        ISNULL(a.art_bundle, 'N') AS art_bundle
         FROM dbo.articulos a
 	      LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
 	      left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
@@ -847,9 +849,54 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
     await transaction.commit();
     console.log(`[UPDATE_ARTICULO] Transacción confirmada para artículo ${id_articulo}`);
 
+    // Verificar si es bundle antes de sincronizar con WooCommerce
+    const checkBundle = await pool.request()
+      .input('id_articulo', sql.Decimal(18, 0), id_articulo)
+      .query('SELECT art_bundle, inv_sub_gru_cod FROM dbo.articulos WHERE art_sec = @id_articulo');
+    
+    const esBundle = checkBundle.recordset[0]?.art_bundle === 'S';
+    const inv_sub_gru_cod = checkBundle.recordset[0]?.inv_sub_gru_cod;
+
     // Actualización en WooCommerce
     try {
-      const wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria);
+      let wooResult;
+      
+      if (esBundle && art_woo_id) {
+        // Es bundle: usar syncBundleToWooCommerce para actualizar descripción HTML de componentes
+        console.log(`[UPDATE_ARTICULO] Detectado bundle, usando syncBundleToWooCommerce para ${id_articulo}`);
+        const bundleModel = require('./bundleModel');
+        const bundleData = await bundleModel.getBundleComponents(String(id_articulo));
+        
+        if (bundleData?.componentes?.length) {
+          const syncWooId = await bundleModel.syncBundleToWooCommerce({
+            art_sec: String(id_articulo),
+            art_nom,
+            art_cod,
+            precio_detal,
+            precio_mayor,
+            componentes: bundleData.componentes.map(c => ({
+              art_nom: c.art_nom,
+              art_cod: c.art_cod,
+              cantidad: c.cantidad
+            })),
+            inv_sub_gru_cod: inv_sub_gru_cod || subcategoria,
+            art_woo_id: art_woo_id // Pasar art_woo_id para actualizar (PUT)
+          });
+          
+          wooResult = {
+            status: syncWooId ? 'SUCCESS' : 'PARTIAL',
+            data: { art_woo_id: syncWooId || art_woo_id },
+            message: syncWooId ? 'Bundle actualizado en WooCommerce con descripción de componentes' : 'Bundle actualizado pero sync WooCommerce falló'
+          };
+        } else {
+          // Bundle sin componentes: usar updateWooCommerceProduct normal
+          console.log(`[UPDATE_ARTICULO] Bundle sin componentes, usando updateWooCommerceProduct normal`);
+          wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria);
+        }
+      } else {
+        // No es bundle: usar updateWooCommerceProduct normal
+        wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria);
+      }
       
       // Actualizar estado de sincronización
       await pool.request()

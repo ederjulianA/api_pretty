@@ -1,6 +1,45 @@
 // controllers/orderController.js
 const orderModel = require('../models/orderModel');
 const { getOrdenes, updateOrder, anularDocumento } = require('../models/orderModel');
+const bundleModel = require('../models/bundleModel.js');
+const { poolPromise, sql } = require('../db.js');
+
+/**
+ * Valida stock de bundles antes de crear la orden (pre-transacción).
+ * Referencia: implementaciones_2026/articulos_bundle/
+ */
+const validarBundles = async (detalles) => {
+  if (!detalles?.length) return;
+  const pool = await poolPromise;
+  const artSecs = [...new Set(detalles.map(d => d.art_sec).filter(Boolean))];
+  if (!artSecs.length) return;
+
+  const request = pool.request();
+  artSecs.forEach((sec, i) => request.input(`p${i}`, sql.VarChar(30), sec));
+  const bundles = await request.query(`
+    SELECT art_sec, art_bundle, art_nom
+    FROM dbo.articulos
+    WHERE art_sec IN (${artSecs.map((_, i) => `@p${i}`).join(',')})
+  `);
+
+  const esBundle = {};
+  (bundles.recordset || []).forEach(row => {
+    esBundle[String(row.art_sec)] = row.art_bundle === 'S' ? row.art_nom : false;
+  });
+
+  for (const detalle of detalles) {
+    const nom = esBundle[String(detalle.art_sec)];
+    if (!nom) continue;
+    const cantidad = parseInt(detalle.kar_uni, 10) || 1;
+    const validacion = await bundleModel.validateBundleStock(detalle.art_sec, cantidad);
+    if (!validacion.puede_vender) {
+      const detalleMsg = validacion.detalles?.filter(d => !d.cumple).map(d =>
+        `${d.art_nom}: necesita ${d.cantidad_necesaria}, tiene ${d.stock_disponible}`
+      ).join('; ');
+      throw new Error(`Stock insuficiente para el bundle "${nom}": ${detalleMsg || validacion.mensaje}`);
+    }
+  }
+};
 
 
 const updateOrderEndpoint = async (req, res) => {
@@ -32,6 +71,8 @@ const createCompleteOrder = async (req, res) => {
     if (!nit_sec || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
       return res.status(400).json({ error: "Debe enviar 'nit_sec' y un arreglo no vacío de 'detalles'." });
     }
+
+    await validarBundles(detalles);
 
     const result = await orderModel.createCompleteOrder({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general });
     res.status(201).json({
