@@ -499,6 +499,7 @@ const processOrder = async (wooOrder, messages) => {
         art_sec,
         kar_uni: item.quantity,
         kar_pre_pub: (item.subtotal / item.quantity),
+        kar_nat: 'C', // Cotizaciones NO afectan kardex (kar_nat = 'C')
         kar_lis_pre_cod: null,
         kar_kar_sec_ori: null,
         kar_fac_sec_ori: null,

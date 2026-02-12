@@ -54,10 +54,13 @@ const getCurrentOrderStatus = async (fac_nro) => {
  * segunda pasada se omiten líneas cuyo art_sec ya fue añadido como componente de un bundle.
  * Referencia: implementaciones_2026/articulos_bundle/
  */
-const expandirBundles = async (pool, detalles) => {
+const expandirBundles = async (pool, detalles, fac_tip_cod = null) => {
   /** art_sec que ya se añadieron como componentes de un bundle (evita duplicar al pasar COT→VTA) */
   const componentesYaAnadidos = new Set();
   const detallesExpandidos = [];
+  
+  // kar_nat por defecto: 'C' para cotizaciones (no afecta kardex), '-' para ventas
+  const karNatDefault = fac_tip_cod === 'COT' ? 'C' : '-';
 
   // Primera pasada: solo expandir bundles (así no importa el orden bundle/componentes en la lista)
   for (const detalle of detalles) {
@@ -72,7 +75,8 @@ const expandirBundles = async (pool, detalles) => {
 
     detallesExpandidos.push({
       ...detalle,
-      kar_bundle_padre: null
+      kar_bundle_padre: null,
+      kar_nat: detalle.kar_nat || karNatDefault
     });
 
     const componentes = await pool.request()
@@ -84,7 +88,7 @@ const expandirBundles = async (pool, detalles) => {
       `);
 
     const karUniBase = Number(detalle.kar_uni) || 1;
-    const karNat = detalle.kar_nat || '-';
+    const karNat = detalle.kar_nat || karNatDefault;
 
     for (const comp of (componentes.recordset || [])) {
       const compSec = comp.ComArtSec != null ? String(comp.ComArtSec) : '';
@@ -195,17 +199,20 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 
     await updateHeaderRequest.query(updateHeaderQuery);
 
-    // 4. Eliminar los detalles existentes para este pedido con un nuevo Request
+    // 4. Expandir bundles antes de eliminar detalles (para mantener consistencia con createCompleteOrder)
+    const detallesExpandidos = await expandirBundles(pool, detalles, fac_tip_cod);
+
+    // 5. Eliminar los detalles existentes para este pedido con un nuevo Request
     const deleteDetailsRequest = new sql.Request(transaction);
     await deleteDetailsRequest
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
       .query('DELETE FROM dbo.facturakardes WHERE fac_sec = @fac_sec');
 
-    // 5. Insertar los nuevos detalles (por cada ítem se realiza UN insert)
-    // Se espera que cada objeto en details tenga:
-    // art_sec, kar_uni, precio_de_venta y kar_lis_pre_cod
-    for (let i = 0; i < detalles.length; i++) {
-      const detail = detalles[i];
+    // 6. Insertar los nuevos detalles expandidos (por cada ítem se realiza UN insert)
+    // Se espera que cada objeto en detallesExpandidos tenga:
+    // art_sec, kar_uni, precio_de_venta, kar_lis_pre_cod, kar_bundle_padre
+    for (let i = 0; i < detallesExpandidos.length; i++) {
+      const detail = detallesExpandidos[i];
       const newKarSec = i + 1; // Asignar un número de línea secuencial
 
       // 5.1 Usar información de precios y ofertas que viene desde syncWooOrders o calcular si no está disponible
@@ -335,7 +342,8 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
         .input('fac_sec', sql.Decimal(18, 0), fac_sec)
         .input('NewKarSec', sql.Int, newKarSec)
         .input('art_sec', sql.VarChar(50), detail.art_sec)
-        .input('kar_nat', sql.VarChar(1), detail.kar_nat)
+        // kar_nat: 'C' para cotizaciones (no afecta kardex), usar el del detalle o por defecto según fac_tip_cod
+        .input('kar_nat', sql.VarChar(1), detail.kar_nat || (fac_tip_cod === 'COT' ? 'C' : '-'))
         .input('kar_uni', sql.Decimal(17, 2), detail.kar_uni)
         .input('kar_pre_pub', sql.Decimal(17, 2), detail.kar_pre_pub)
         .input('kar_lis_pre_cod', sql.Int, detail.kar_lis_pre_cod)
@@ -351,13 +359,14 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
         .input('kar_descuento_porcentaje', sql.Decimal(5, 2), precioInfo.descuento_porcentaje)
         .input('kar_codigo_promocion', sql.VarChar(20), precioInfo.codigo_promocion)
         .input('kar_descripcion_promocion', sql.VarChar(200), precioInfo.descripcion_promocion)
+        .input('kar_bundle_padre', sql.VarChar(30), detail.kar_bundle_padre ?? null)
         .query(`
           INSERT INTO dbo.facturakardes
             (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori,
-             kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion)
+             kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion, kar_bundle_padre)
           VALUES
             (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @kar_lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori,
-             @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion)
+             @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion, @kar_bundle_padre)
         `);
 
       // Si existe kar_fac_sec_ori, actualizar fac_nro_origen en la tabla factura
@@ -608,7 +617,8 @@ const createCompleteOrder = async ({
     const pool = await poolPromise;
     // expandirBundles evita duplicar componentes: si llegan bundle + componentes (COT→VTA),
     // las líneas que ya fueron añadidas como componentes se omiten.
-    const detallesExpandidos = await expandirBundles(pool, detalles);
+    // Pasar fac_tip_cod para que use 'C' en cotizaciones (no afecta kardex)
+    const detallesExpandidos = await expandirBundles(pool, detalles, fac_tip_cod);
 
     transaction = new sql.Transaction(pool);
     await transaction.begin();
@@ -828,7 +838,10 @@ const createCompleteOrder = async ({
       insertRequest.input('fac_sec', sql.Decimal(18, 0), NewFacSec);
       insertRequest.input('NewKarSec', sql.Int, NewKarSec);
       insertRequest.input('art_sec', sql.VarChar(30), detalle.art_sec);
-      insertRequest.input('kar_nat', sql.VarChar(1), detalle.kar_nat);
+      // kar_nat: 'C' para cotizaciones (no afecta kardex), '-' para ventas, '+' para entradas
+      // Las cotizaciones (COT) NO deben afectar el inventario/kardex
+      const karNatDefault = fac_tip_cod === 'COT' ? 'C' : '-';
+      insertRequest.input('kar_nat', sql.VarChar(1), detalle.kar_nat || karNatDefault);
       insertRequest.input('kar_uni', sql.Decimal(17, 2), detalle.kar_uni);
       insertRequest.input('kar_pre_pub', sql.Decimal(17, 2), detalle.kar_pre_pub);
       insertRequest.input('kar_des_uno', sql.Decimal(11, 5), descuento);
