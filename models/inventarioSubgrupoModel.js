@@ -27,9 +27,9 @@ const getAllSubcategories = async (params = {}) => {
     let whereConditions = [];
     let queryParams = [];
 
-    if (params.inv_gru_cod) {
+    if (params.inv_gru_cod != null && params.inv_gru_cod !== '') {
       whereConditions.push('isg.inv_gru_cod = @inv_gru_cod');
-      queryParams.push({ name: 'inv_gru_cod', type: sql.VarChar(16), value: params.inv_gru_cod });
+      queryParams.push({ name: 'inv_gru_cod', type: sql.VarChar(16), value: String(params.inv_gru_cod) });
     }
 
     if (params.inv_sub_gru_cod) {
@@ -158,9 +158,10 @@ const createSubcategory = async (subcategoryData) => {
     await transaction.begin();
 
     try {
-      // Verificar que la categoría padre existe
+      // Verificar que la categoría padre existe (inv_gru_cod puede llegar como number desde el front)
+      const invGruCodStr = String(subcategoryData.inv_gru_cod ?? '');
       const parentResult = await transaction.request()
-        .input('inv_gru_cod', sql.VarChar(16), subcategoryData.inv_gru_cod)
+        .input('inv_gru_cod', sql.VarChar(16), invGruCodStr)
         .query('SELECT inv_gru_cod, inv_gru_woo_id FROM dbo.inventario_grupo WHERE inv_gru_cod = @inv_gru_cod');
 
       if (parentResult.recordset.length === 0) {
@@ -197,7 +198,7 @@ const createSubcategory = async (subcategoryData) => {
         .input('inv_sub_gru_cod', sql.SmallInt, nextCode)
         .input('inv_sub_gru_id', sql.VarChar(16), subcategoryData.inv_sub_gru_id || nextCode.toString())
         .input('inv_sub_gru_nom', sql.VarChar(40), subcategoryData.inv_sub_gru_nom)
-        .input('inv_gru_cod', sql.VarChar(16), subcategoryData.inv_gru_cod)
+        .input('inv_gru_cod', sql.VarChar(16), invGruCodStr)
         .input('inv_sub_gru_woo_id', sql.Int, wooResult.woo_id)
         .input('inv_sub_gru_est', sql.Char(1), subcategoryData.inv_sub_gru_est || 'A')
         .input('inv_sub_gru_parend_woo', sql.Int, parentCategory.inv_gru_woo_id)
@@ -272,9 +273,9 @@ const updateSubcategory = async (inv_sub_gru_cod, subcategoryData) => {
 
     // Si se cambia la categoría padre, verificar que existe y obtener su woo_id
     let newParentWooId = existingSubcategory.categoria_woo_id;
-    if (subcategoryData.inv_gru_cod && subcategoryData.inv_gru_cod !== existingSubcategory.inv_gru_cod) {
+    if (subcategoryData.inv_gru_cod != null && String(subcategoryData.inv_gru_cod) !== String(existingSubcategory.inv_gru_cod)) {
       const parentResult = await pool.request()
-        .input('inv_gru_cod', sql.VarChar(16), subcategoryData.inv_gru_cod)
+        .input('inv_gru_cod', sql.VarChar(16), String(subcategoryData.inv_gru_cod))
         .query('SELECT inv_gru_woo_id FROM dbo.inventario_grupo WHERE inv_gru_cod = @inv_gru_cod');
 
       if (parentResult.recordset.length === 0) {
@@ -327,7 +328,7 @@ const updateSubcategory = async (inv_sub_gru_cod, subcategoryData) => {
 
     if (subcategoryData.inv_gru_cod !== undefined) {
       updateFields.push('inv_gru_cod = @inv_gru_cod');
-      queryParams.push({ name: 'inv_gru_cod', type: sql.VarChar(16), value: subcategoryData.inv_gru_cod });
+      queryParams.push({ name: 'inv_gru_cod', type: sql.VarChar(16), value: String(subcategoryData.inv_gru_cod) });
     }
 
     if (subcategoryData.inv_sub_gru_est !== undefined) {
