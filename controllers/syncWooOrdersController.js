@@ -484,7 +484,11 @@ const createOrder = async (orderData, nitSec, usuario) => {
         console.log(`[CREATE_ORDER] Descuento general aplicado: ${orderData.descuentoGeneral || 0}, Total WooCommerce: ${orderData.totalWoo || 'N/A'}`);
 
         console.log('Procesando items del pedido...');
-        // Procesar items del pedido
+
+        // ===== EXPANSIÓN DE BUNDLES =====
+        // Pre-procesar line items para expandir bundles en componentes
+        const expandedItems = [];
+
         for (const item of orderData.lineItems) {
             const articleInfo = await getArticleInfo(item.sku);
             if (!articleInfo) {
@@ -492,55 +496,129 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 continue;
             }
 
-            // Obtener información de promociones del artículo en la fecha del pedido
-            const promocionInfo = await getArticuloPromocionInfo(articleInfo, orderData.dateCreated);
-            
-            // Obtener precios base del artículo (para casos donde no hay promoción o artículo no encontrado)
-            const preciosBase = await getArticuloPreciosBase(articleInfo);
-            
-            // Determinar los precios finales para facturakardes
+            // Verificar si el artículo es un bundle
+            const bundleCheckResult = await poolPromise.then(pool => pool.request()
+                .input('art_sec', sql.VarChar(30), String(articleInfo))
+                .query('SELECT art_bundle FROM dbo.articulos WHERE art_sec = @art_sec')
+            );
+
+            const esBundle = bundleCheckResult.recordset[0]?.art_bundle === 'S';
+
+            if (esBundle) {
+                console.log(`[BUNDLE DETECTED] Artículo ${item.sku} es un bundle, expandiendo componentes...`);
+
+                // Agregar línea del bundle padre (con precio completo)
+                expandedItems.push({
+                    ...item,
+                    art_sec: articleInfo,
+                    kar_bundle_padre: null,  // Es el padre, no tiene padre
+                    _es_bundle_padre: true   // Flag interno para logging
+                });
+
+                // Obtener componentes del bundle
+                const componentesResult = await poolPromise.then(pool => pool.request()
+                    .input('bundle_art_sec', sql.VarChar(30), String(articleInfo))
+                    .query(`
+                        SELECT ComArtSec, ConKarUni
+                        FROM dbo.articulosArmado
+                        WHERE art_sec = @bundle_art_sec
+                    `)
+                );
+
+                console.log(`[BUNDLE] Encontrados ${componentesResult.recordset.length} componentes para bundle ${item.sku}`);
+
+                // Agregar líneas de componentes con precio $0
+                for (const comp of componentesResult.recordset) {
+                    expandedItems.push({
+                        id: item.id,  // Mismo WooCommerce item ID
+                        sku: `${item.sku}_COMP_${comp.ComArtSec}`,  // SKU ficticio para logging
+                        quantity: item.quantity * comp.ConKarUni,  // Cantidad bundle × cantidad componente
+                        price: 0,  // Componentes tienen precio $0
+                        subtotal: '0',
+                        total: '0',
+                        art_sec: comp.ComArtSec,
+                        kar_bundle_padre: String(articleInfo),  // Referencia al bundle padre
+                        _es_componente: true  // Flag interno
+                    });
+                }
+            } else {
+                // Artículo normal - agregar sin modificar
+                expandedItems.push({
+                    ...item,
+                    art_sec: articleInfo,
+                    kar_bundle_padre: null  // Artículo normal no tiene padre
+                });
+            }
+        }
+
+        console.log(`[BUNDLE] Total items a insertar (después de expansión): ${expandedItems.length}`);
+
+        // Procesar items expandidos (incluye bundles + componentes + artículos normales)
+        for (const item of expandedItems) {
+            const articleInfo = item.art_sec;
+
+            // Si es componente de bundle, usar valores en $0
             let precioDetalFinal = 0;
             let precioMayorFinal = 0;
-            
-            if (promocionInfo) {
-                // Si tenemos información de promociones, usar esos precios
-                precioDetalFinal = promocionInfo.precio_detal_original;
-                precioMayorFinal = promocionInfo.precio_mayor_original;
+            let tieneOferta = 'N';
+            let precioOferta = null;
+            let descuentoPorcentaje = null;
+            let codigoPromocion = null;
+            let descripcionPromocion = null;
+
+            if (item._es_componente) {
+                // Componente de bundle: todos los valores en 0/NULL
+                console.log(`[BUNDLE COMPONENT] Insertando componente de bundle, precios en $0`);
             } else {
-                // Si no hay promoción pero el artículo existe, usar precios base
-                precioDetalFinal = preciosBase.precio_detal_original;
-                precioMayorFinal = preciosBase.precio_mayor_original;
+                // Artículo normal o bundle padre: obtener información de promociones
+                const promocionInfo = await getArticuloPromocionInfo(articleInfo, orderData.dateCreated);
+
+                // Obtener precios base del artículo (para casos donde no hay promoción)
+                const preciosBase = await getArticuloPreciosBase(articleInfo);
+
+                if (promocionInfo) {
+                    // Si tenemos información de promociones, usar esos precios
+                    precioDetalFinal = promocionInfo.precio_detal_original;
+                    precioMayorFinal = promocionInfo.precio_mayor_original;
+                } else {
+                    // Si no hay promoción pero el artículo existe, usar precios base
+                    precioDetalFinal = preciosBase.precio_detal_original;
+                    precioMayorFinal = preciosBase.precio_mayor_original;
+                }
+
+                // Determinar valores de promoción (asegurar que sean NULL si no hay oferta activa)
+                tieneOferta = promocionInfo && promocionInfo.tiene_oferta === 'S' ? 'S' : 'N';
+                precioOferta = tieneOferta === 'S' && promocionInfo ? promocionInfo.precio_oferta : null;
+                descuentoPorcentaje = tieneOferta === 'S' && promocionInfo ? promocionInfo.descuento_porcentaje : null;
+                codigoPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.codigo_promocion : null;
+                descripcionPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.descripcion_promocion : null;
             }
 
             const subtotal = parseFloat(item.subtotal);
             const total = parseFloat(item.total);
             const quantity = parseInt(item.quantity);
-            
+
             let karDesUno = 0;
             let karPrePub = item.price;
-            
+
             if (subtotal > 0) {
                 karDesUno = ((subtotal - total) / subtotal) * 100;
                 karPrePub = subtotal / quantity;
             }
 
-            console.log('Insertando item:', { 
-                facSec, 
-                itemId: item.id, 
+            console.log('Insertando item:', {
+                facSec,
+                itemId: item.id,
                 artSec: articleInfo,
                 quantity,
                 price: item.price,
                 precioDetalFinal,
                 precioMayorFinal,
-                tienePromocion: !!promocionInfo
+                tienePromocion: !!tieneOferta && tieneOferta === 'S',
+                esBundle: item._es_bundle_padre || false,
+                esComponente: item._es_componente || false,
+                kar_bundle_padre: item.kar_bundle_padre || null
             });
-
-            // Determinar valores de promoción (asegurar que sean NULL si no hay oferta activa)
-            const tieneOferta = promocionInfo && promocionInfo.tiene_oferta === 'S' ? 'S' : 'N';
-            const precioOferta = tieneOferta === 'S' && promocionInfo ? promocionInfo.precio_oferta : null;
-            const descuentoPorcentaje = tieneOferta === 'S' && promocionInfo ? promocionInfo.descuento_porcentaje : null;
-            const codigoPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.codigo_promocion : null;
-            const descripcionPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.descripcion_promocion : null;
 
             await transaction.request()
                 .input('fac_sec', sql.Int, facSec)
@@ -562,20 +640,23 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 .input('kar_descuento_porcentaje', sql.Decimal(18, 2), descuentoPorcentaje)
                 .input('kar_codigo_promocion', sql.VarChar(50), codigoPromocion)
                 .input('kar_descripcion_promocion', sql.VarChar(200), descripcionPromocion)
+                .input('kar_bundle_padre', sql.VarChar(30), item.kar_bundle_padre)
                 .query(`
                     INSERT INTO dbo.facturakardes (
                         fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni,
                         kar_nat, kar_pre, kar_pre_pub, kar_des_uno,
                         kar_sub_tot, kar_lis_pre_cod, kar_total,
                         kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta,
-                        kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion
+                        kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion,
+                        kar_bundle_padre
                     )
                     VALUES (
                         @fac_sec, @kar_sec, @art_sec, @kar_bod_sec, @kar_uni,
                         @kar_nat, @kar_pre, @kar_pre_pub, @kar_des_uno,
                         @kar_sub_tot, @kar_lis_pre_cod, @kar_total,
                         @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta,
-                        @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion
+                        @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion,
+                        @kar_bundle_padre
                     )
                 `);
         }
@@ -658,7 +739,11 @@ const updateOrder = async (orderData, facSec, usuario) => {
             .query('DELETE FROM dbo.facturakardes WHERE fac_sec = @fac_sec');
 
         console.log('Insertando nuevos detalles...');
-        // Insertar nuevos detalles
+
+        // ===== EXPANSIÓN DE BUNDLES (igual que en createOrder) =====
+        // Pre-procesar line items para expandir bundles en componentes
+        const expandedItems = [];
+
         for (const item of orderData.lineItems) {
             const articleInfo = await getArticleInfo(item.sku);
             if (!articleInfo) {
@@ -666,55 +751,129 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 continue;
             }
 
-            // Obtener información de promociones del artículo en la fecha del pedido
-            const promocionInfo = await getArticuloPromocionInfo(articleInfo, orderData.dateCreated);
-            
-            // Obtener precios base del artículo (para casos donde no hay promoción o artículo no encontrado)
-            const preciosBase = await getArticuloPreciosBase(articleInfo);
-            
-            // Determinar los precios finales para facturakardes
+            // Verificar si el artículo es un bundle
+            const bundleCheckResult = await poolPromise.then(pool => pool.request()
+                .input('art_sec', sql.VarChar(30), String(articleInfo))
+                .query('SELECT art_bundle FROM dbo.articulos WHERE art_sec = @art_sec')
+            );
+
+            const esBundle = bundleCheckResult.recordset[0]?.art_bundle === 'S';
+
+            if (esBundle) {
+                console.log(`[BUNDLE DETECTED] Artículo ${item.sku} es un bundle, expandiendo componentes...`);
+
+                // Agregar línea del bundle padre (con precio completo)
+                expandedItems.push({
+                    ...item,
+                    art_sec: articleInfo,
+                    kar_bundle_padre: null,  // Es el padre, no tiene padre
+                    _es_bundle_padre: true   // Flag interno para logging
+                });
+
+                // Obtener componentes del bundle
+                const componentesResult = await poolPromise.then(pool => pool.request()
+                    .input('bundle_art_sec', sql.VarChar(30), String(articleInfo))
+                    .query(`
+                        SELECT ComArtSec, ConKarUni
+                        FROM dbo.articulosArmado
+                        WHERE art_sec = @bundle_art_sec
+                    `)
+                );
+
+                console.log(`[BUNDLE] Encontrados ${componentesResult.recordset.length} componentes para bundle ${item.sku}`);
+
+                // Agregar líneas de componentes con precio $0
+                for (const comp of componentesResult.recordset) {
+                    expandedItems.push({
+                        id: item.id,  // Mismo WooCommerce item ID
+                        sku: `${item.sku}_COMP_${comp.ComArtSec}`,  // SKU ficticio para logging
+                        quantity: item.quantity * comp.ConKarUni,  // Cantidad bundle × cantidad componente
+                        price: 0,  // Componentes tienen precio $0
+                        subtotal: '0',
+                        total: '0',
+                        art_sec: comp.ComArtSec,
+                        kar_bundle_padre: String(articleInfo),  // Referencia al bundle padre
+                        _es_componente: true  // Flag interno
+                    });
+                }
+            } else {
+                // Artículo normal - agregar sin modificar
+                expandedItems.push({
+                    ...item,
+                    art_sec: articleInfo,
+                    kar_bundle_padre: null  // Artículo normal no tiene padre
+                });
+            }
+        }
+
+        console.log(`[BUNDLE] Total items a insertar (después de expansión): ${expandedItems.length}`);
+
+        // Insertar nuevos detalles (items expandidos)
+        for (const item of expandedItems) {
+            const articleInfo = item.art_sec;
+
+            // Si es componente de bundle, usar valores en $0
             let precioDetalFinal = 0;
             let precioMayorFinal = 0;
-            
-            if (promocionInfo) {
-                // Si tenemos información de promociones, usar esos precios
-                precioDetalFinal = promocionInfo.precio_detal_original;
-                precioMayorFinal = promocionInfo.precio_mayor_original;
+            let tieneOferta = 'N';
+            let precioOferta = null;
+            let descuentoPorcentaje = null;
+            let codigoPromocion = null;
+            let descripcionPromocion = null;
+
+            if (item._es_componente) {
+                // Componente de bundle: todos los valores en 0/NULL
+                console.log(`[BUNDLE COMPONENT] Insertando componente de bundle, precios en $0`);
             } else {
-                // Si no hay promoción pero el artículo existe, usar precios base
-                precioDetalFinal = preciosBase.precio_detal_original;
-                precioMayorFinal = preciosBase.precio_mayor_original;
+                // Artículo normal o bundle padre: obtener información de promociones
+                const promocionInfo = await getArticuloPromocionInfo(articleInfo, orderData.dateCreated);
+
+                // Obtener precios base del artículo (para casos donde no hay promoción)
+                const preciosBase = await getArticuloPreciosBase(articleInfo);
+
+                if (promocionInfo) {
+                    // Si tenemos información de promociones, usar esos precios
+                    precioDetalFinal = promocionInfo.precio_detal_original;
+                    precioMayorFinal = promocionInfo.precio_mayor_original;
+                } else {
+                    // Si no hay promoción pero el artículo existe, usar precios base
+                    precioDetalFinal = preciosBase.precio_detal_original;
+                    precioMayorFinal = preciosBase.precio_mayor_original;
+                }
+
+                // Determinar valores de promoción (asegurar que sean NULL si no hay oferta activa)
+                tieneOferta = promocionInfo && promocionInfo.tiene_oferta === 'S' ? 'S' : 'N';
+                precioOferta = tieneOferta === 'S' && promocionInfo ? promocionInfo.precio_oferta : null;
+                descuentoPorcentaje = tieneOferta === 'S' && promocionInfo ? promocionInfo.descuento_porcentaje : null;
+                codigoPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.codigo_promocion : null;
+                descripcionPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.descripcion_promocion : null;
             }
 
             const subtotal = parseFloat(item.subtotal);
             const total = parseFloat(item.total);
             const quantity = parseInt(item.quantity);
-            
+
             let karDesUno = 0;
             let karPrePub = item.price;
-            
+
             if (subtotal > 0) {
                 karDesUno = ((subtotal - total) / subtotal) * 100;
                 karPrePub = subtotal / quantity;
             }
 
-            console.log('Insertando item:', { 
-                facSec, 
-                itemId: item.id, 
+            console.log('Insertando item:', {
+                facSec,
+                itemId: item.id,
                 artSec: articleInfo,
                 quantity,
                 price: item.price,
                 precioDetalFinal,
                 precioMayorFinal,
-                tienePromocion: !!promocionInfo
+                tienePromocion: !!tieneOferta && tieneOferta === 'S',
+                esBundle: item._es_bundle_padre || false,
+                esComponente: item._es_componente || false,
+                kar_bundle_padre: item.kar_bundle_padre || null
             });
-
-            // Determinar valores de promoción (asegurar que sean NULL si no hay oferta activa)
-            const tieneOferta = promocionInfo && promocionInfo.tiene_oferta === 'S' ? 'S' : 'N';
-            const precioOferta = tieneOferta === 'S' && promocionInfo ? promocionInfo.precio_oferta : null;
-            const descuentoPorcentaje = tieneOferta === 'S' && promocionInfo ? promocionInfo.descuento_porcentaje : null;
-            const codigoPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.codigo_promocion : null;
-            const descripcionPromocion = tieneOferta === 'S' && promocionInfo ? promocionInfo.descripcion_promocion : null;
 
             await transaction.request()
                 .input('fac_sec', sql.Int, facSec)
@@ -736,20 +895,23 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 .input('kar_descuento_porcentaje', sql.Decimal(18, 2), descuentoPorcentaje)
                 .input('kar_codigo_promocion', sql.VarChar(50), codigoPromocion)
                 .input('kar_descripcion_promocion', sql.VarChar(200), descripcionPromocion)
+                .input('kar_bundle_padre', sql.VarChar(30), item.kar_bundle_padre)
                 .query(`
                     INSERT INTO dbo.facturakardes (
                         fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni,
                         kar_nat, kar_pre, kar_pre_pub, kar_des_uno,
                         kar_sub_tot, kar_lis_pre_cod, kar_total,
                         kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta,
-                        kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion
+                        kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion,
+                        kar_bundle_padre
                     )
                     VALUES (
                         @fac_sec, @kar_sec, @art_sec, @kar_bod_sec, @kar_uni,
                         @kar_nat, @kar_pre, @kar_pre_pub, @kar_des_uno,
                         @kar_sub_tot, @kar_lis_pre_cod, @kar_total,
                         @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta,
-                        @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion
+                        @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion,
+                        @kar_bundle_padre
                     )
                 `);
         }
