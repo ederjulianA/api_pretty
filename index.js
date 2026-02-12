@@ -16,6 +16,7 @@ dotenv.config();
 const require = createRequire(import.meta.url);
 const cargaCostosRoutes = require('./routes/cargaCostosRoutes.js');
 const bundleRoutes = require('./routes/bundleRoutes.js');
+const aiRoutes = require('./routes/aiRoutes.js');
 
 const app = express();
 
@@ -99,11 +100,15 @@ app.use("/api/diagnostic", diagnosticRoutes);
 app.use("/api/eventos-promocionales", eventoPromocionalRoutes);
 app.use("/api/carga-costos", cargaCostosRoutes);
 app.use("/api/bundles", bundleRoutes);
+app.use("/api", aiRoutes);
 app.get("/", (req, res) => {
   res.send("API Working");
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor escuchando en el puerto ${PORT}`);
+const HOST = '0.0.0.0'; // Escuchar en todas las interfaces de red
+
+app.listen(PORT, HOST, () => {
+  console.log(`Servidor escuchando en ${HOST}:${PORT}`);
+  console.log(`Accesible desde: http://localhost:${PORT}`);
 });
