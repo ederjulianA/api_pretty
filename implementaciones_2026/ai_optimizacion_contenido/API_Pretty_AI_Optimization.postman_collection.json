@@ -1,0 +1,315 @@
+{
+	"info": {
+		"_postman_id": "ai-optimization-2026",
+		"name": "API Pretty - Optimización IA",
+		"description": "Colección de endpoints para optimización de contenido con IA",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Autenticación",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    if (jsonData.token) {",
+									"        pm.environment.set('token', jsonData.token);",
+									"        console.log('Token guardado:', jsonData.token);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"usu_cod\": \"admin\",\n  \"usu_pass\": \"password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "login"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Optimización de Contenido IA",
+			"item": [
+				{
+					"name": "1. Generar Contenido Optimizado",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"modelo\": \"gpt-4-turbo-preview\",\n  \"idioma\": \"es\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/articulos/:art_sec/optimize",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos", ":art_sec", "optimize"],
+							"variable": [
+								{
+									"key": "art_sec",
+									"value": "12345",
+									"description": "ID del producto (art_sec)"
+								}
+							]
+						},
+						"description": "Genera contenido optimizado con IA para un producto. La categoría se obtiene automáticamente del producto."
+					}
+				},
+				{
+					"name": "2. Ver Contenido IA del Producto",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/articulos/:art_sec/ai-content?tipo=completo",
+							"host": ["{{base_url}}"],
+							"path": ["api", "articulos", ":art_sec", "ai-content"],
+							"query": [
+								{
+									"key": "tipo",
+									"value": "completo",
+									"description": "Opcional: filtrar por tipo de contenido"
+								}
+							],
+							"variable": [
+								{
+									"key": "art_sec",
+									"value": "12345"
+								}
+							]
+						},
+						"description": "Obtiene todas las versiones de contenido IA generadas para un producto, incluyendo la versión activa."
+					}
+				},
+				{
+					"name": "3. Aprobar Contenido",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"comentarios\": \"Contenido aprobado para publicación\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/ai/content/:ai_sec/approve",
+							"host": ["{{base_url}}"],
+							"path": ["api", "ai", "content", ":ai_sec", "approve"],
+							"variable": [
+								{
+									"key": "ai_sec",
+									"value": "1",
+									"description": "ID del contenido IA (NO es art_sec). Se obtiene del endpoint 'Ver Contenido IA'"
+								}
+							]
+						},
+						"description": "Aprueba una versión de contenido generado por IA. IMPORTANTE: Usa ai_sec (ID del contenido), NO art_sec (ID del producto)."
+					}
+				},
+				{
+					"name": "4. Rechazar Contenido",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"comentarios\": \"El contenido no cumple con los estándares de calidad\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/ai/content/:ai_sec/reject",
+							"host": ["{{base_url}}"],
+							"path": ["api", "ai", "content", ":ai_sec", "reject"],
+							"variable": [
+								{
+									"key": "ai_sec",
+									"value": "1",
+									"description": "ID del contenido IA (NO es art_sec)"
+								}
+							]
+						},
+						"description": "Rechaza una versión de contenido generado por IA. Requiere comentarios explicando el rechazo."
+					}
+				},
+				{
+					"name": "5. Listar Contenido Pendiente",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/ai/pending-approvals?limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "ai", "pending-approvals"],
+							"query": [
+								{
+									"key": "art_sec",
+									"value": "",
+									"description": "Opcional: filtrar por producto específico",
+									"disabled": true
+								},
+								{
+									"key": "tipo",
+									"value": "",
+									"description": "Opcional: filtrar por tipo de contenido",
+									"disabled": true
+								},
+								{
+									"key": "limit",
+									"value": "50",
+									"description": "Límite de resultados"
+								}
+							]
+						},
+						"description": "Obtiene lista de todo el contenido generado por IA que está pendiente de aprobación."
+					}
+				},
+				{
+					"name": "6. Estadísticas de Uso",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/ai/usage-stats?fecha_desde=2026-02-01&fecha_hasta=2026-02-12",
+							"host": ["{{base_url}}"],
+							"path": ["api", "ai", "usage-stats"],
+							"query": [
+								{
+									"key": "fecha_desde",
+									"value": "2026-02-01",
+									"description": "Fecha inicio (YYYY-MM-DD)"
+								},
+								{
+									"key": "fecha_hasta",
+									"value": "2026-02-12",
+									"description": "Fecha fin (YYYY-MM-DD)"
+								}
+							]
+						},
+						"description": "Obtiene estadísticas de uso de IA incluyendo costos, tokens usados, y tasas de aprobación."
+					}
+				},
+				{
+					"name": "7. Optimización Masiva",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"categoria\": \"9\",\n  \"subcategoria\": \"15\",\n  \"limit\": 50,\n  \"modelo\": \"gpt-4-turbo-preview\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/ai/batch-optimize",
+							"host": ["{{base_url}}"],
+							"path": ["api", "ai", "batch-optimize"]
+						},
+						"description": "Genera contenido optimizado para múltiples productos de una categoría en lote."
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

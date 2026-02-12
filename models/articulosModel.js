@@ -5,6 +5,26 @@ const cloudinary = require('../config/cloudinary');
 const { v4: uuidv4 } = require('uuid');
 const ProductPhoto = require('./ProductPhoto');
 
+// Importar modelo de IA (con manejo de errores si no está disponible)
+// La carga es lazy para evitar errores si no está configurado
+let aiOptimizationModel = null;
+
+/**
+ * Obtiene el modelo de IA de forma lazy
+ * @returns {Object|null} Modelo de IA o null si no está disponible
+ */
+const getAIModel = () => {
+  if (aiOptimizationModel === null && process.env.OPENAI_API_KEY) {
+    try {
+      aiOptimizationModel = require('./aiOptimizationModel');
+    } catch (error) {
+      console.warn('[articulosModel] Modelo de IA no disponible:', error.message);
+      aiOptimizationModel = false; // Marcar como intentado pero fallido
+    }
+  }
+  return aiOptimizationModel || null;
+};
+
 // Configura la API de WooCommerce (asegúrate de tener estas variables en tu .env)
 const wcApi = new WooCommerceRestApi({
   url: process.env.WC_URL,
@@ -43,6 +63,26 @@ const validateArticulo = async ({ art_cod, art_woo_id }) => {
     throw error;
   }
 };
+/**
+ * Obtiene contenido IA optimizado para un producto
+ * @param {string} art_sec - ID del artículo
+ * @returns {Promise<Object|null>} Contenido IA o null
+ */
+const getAIContentForProduct = async (art_sec) => {
+  const aiModel = getAIModel();
+  if (!aiModel) {
+    return null;
+  }
+
+  try {
+    const contenidoIA = await aiModel.getActiveContent(art_sec);
+    return contenidoIA;
+  } catch (error) {
+    console.warn(`[UPDATE_WOO_PRODUCT] Error obteniendo contenido IA para ${art_sec}:`, error.message);
+    return null;
+  }
+};
+
 const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null, categoria = null, subcategoria = null) => {
   console.log(`[UPDATE_WOO_PRODUCT] Iniciando actualización en WooCommerce`, {
     art_woo_id,
@@ -70,14 +110,65 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
       throw new Error('actualiza_fecha debe ser "S" o "N"');
     }
 
+    // Obtener art_sec para buscar contenido IA
+    let art_sec = null;
+    try {
+      const pool = await poolPromise;
+      const artSecResult = await pool.request()
+        .input('art_cod', sql.VarChar(50), art_cod)
+        .query('SELECT art_sec FROM dbo.articulos WHERE art_cod = @art_cod');
+      
+      if (artSecResult.recordset.length > 0) {
+        art_sec = artSecResult.recordset[0].art_sec;
+      }
+    } catch (error) {
+      console.warn('[UPDATE_WOO_PRODUCT] Error obteniendo art_sec:', error.message);
+    }
+
+    // Obtener contenido IA si está disponible
+    let contenidoIA = null;
+    if (art_sec) {
+      contenidoIA = await getAIContentForProduct(art_sec);
+    }
+
+    // Preparar datos base
     const data = {
-      name: art_nom,
+      name: contenidoIA?.ai_contenido?.titulo_seo || art_nom,
       sku: art_cod,
       regular_price: precio_detal.toString(),
       meta_data: [
         { key: '_precio_mayorista', value: precio_mayor }
       ]
     };
+
+    // Agregar descripciones si hay contenido IA
+    if (contenidoIA?.ai_contenido) {
+      const aiContent = contenidoIA.ai_contenido;
+      
+      if (aiContent.descripcion_larga_html) {
+        data.description = aiContent.descripcion_larga_html;
+      }
+      
+      if (aiContent.descripcion_corta) {
+        data.short_description = aiContent.descripcion_corta;
+      }
+
+      // Agregar meta description a meta_data
+      if (aiContent.meta_description) {
+        data.meta_data.push({
+          key: '_yoast_wpseo_metadesc',
+          value: aiContent.meta_description
+        });
+      }
+
+      // Marcar como optimizado con IA
+      data.meta_data.push({
+        key: '_ai_optimized',
+        value: 'yes'
+      });
+
+      console.log('[UPDATE_WOO_PRODUCT] Usando contenido IA optimizado');
+    }
 
     // Incluir categorías si se proporcionan (categoria/subcategoria pueden llegar como number desde el front)
     if (categoria != null && subcategoria != null) {
@@ -506,8 +597,16 @@ const createArticulo = async (articuloData) => {
         }
       }
 
+      // Obtener contenido IA si está disponible
+      let contenidoIA = null;
+      try {
+        contenidoIA = await getAIContentForProduct(art_sec.toString());
+      } catch (error) {
+        console.warn('[CREATE_ARTICULO] Error obteniendo contenido IA:', error.message);
+      }
+
       const wooData = {
-        name: articuloData.art_nom,
+        name: contenidoIA?.ai_contenido?.titulo_seo || articuloData.art_nom,
         type: 'simple',
         sku: articuloData.art_cod,
         regular_price: articuloData.precio_detal.toString(),
@@ -522,6 +621,35 @@ const createArticulo = async (articuloData) => {
         categories: categories,
         images: imageUrls.map(url => ({ src: url }))
       };
+
+      // Agregar descripciones si hay contenido IA
+      if (contenidoIA?.ai_contenido) {
+        const aiContent = contenidoIA.ai_contenido;
+        
+        if (aiContent.descripcion_larga_html) {
+          wooData.description = aiContent.descripcion_larga_html;
+        }
+        
+        if (aiContent.descripcion_corta) {
+          wooData.short_description = aiContent.descripcion_corta;
+        }
+
+        // Agregar meta description
+        if (aiContent.meta_description) {
+          wooData.meta_data.push({
+            key: '_yoast_wpseo_metadesc',
+            value: aiContent.meta_description
+          });
+        }
+
+        // Marcar como optimizado con IA
+        wooData.meta_data.push({
+          key: '_ai_optimized',
+          value: 'yes'
+        });
+
+        console.log('[CREATE_ARTICULO] Usando contenido IA optimizado');
+      }
 
       console.log('Datos enviados a WooCommerce:', JSON.stringify(wooData, null, 2));
       console.log('Categorías WooCommerce:', JSON.stringify(categories, null, 2));
@@ -673,7 +801,9 @@ const getArticulo = async (art_sec) => {
         a.art_cod,
         a.art_nom,
         g.inv_gru_cod,
+        g.inv_gru_nom,
         s.inv_sub_gru_cod,
+        s.inv_sub_gru_nom,
         a.art_woo_id,
         -- Precios originales
         ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,

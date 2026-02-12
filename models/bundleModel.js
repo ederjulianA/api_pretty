@@ -79,16 +79,33 @@ async function syncBundleToWooCommerce({ art_sec, art_nom, art_cod, precio_detal
       if (inv_sub_gru_woo_id) categories.push({ id: parseInt(inv_sub_gru_woo_id, 10) });
     }
 
+    // Obtener contenido IA si está disponible (similar a updateWooCommerceProduct)
+    let contenidoIA = null;
+    try {
+      // Importar modelo de IA de forma lazy
+      let aiOptimizationModel = null;
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          aiOptimizationModel = require('./aiOptimizationModel');
+          contenidoIA = await aiOptimizationModel.getActiveContent(art_sec);
+        } catch (error) {
+          console.warn('[bundleModel] Error obteniendo contenido IA:', error.message);
+        }
+      }
+    } catch (error) {
+      console.warn('[bundleModel] Error obteniendo contenido IA:', error.message);
+    }
+
     const shortDesc = componentes.map(c => `${c.cantidad || 1}x ${c.art_nom || ''}`).join(', ');
+    const isUpdate = art_woo_id != null && art_woo_id > 0;
+    
     const wooData = {
-      name: art_nom,
+      name: contenidoIA?.ai_contenido?.titulo_seo || art_nom,
       type: 'simple',
       sku: art_cod,
       regular_price: String(precio_detal),
-      description: generarDescripcionBundleHTML(componentes),
-      short_description: `Incluye: ${shortDesc}`,
-      manage_stock: true,
-      stock_quantity: 0,
+      description: contenidoIA?.ai_contenido?.descripcion_larga_html || generarDescripcionBundleHTML(componentes),
+      short_description: contenidoIA?.ai_contenido?.descripcion_corta || `Incluye: ${shortDesc}`,
       meta_data: [
         { key: '_precio_mayorista', value: String(precio_mayor) },
         { key: '_es_bundle', value: 'S' },
@@ -99,8 +116,33 @@ async function syncBundleToWooCommerce({ art_sec, art_nom, art_cod, precio_detal
       images: imageUrls.map(url => ({ src: url }))
     };
 
+    // Solo incluir stock si es creación nueva (no actualización)
+    // Al actualizar, NO modificar el stock existente en WooCommerce
+    if (!isUpdate) {
+      wooData.manage_stock = true;
+      wooData.stock_quantity = 0;
+    }
+
+    // Agregar meta description y marca de IA si hay contenido IA
+    if (contenidoIA?.ai_contenido) {
+      const aiContent = contenidoIA.ai_contenido;
+      
+      if (aiContent.meta_description) {
+        wooData.meta_data.push({
+          key: '_yoast_wpseo_metadesc',
+          value: aiContent.meta_description
+        });
+      }
+
+      wooData.meta_data.push({
+        key: '_ai_optimized',
+        value: 'yes'
+      });
+
+      console.log('[bundleModel] Usando contenido IA optimizado para bundle');
+    }
+
     let wooProduct;
-    const isUpdate = art_woo_id != null && art_woo_id > 0;
     
     if (isUpdate) {
       // Actualizar producto existente
@@ -358,6 +400,7 @@ const getBundleComponents = async (art_sec) => {
         c.art_sec,
         c.art_cod,
         c.art_nom,
+        c.art_url_img_servi,
         aa.ConKarUni AS cantidad,
         ISNULL(ve.existencia, 0) AS stock_disponible
       FROM dbo.articulosArmado aa
@@ -370,6 +413,7 @@ const getBundleComponents = async (art_sec) => {
     art_sec: r.art_sec,
     art_cod: r.art_cod,
     art_nom: r.art_nom,
+    art_url_img_servi: r.art_url_img_servi || null,
     cantidad: r.cantidad,
     stock_disponible: r.stock_disponible
   }));

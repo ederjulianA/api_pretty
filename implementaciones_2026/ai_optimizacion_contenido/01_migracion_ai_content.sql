@@ -171,7 +171,7 @@ IF NOT EXISTS (
 BEGIN
     CREATE NONCLUSTERED INDEX IDX_ai_content_active
     ON dbo.articulos_ai_content (art_sec, ai_tipo, ai_estado, ai_idioma)
-    INCLUDE (ai_contenido, ai_version, ai_modelo);
+    INCLUDE (ai_version, ai_modelo, ai_fecha_generacion);
 
     PRINT '  ✓ Índice IDX_ai_content_active creado';
 END
@@ -191,7 +191,7 @@ IF NOT EXISTS (
 BEGIN
     CREATE NONCLUSTERED INDEX IDX_ai_content_prompts
     ON dbo.articulos_ai_content (ai_prompt_hash)
-    INCLUDE (ai_contenido, ai_modelo, ai_estado)
+    INCLUDE (ai_modelo, ai_estado, ai_fecha_generacion)
     WHERE ai_prompt_hash IS NOT NULL;
 
     PRINT '  ✓ Índice IDX_ai_content_prompts creado';

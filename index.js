@@ -16,7 +16,7 @@ dotenv.config();
 const require = createRequire(import.meta.url);
 const cargaCostosRoutes = require('./routes/cargaCostosRoutes.js');
 const bundleRoutes = require('./routes/bundleRoutes.js');
-const aiRoutes = require('./routes/aiRoutes.js');
+// const aiRoutes = require('./routes/aiRoutes.js'); // Comentado temporalmente - archivos no en repo
 
 const app = express();
 
