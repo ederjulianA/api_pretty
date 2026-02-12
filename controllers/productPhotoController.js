@@ -172,7 +172,32 @@ class ProductPhotoController {
                     return res.status(404).json({ success: false, message: 'Foto no encontrada' });
                 }
 
-                // Actualizar en WooCommerce
+                // Verificar si la foto tiene woo_photo_id
+                if (!photo.woo_photo_id) {
+                    console.log('La foto no tiene woo_photo_id, necesita ser subida a WooCommerce primero');
+
+                    // Si la foto no está en WooCommerce, primero subirla
+                    try {
+                        const uploadedPhoto = await this.wooService.uploadPhoto(artWooId, photo.url);
+
+                        if (uploadedPhoto && uploadedPhoto.id) {
+                            // Actualizar el woo_photo_id en la base de datos
+                            photo.woo_photo_id = uploadedPhoto.id.toString();
+                            await photo.update();
+                            console.log('Foto subida a WooCommerce con ID:', uploadedPhoto.id);
+                        } else {
+                            throw new Error('No se pudo obtener el ID de la foto subida');
+                        }
+                    } catch (uploadError) {
+                        console.error('Error al subir foto a WooCommerce:', uploadError);
+                        return res.status(500).json({
+                            success: false,
+                            message: `Error al subir foto a WooCommerce: ${uploadError.message}`
+                        });
+                    }
+                }
+
+                // Ahora establecer como principal en WooCommerce
                 await this.wooService.setMainPhoto(artWooId, photo.woo_photo_id);
                 console.log('Foto principal actualizada en WooCommerce');
 
@@ -180,13 +205,13 @@ class ProductPhotoController {
                 await ProductPhoto.setMainPhoto(productId, photoId);
                 console.log('Foto principal actualizada en la base de datos');
 
-                return res.json({ 
-                    success: true, 
-                    message: 'Foto principal actualizada exitosamente' 
+                return res.json({
+                    success: true,
+                    message: 'Foto principal actualizada exitosamente'
                 });
             } else {
                 console.log('No se encontró ID de WooCommerce para el producto');
-                return res.status(404).json({ 
+                return res.status(404).json({
                     success: false, 
                     message: 'Producto no encontrado en WooCommerce' 
                 });

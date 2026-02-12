@@ -8,7 +8,7 @@ class WooCommercePhotoService {
             consumerKey: process.env.WC_CONSUMER_KEY,
             consumerSecret: process.env.WC_CONSUMER_SECRET,
             version: "wc/v3",
-            timeout: 8000
+            timeout: 30000  // 30 segundos para operaciones con imágenes
         });
     }
 
