@@ -554,6 +554,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
         console.log(`[BUNDLE] Total items a insertar (después de expansión): ${expandedItems.length}`);
 
         // Procesar items expandidos (incluye bundles + componentes + artículos normales)
+        let karSecCounter = 1; // CORREGIDO: Contador secuencial para kar_sec
         for (const item of expandedItems) {
             const articleInfo = item.art_sec;
 
@@ -622,7 +623,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
 
             await transaction.request()
                 .input('fac_sec', sql.Int, facSec)
-                .input('kar_sec', sql.Int, item.id)
+                .input('kar_sec', sql.Int, karSecCounter++) // CORREGIDO: Usar contador secuencial
                 .input('art_sec', sql.Int, articleInfo)
                 .input('kar_bod_sec', sql.Int, 1)
                 .input('kar_uni', sql.Int, quantity)
@@ -809,6 +810,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
         console.log(`[BUNDLE] Total items a insertar (después de expansión): ${expandedItems.length}`);
 
         // Insertar nuevos detalles (items expandidos)
+        let karSecCounter = 1; // CORREGIDO: Contador secuencial para kar_sec en UPDATE
         for (const item of expandedItems) {
             const articleInfo = item.art_sec;
 
@@ -877,7 +879,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
 
             await transaction.request()
                 .input('fac_sec', sql.Int, facSec)
-                .input('kar_sec', sql.Int, item.id)
+                .input('kar_sec', sql.Int, karSecCounter++) // CORREGIDO: Usar contador secuencial
                 .input('art_sec', sql.Int, articleInfo)
                 .input('kar_bod_sec', sql.Int, 1)
                 .input('kar_uni', sql.Int, quantity)

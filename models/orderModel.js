@@ -213,7 +213,18 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     // art_sec, kar_uni, precio_de_venta, kar_lis_pre_cod, kar_bundle_padre
     for (let i = 0; i < detallesExpandidos.length; i++) {
       const detail = detallesExpandidos[i];
-      const newKarSec = i + 1; // Asignar un número de línea secuencial
+
+      // CORREGIDO: Obtener el siguiente kar_sec de la base de datos en lugar de usar i+1
+      const karSecRequest = new sql.Request(transaction);
+      const karSecQuery = `
+        SELECT ISNULL(MAX(kar_sec), 0) + 1 AS NewKarSec
+        FROM dbo.facturakardes
+        WHERE fac_sec = @fac_sec
+      `;
+      const karSecResult = await karSecRequest
+        .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+        .query(karSecQuery);
+      const newKarSec = karSecResult.recordset[0].NewKarSec;
 
       // 5.1 Usar información de precios y ofertas que viene desde syncWooOrders o calcular si no está disponible
       let precioInfo;
