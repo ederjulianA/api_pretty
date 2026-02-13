@@ -100,7 +100,7 @@ app.use("/api/diagnostic", diagnosticRoutes);
 app.use("/api/eventos-promocionales", eventoPromocionalRoutes);
 app.use("/api/carga-costos", cargaCostosRoutes);
 app.use("/api/bundles", bundleRoutes);
-app.use("/api", aiRoutes);
+// app.use("/api", aiRoutes); // Comentado temporalmente - archivos no en repo
 app.get("/", (req, res) => {
   res.send("API Working");
 });
