@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "carga-costos-2026-02-09",
 		"name": "API Pretty - Carga de Costos",
-		"description": "Colección completa para probar el sistema de carga inicial de costos con costo promedio ponderado.\n\n**Documentación:** analisis_2026/API_ENDPOINTS_CARGA_COSTOS.md\n\n**Flujo recomendado:**\n1. Login → Obtener token\n2. Exportar → Descargar Excel\n3. Importar → Subir Excel con costos\n4. Resumen → Ver estado\n5. Alertas → Revisar problemas\n6. Aplicar → Aplicar a BD",
+		"description": "Colección completa para probar el sistema de carga inicial de costos con costo promedio ponderado.\n\n**Documentación:** analisis_2026/API_ENDPOINTS_CARGA_COSTOS.md\n\n**Flujo A - Cálculo Automático (RECOMENDADO para 600+ productos):**\n1. Login → Obtener token\n2. Calcular Automático → Calcula costos desde precio mayor (margen 20%)\n3. Resumen → Verificar estado (validados vs alertas)\n4. Alertas → Revisar productos con margen bajo\n5. Aplicar → Aplicar a BD\n\n**Flujo B - Carga Manual (para pocos productos):**\n1. Login → Obtener token\n2. Exportar → Descargar Excel\n3. Importar → Subir Excel con costos completados\n4. Resumen → Ver estado\n5. Alertas → Revisar problemas\n6. Aplicar → Aplicar a BD",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -237,7 +237,132 @@
 			]
 		},
 		{
-			"name": "3. Obtener Resumen de Carga",
+			"name": "3. Calcular Costos Automáticamente (NUEVO)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-access-token",
+						"value": "{{jwt_token}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"usu_cod\": \"{{username}}\",\n  \"margen_mayor\": 20\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/carga-costos/calcular-automatico",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"carga-costos",
+						"calcular-automatico"
+					]
+				},
+				"description": "**POST** `/api/carga-costos/calcular-automatico`\n\n⭐ **RECOMENDADO** para clientes con 600+ productos sin historial de compras.\n\nCalcula automáticamente los costos iniciales usando la fórmula:\n```\nCosto = Precio Mayor / (1 + margen/100)\n```\n\n**Ejemplo con margen 20%:**\n- Precio Mayor: $30,000\n- Divisor: 1.20\n- Costo Calculado: $30,000 / 1.20 = $25,000\n\n**Headers:**\n- `x-access-token`: Token JWT\n- `Content-Type`: application/json\n\n**Body (JSON):**\n```json\n{\n  \"usu_cod\": \"admin\",        // Opcional, se toma del token\n  \"margen_mayor\": 20          // Opcional, por defecto 20%\n}\n```\n\n**Parámetros:**\n- `margen_mayor`: Porcentaje de margen sobre el precio mayor (default: 20)\n  - Ejemplos: 15, 20, 25, 30\n  - Fórmula divisor: 1 + (margen/100)\n\n**Proceso:**\n1. Consulta todos los productos con `precio_venta_mayor > 0`\n2. Calcula: `costo = precio_mayor / divisor`\n3. Inserta/actualiza en `carga_inicial_costos` (UPSERT)\n4. Ejecuta validación automática\n5. **NO aplica directamente** (solo prepara para revisión)\n\n**Productos procesados:**\n- ✅ Con precio mayor configurado (lis_pre_cod = 2)\n- ❌ Sin precio mayor (se ignoran, contador: `sin_precio_mayor`)\n\n**Ventajas:**\n- ⚡ Procesa 600+ productos en segundos\n- 🔄 Soporta importación incremental (actualiza existentes)\n- ✅ Validación automática incluida\n- 📊 Permite revisión antes de aplicar\n\n**Siguiente paso:**\n1. Revisar con `GET /api/carga-costos/resumen`\n2. Verificar alertas con `GET /api/carga-costos/alertas`\n3. Aplicar con `POST /api/carga-costos/aplicar`\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Cálculo automático de costos completado exitosamente\",\n  \"data\": {\n    \"total_productos\": 650,\n    \"procesados\": 645,\n    \"nuevos\": 620,\n    \"actualizados\": 25,\n    \"sin_precio_mayor\": 5,\n    \"margen_aplicado\": \"20%\",\n    \"formula\": \"Costo = Precio Mayor / 1.20\",\n    \"siguiente_paso\": \"Revisar con GET /api/carga-costos/resumen y aplicar con POST /api/carga-costos/aplicar\"\n  }\n}\n```"
+			},
+			"response": [
+				{
+					"name": "Cálculo Exitoso (600+ productos)",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"usu_cod\": \"admin\",\n  \"margen_mayor\": 20\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/carga-costos/calcular-automatico",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"carga-costos",
+								"calcular-automatico"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [],
+					"cookie": [],
+					"body": "{\n  \"success\": true,\n  \"message\": \"Cálculo automático de costos completado exitosamente\",\n  \"data\": {\n    \"total_productos\": 650,\n    \"procesados\": 645,\n    \"nuevos\": 620,\n    \"actualizados\": 25,\n    \"sin_precio_mayor\": 5,\n    \"margen_aplicado\": \"20%\",\n    \"formula\": \"Costo = Precio Mayor / 1.20\",\n    \"siguiente_paso\": \"Revisar con GET /api/carga-costos/resumen y aplicar con POST /api/carga-costos/aplicar\"\n  }\n}"
+				},
+				{
+					"name": "Cálculo con Margen 25%",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"usu_cod\": \"admin\",\n  \"margen_mayor\": 25\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/carga-costos/calcular-automatico",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"carga-costos",
+								"calcular-automatico"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [],
+					"cookie": [],
+					"body": "{\n  \"success\": true,\n  \"message\": \"Cálculo automático de costos completado exitosamente\",\n  \"data\": {\n    \"total_productos\": 650,\n    \"procesados\": 645,\n    \"nuevos\": 0,\n    \"actualizados\": 645,\n    \"sin_precio_mayor\": 5,\n    \"margen_aplicado\": \"25%\",\n    \"formula\": \"Costo = Precio Mayor / 1.25\"\n  }\n}"
+				}
+			]
+		},
+		{
+			"name": "4. Obtener Resumen de Carga",
 			"request": {
 				"method": "GET",
 				"header": [
@@ -293,7 +418,7 @@
 			]
 		},
 		{
-			"name": "4. Obtener Productos con Alertas",
+			"name": "5. Obtener Productos con Alertas",
 			"request": {
 				"method": "GET",
 				"header": [
@@ -349,7 +474,7 @@
 			]
 		},
 		{
-			"name": "5. Aplicar Costos Validados",
+			"name": "6. Aplicar Costos Validados",
 			"request": {
 				"method": "POST",
 				"header": [

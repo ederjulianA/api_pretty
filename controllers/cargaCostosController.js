@@ -300,6 +300,160 @@ const obtenerProductosConAlertas = async (req, res) => {
 };
 
 /**
+ * Calcular costos automáticamente basados en precio mayor con margen fijo
+ * POST /api/carga-costos/calcular-automatico
+ *
+ * Calcula el costo inicial de todos los productos usando la fórmula:
+ * Costo = Precio Mayor / (1 + margen/100)
+ *
+ * Por defecto usa 20% de margen sobre precio mayor
+ * Los datos se cargan en la tabla temporal carga_inicial_costos para revisión
+ */
+const calcularCostosAutomatico = async (req, res) => {
+  try {
+    const usuario = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const margen_mayor = parseFloat(req.body.margen_mayor) || 20; // 20% por defecto
+    const divisor = 1 + (margen_mayor / 100); // 1.20 para 20%
+
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    let procesados = 0;
+    let actualizados = 0;
+    let nuevos = 0;
+    let sin_precio_mayor = 0;
+    const errores = [];
+
+    try {
+      // 1. Obtener todos los productos con precio mayor
+      const productos = await transaction.request().query(`
+        SELECT
+          a.art_sec,
+          a.art_cod,
+          a.art_nom,
+          ISNULL(ve.existencia, 0) AS existencia,
+          ad_detal.art_bod_pre AS precio_venta_detal,
+          ad_mayor.art_bod_pre AS precio_venta_mayor,
+          ISNULL(ad_detal.art_bod_cos_cat, 0) AS costo_actual
+        FROM dbo.articulos a
+        LEFT JOIN dbo.vwExistencias ve ON ve.art_sec = a.art_sec
+        LEFT JOIN dbo.articulosdetalle ad_detal ON ad_detal.art_sec = a.art_sec
+          AND ad_detal.bod_sec = '1' AND ad_detal.lis_pre_cod = 1
+        LEFT JOIN dbo.articulosdetalle ad_mayor ON ad_mayor.art_sec = a.art_sec
+          AND ad_mayor.bod_sec = '1' AND ad_mayor.lis_pre_cod = 2
+        WHERE ad_mayor.art_bod_pre > 0  -- Solo productos con precio mayor configurado
+      `);
+
+      // 2. Procesar cada producto
+      for (const prod of productos.recordset) {
+        if (!prod.precio_venta_mayor || prod.precio_venta_mayor <= 0) {
+          sin_precio_mayor++;
+          continue;
+        }
+
+        // Calcular costo usando la fórmula de costo reverso
+        const costo_calculado = Math.round((prod.precio_venta_mayor / divisor) * 100) / 100;
+
+        // Verificar si ya existe en carga_inicial_costos (UPSERT)
+        const existeResult = await transaction.request()
+          .input('art_sec', sql.VarChar(30), prod.art_sec)
+          .query('SELECT cic_id FROM dbo.carga_inicial_costos WHERE cic_art_sec = @art_sec');
+
+        if (existeResult.recordset.length > 0) {
+          // ACTUALIZAR registro existente
+          await transaction.request()
+            .input('art_sec', sql.VarChar(30), prod.art_sec)
+            .input('art_cod', sql.VarChar(30), prod.art_cod)
+            .input('art_nom', sql.VarChar(100), prod.art_nom)
+            .input('existencia', sql.Decimal(17, 2), prod.existencia)
+            .input('precio_detal', sql.Decimal(17, 2), prod.precio_venta_detal || 0)
+            .input('precio_mayor', sql.Decimal(17, 2), prod.precio_venta_mayor)
+            .input('costo', sql.Decimal(17, 2), costo_calculado)
+            .input('metodo', sql.VarChar(50), `REVERSO_${margen_mayor}%`)
+            .input('obs', sql.VarChar(500), `Cálculo automático desde precio mayor ($${prod.precio_venta_mayor}) con margen ${margen_mayor}%. Fórmula: Costo = Precio Mayor / ${divisor.toFixed(2)}`)
+            .input('usuario', sql.VarChar(100), usuario)
+            .query(`
+              UPDATE dbo.carga_inicial_costos
+              SET cic_art_cod = @art_cod,
+                  cic_art_nom = @art_nom,
+                  cic_existencia = @existencia,
+                  cic_precio_venta_detal = @precio_detal,
+                  cic_precio_venta_mayor = @precio_mayor,
+                  cic_costo_propuesto = @costo,
+                  cic_metodo_calculo = @metodo,
+                  cic_observaciones = @obs,
+                  cic_estado = 'PENDIENTE',
+                  cic_fecha_carga = GETDATE(),
+                  cic_usuario_carga = @usuario
+              WHERE cic_art_sec = @art_sec
+            `);
+          actualizados++;
+        } else {
+          // INSERTAR nuevo registro
+          await transaction.request()
+            .input('art_sec', sql.VarChar(30), prod.art_sec)
+            .input('art_cod', sql.VarChar(30), prod.art_cod)
+            .input('art_nom', sql.VarChar(100), prod.art_nom)
+            .input('existencia', sql.Decimal(17, 2), prod.existencia)
+            .input('precio_detal', sql.Decimal(17, 2), prod.precio_venta_detal || 0)
+            .input('precio_mayor', sql.Decimal(17, 2), prod.precio_venta_mayor)
+            .input('costo', sql.Decimal(17, 2), costo_calculado)
+            .input('metodo', sql.VarChar(50), `REVERSO_${margen_mayor}%`)
+            .input('obs', sql.VarChar(500), `Cálculo automático desde precio mayor ($${prod.precio_venta_mayor}) con margen ${margen_mayor}%. Fórmula: Costo = Precio Mayor / ${divisor.toFixed(2)}`)
+            .input('usuario', sql.VarChar(100), usuario)
+            .query(`
+              INSERT INTO dbo.carga_inicial_costos (
+                cic_art_sec, cic_art_cod, cic_art_nom, cic_existencia,
+                cic_precio_venta_detal, cic_precio_venta_mayor,
+                cic_costo_propuesto, cic_metodo_calculo, cic_observaciones, cic_usuario_carga
+              ) VALUES (
+                @art_sec, @art_cod, @art_nom, @existencia,
+                @precio_detal, @precio_mayor, @costo, @metodo, @obs, @usuario
+              )
+            `);
+          nuevos++;
+        }
+
+        procesados++;
+      }
+
+      await transaction.commit();
+
+      // 3. Ejecutar validación automática
+      await pool.request().execute('sp_ValidarCargaInicialCostos');
+
+      return res.json({
+        success: true,
+        message: 'Cálculo automático de costos completado exitosamente',
+        data: {
+          total_productos: productos.recordset.length,
+          procesados,
+          nuevos,
+          actualizados,
+          sin_precio_mayor,
+          margen_aplicado: `${margen_mayor}%`,
+          formula: `Costo = Precio Mayor / ${divisor.toFixed(2)}`,
+          siguiente_paso: 'Revisar con GET /api/carga-costos/resumen y aplicar con POST /api/carga-costos/aplicar'
+        }
+      });
+
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('Error en cálculo automático de costos:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al calcular costos automáticamente',
+      error: error.message
+    });
+  }
+};
+
+/**
  * Aplicar costos validados
  * POST /api/carga-costos/aplicar
  */
@@ -330,5 +484,6 @@ module.exports = {
   importarCostosDesdeExcel,
   obtenerResumenCarga,
   obtenerProductosConAlertas,
+  calcularCostosAutomatico,
   aplicarCostosValidados
 };

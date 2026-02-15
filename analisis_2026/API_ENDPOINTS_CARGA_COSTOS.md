@@ -118,7 +118,84 @@ usu_cod: "juan.perez"  (opcional, se toma del token si no se envía)
 
 ---
 
-### 3. Obtener Resumen de Carga
+### 3. Calcular Costos Automáticamente (NUEVO) ⭐
+
+**Descripción:** Calcula automáticamente los costos iniciales para todos los productos usando la fórmula de costo reverso desde el precio mayorista. Ideal para clientes sin historial de compras.
+
+**Fórmula aplicada:**
+```
+Costo Inicial = Precio Mayor / (1 + margen/100)
+
+Ejemplo con margen 20%:
+- Precio Mayor: $30,000
+- Cálculo: $30,000 / 1.20 = $25,000
+- Costo Inicial: $25,000
+```
+
+```http
+POST /api/carga-costos/calcular-automatico
+```
+
+**Headers:**
+```
+x-access-token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body (JSON):**
+```json
+{
+  "usu_cod": "admin",
+  "margen_mayor": 20
+}
+```
+
+**Parámetros:**
+- `usu_cod` (opcional): Usuario que ejecuta la operación. Se toma del token JWT si no se especifica
+- `margen_mayor` (opcional): Porcentaje de margen sobre el precio mayor. **Por defecto: 20%**
+
+**Respuesta Exitosa (200):**
+```json
+{
+  "success": true,
+  "message": "Cálculo automático de costos completado exitosamente",
+  "data": {
+    "total_productos": 650,
+    "procesados": 645,
+    "nuevos": 620,
+    "actualizados": 25,
+    "sin_precio_mayor": 5,
+    "margen_aplicado": "20%",
+    "formula": "Costo = Precio Mayor / 1.20",
+    "siguiente_paso": "Revisar con GET /api/carga-costos/resumen y aplicar con POST /api/carga-costos/aplicar"
+  }
+}
+```
+
+**Respuesta con Error (500):**
+```json
+{
+  "success": false,
+  "message": "Error al calcular costos automáticamente",
+  "error": "Detalle del error"
+}
+```
+
+**⚠️ Importante:**
+- Solo procesa productos con `precio_venta_mayor > 0` (lis_pre_cod = 2)
+- Los datos se cargan en la tabla temporal `carga_inicial_costos` para revisión
+- Se ejecuta validación automática después de calcular
+- **NO aplica los costos directamente**, solo los prepara para revisión
+- Soporta importación incremental: actualiza registros existentes
+
+**Casos de uso:**
+- ✅ Carga inicial masiva para clientes sin historial de compras
+- ✅ Recálculo rápido de costos con un margen diferente
+- ✅ Baseline inicial para ajustar manualmente productos específicos
+
+---
+
+### 4. Obtener Resumen de Carga
 
 **Descripción:** Retorna un resumen del estado actual de los costos cargados.
 
@@ -169,7 +246,7 @@ x-access-token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 4. Obtener Productos con Alertas
+### 5. Obtener Productos con Alertas
 
 **Descripción:** Lista todos los productos que requieren revisión manual (con alertas o rechazados).
 
@@ -211,7 +288,7 @@ x-access-token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 5. Aplicar Costos Validados
+### 6. Aplicar Costos Validados
 
 **Descripción:** Aplica todos los costos validados a la tabla `articulosdetalle` y registra en el historial.
 
@@ -264,7 +341,99 @@ Content-Type: application/json
 
 ## Flujo Completo de Uso
 
-### Escenario: Usuario carga costos por categorías
+### Escenario A: Carga Automática (RECOMENDADO para clientes sin historial) ⭐
+
+Este es el flujo más rápido para clientes con 600+ productos sin historial de compras.
+
+#### Paso 1: Calcular Costos Automáticamente
+
+```bash
+curl -X POST http://localhost:3000/api/carga-costos/calcular-automatico \
+  -H "x-access-token: YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "usu_cod": "admin",
+    "margen_mayor": 20
+  }'
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "message": "Cálculo automático de costos completado exitosamente",
+  "data": {
+    "total_productos": 650,
+    "procesados": 645,
+    "nuevos": 620,
+    "actualizados": 25,
+    "sin_precio_mayor": 5,
+    "margen_aplicado": "20%",
+    "formula": "Costo = Precio Mayor / 1.20",
+    "siguiente_paso": "Revisar con GET /api/carga-costos/resumen y aplicar con POST /api/carga-costos/aplicar"
+  }
+}
+```
+
+---
+
+#### Paso 2: Verificar Resumen
+
+```bash
+curl -X GET http://localhost:3000/api/carga-costos/resumen \
+  -H "x-access-token: YOUR_TOKEN"
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "data": [
+    { "estado": "VALIDADO", "cantidad": 640, "margen_promedio": 45.2 },
+    { "estado": "VALIDADO_CON_ALERTAS", "cantidad": 5, "margen_promedio": 18.0 }
+  ]
+}
+```
+
+---
+
+#### Paso 3: Revisar Alertas (Opcional)
+
+```bash
+curl -X GET http://localhost:3000/api/carga-costos/alertas \
+  -H "x-access-token: YOUR_TOKEN"
+```
+
+**Respuesta:** Lista de productos con margen < 20% que requieren revisión manual.
+
+---
+
+#### Paso 4: Aplicar Costos
+
+```bash
+curl -X POST http://localhost:3000/api/carga-costos/aplicar \
+  -H "x-access-token: YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"usu_cod": "admin"}'
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "message": "Carga inicial aplicada exitosamente",
+  "data": {
+    "total_aplicados": 640,
+    "errores": 0
+  }
+}
+```
+
+**✅ Listo!** En 4 pasos procesaste 640+ productos con costos iniciales.
+
+---
+
+### Escenario B: Usuario carga costos por categorías (Manual)
 
 #### Paso 1: Exportar Plantilla
 

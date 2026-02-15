@@ -11,6 +11,7 @@ const {
   importarCostosDesdeExcel,
   obtenerResumenCarga,
   obtenerProductosConAlertas,
+  calcularCostosAutomatico,
   aplicarCostosValidados
 } = require('../controllers/cargaCostosController');
 
@@ -20,6 +21,7 @@ router.get('/exportar', auth, exportarPlantillaCostos);
 router.post('/importar', auth, importarCostosDesdeExcel);
 router.get('/resumen', auth, obtenerResumenCarga);
 router.get('/alertas', auth, obtenerProductosConAlertas);
+router.post('/calcular-automatico', auth, calcularCostosAutomatico);
 router.post('/aplicar', auth, aplicarCostosValidados);
 
 module.exports = router;
