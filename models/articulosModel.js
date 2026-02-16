@@ -353,6 +353,8 @@ WITH ArticulosBase AS (
         -- Precios originales
         ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
         ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+        -- Costo promedio ponderado
+        ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio,
         -- Precios con oferta aplicada (usando la promoción más prioritaria)
         CASE 
             WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0 
