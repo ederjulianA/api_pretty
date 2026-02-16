@@ -10,12 +10,15 @@
 
 const {
   registrarCompra,
+  actualizarCompra,
   obtenerHistorialCompras,
   obtenerDetalleCompra,
   obtenerValorizadoPorCategorias,
   obtenerValorizadoPorSubcategorias,
   obtenerArticulosPorSubcategoria
 } = require('../models/compraModel');
+
+const { syncDocumentStockToWoo } = require('../utils/wooStockSync');
 
 /**
  * POST /api/compras
@@ -99,6 +102,15 @@ const crearCompra = async (req, res) => {
       detalles
     });
 
+    // Sincronizar stock con WooCommerce (modo silencioso para no bloquear la compra)
+    let wooSyncResult = null;
+    try {
+      wooSyncResult = await syncDocumentStockToWoo(resultado.fac_nro, { silent: true });
+    } catch (wooError) {
+      console.warn('Error sincronizando stock con WooCommerce:', wooError.message);
+      // No bloqueamos la respuesta por error de WooCommerce
+    }
+
     res.status(201).json({
       success: true,
       message: 'Compra registrada exitosamente',
@@ -108,7 +120,8 @@ const crearCompra = async (req, res) => {
         total_items: resultado.total_items,
         total_valor: resultado.total_valor,
         detalles_actualizacion: resultado.detalles_actualizacion
-      }
+      },
+      woo_sync: wooSyncResult
     });
 
   } catch (error) {
@@ -890,8 +903,187 @@ const reporteValorizadoArbolArticulos = async (req, res) => {
   }
 };
 
+/**
+ * PUT /api/compras/:fac_nro
+ * Actualiza una compra existente (encabezado y/o detalles)
+ *
+ * Body (todos los campos son opcionales):
+ * {
+ *   "fac_fec": "2026-02-16",
+ *   "nit_sec": "900123456",
+ *   "fac_obs": "Observaciones actualizadas",
+ *   "fac_est_fac": "A",  // A=Activa, I=Inactiva, C=Cancelada
+ *   "detalles": [
+ *     {
+ *       "kar_sec": 1,
+ *       "cantidad": 150,
+ *       "costo_unitario": 26500
+ *     }
+ *   ]
+ * }
+ */
+const modificarCompra = async (req, res) => {
+  try {
+    const { fac_nro } = req.params;
+
+    if (!fac_nro) {
+      return res.status(400).json({
+        success: false,
+        message: 'El número de compra (fac_nro) es requerido'
+      });
+    }
+
+    // Validaciones de campos opcionales
+    const datosActualizacion = {};
+
+    // Validar fecha si se proporciona
+    if (req.body.fac_fec !== undefined) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(req.body.fac_fec)) {
+        return res.status(400).json({
+          success: false,
+          message: 'fac_fec debe tener formato YYYY-MM-DD'
+        });
+      }
+      datosActualizacion.fac_fec = req.body.fac_fec;
+    }
+
+    // Validar proveedor si se proporciona
+    if (req.body.nit_sec !== undefined) {
+      if (!req.body.nit_sec || req.body.nit_sec.trim() === '') {
+        return res.status(400).json({
+          success: false,
+          message: 'nit_sec no puede estar vacío'
+        });
+      }
+      datosActualizacion.nit_sec = req.body.nit_sec;
+    }
+
+    // Validar observaciones si se proporciona
+    if (req.body.fac_obs !== undefined) {
+      datosActualizacion.fac_obs = req.body.fac_obs || '';
+    }
+
+    // Validar estado si se proporciona
+    if (req.body.fac_est_fac !== undefined) {
+      const estadosValidos = ['A', 'I', 'C'];
+      if (!estadosValidos.includes(req.body.fac_est_fac)) {
+        return res.status(400).json({
+          success: false,
+          message: 'fac_est_fac debe ser A (Activa), I (Inactiva) o C (Cancelada)'
+        });
+      }
+      datosActualizacion.fac_est_fac = req.body.fac_est_fac;
+    }
+
+    // Validar detalles si se proporcionan
+    if (req.body.detalles !== undefined) {
+      if (!Array.isArray(req.body.detalles)) {
+        return res.status(400).json({
+          success: false,
+          message: 'detalles debe ser un array'
+        });
+      }
+
+      // Validar cada detalle
+      for (const detalle of req.body.detalles) {
+        if (!detalle.kar_sec) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cada detalle debe tener kar_sec (secuencia del detalle)'
+          });
+        }
+
+        if (detalle.cantidad !== undefined) {
+          const cantidad = parseFloat(detalle.cantidad);
+          if (isNaN(cantidad) || cantidad <= 0) {
+            return res.status(400).json({
+              success: false,
+              message: `cantidad debe ser un número mayor a 0 (kar_sec ${detalle.kar_sec})`
+            });
+          }
+        }
+
+        if (detalle.costo_unitario !== undefined) {
+          const costo = parseFloat(detalle.costo_unitario);
+          if (isNaN(costo) || costo < 0) {
+            return res.status(400).json({
+              success: false,
+              message: `costo_unitario debe ser un número mayor o igual a 0 (kar_sec ${detalle.kar_sec})`
+            });
+          }
+        }
+
+        // Validar que al menos se proporcione cantidad o costo
+        if (detalle.cantidad === undefined && detalle.costo_unitario === undefined) {
+          return res.status(400).json({
+            success: false,
+            message: `Debe proporcionar cantidad y/o costo_unitario para actualizar (kar_sec ${detalle.kar_sec})`
+          });
+        }
+      }
+
+      datosActualizacion.detalles = req.body.detalles;
+    }
+
+    // Verificar que al menos un campo se proporcionó
+    if (Object.keys(datosActualizacion).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Debe proporcionar al menos un campo para actualizar (fac_fec, nit_sec, fac_obs, fac_est_fac, detalles)'
+      });
+    }
+
+    // Agregar usuario que modifica
+    datosActualizacion.usu_cod = req.usuario?.usu_cod || 'SYSTEM';
+
+    // Llamar al modelo
+    const resultado = await actualizarCompra(fac_nro, datosActualizacion);
+
+    // Sincronizar stock con WooCommerce si se actualizaron detalles (modo silencioso)
+    let wooSyncResult = null;
+    if (resultado.detalles_actualizados && resultado.detalles_actualizados.length > 0) {
+      try {
+        wooSyncResult = await syncDocumentStockToWoo(fac_nro, { silent: true });
+      } catch (wooError) {
+        console.warn('Error sincronizando stock con WooCommerce:', wooError.message);
+        // No bloqueamos la respuesta por error de WooCommerce
+      }
+    }
+
+    res.status(200).json({
+      ...resultado,
+      woo_sync: wooSyncResult
+    });
+
+  } catch (error) {
+    console.error('Error en modificarCompra:', error);
+
+    // Errores de validación del modelo
+    if (error.message.includes('no encontrada') ||
+        error.message.includes('no encontrado') ||
+        error.message.includes('no es una compra') ||
+        error.message.includes('Proveedor') ||
+        error.message.includes('Artículo') ||
+        error.message.includes('Detalle') ||
+        error.message.includes('Estado inválido')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Otros errores
+    res.status(500).json({
+      success: false,
+      message: 'Error actualizando compra',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   crearCompra,
+  modificarCompra,
   listarCompras,
   obtenerCompra,
   reporteVariacionCostos,

@@ -8,6 +8,7 @@ const auth = require('../middlewares/auth');
 
 const {
   crearCompra,
+  modificarCompra,
   listarCompras,
   obtenerCompra,
   reporteVariacionCostos,
@@ -23,6 +24,7 @@ const router = express.Router();
 
 // CRUD Básico
 router.post('/', auth, crearCompra);
+router.put('/:fac_nro', auth, modificarCompra);
 router.get('/', auth, listarCompras);
 router.get('/:fac_nro', auth, obtenerCompra);
 

@@ -1290,11 +1290,302 @@ const obtenerArticulosPorSubcategoria = async (inv_sub_gru_cod, filtros = {}) =>
   return await obtenerValorizadoInventario(filtrosConSubcategoria);
 };
 
+/**
+ * Actualiza una compra existente
+ * Permite actualizar tanto encabezado como detalles con recálculo automático de costos
+ *
+ * PROCESO DE ACTUALIZACIÓN DE DETALLES:
+ * 1. Reversa el efecto de la compra original en el costo promedio
+ * 2. Aplica el efecto de la compra corregida
+ * 3. Recalcula el costo promedio correcto
+ * 4. Registra en historial_costos como tipo AJUSTE
+ *
+ * @param {string} fac_nro - Número de compra a actualizar
+ * @param {object} datosActualizacion - Datos a actualizar
+ * @param {string} datosActualizacion.fac_fec - Nueva fecha (opcional)
+ * @param {string} datosActualizacion.nit_sec - Nuevo proveedor (opcional)
+ * @param {string} datosActualizacion.fac_obs - Nuevas observaciones (opcional)
+ * @param {string} datosActualizacion.fac_est_fac - Nuevo estado: A/I/C (opcional)
+ * @param {Array} datosActualizacion.detalles - Detalles a actualizar (opcional)
+ * @param {number} datosActualizacion.detalles[].kar_sec - Secuencia del detalle
+ * @param {number} datosActualizacion.detalles[].cantidad - Nueva cantidad
+ * @param {number} datosActualizacion.detalles[].costo_unitario - Nuevo costo unitario
+ * @param {string} datosActualizacion.usu_cod - Usuario que actualiza
+ * @returns {Promise<object>} Resultado de la actualización
+ */
+const actualizarCompra = async (fac_nro, datosActualizacion) => {
+  const pool = await poolPromise;
+  const transaction = new sql.Transaction(pool);
+
+  try {
+    await transaction.begin();
+
+    // 1. Verificar que la compra existe
+    const resultCompra = await transaction.request()
+      .input('fac_nro', sql.VarChar(15), fac_nro)
+      .query(`
+        SELECT fac_sec, fac_tip_cod, fac_est_fac
+        FROM dbo.factura
+        WHERE fac_nro = @fac_nro
+      `);
+
+    if (resultCompra.recordset.length === 0) {
+      throw new Error(`Compra ${fac_nro} no encontrada`);
+    }
+
+    const compraActual = resultCompra.recordset[0];
+    const fac_sec = compraActual.fac_sec;
+
+    // 2. Validar que es una compra (no otro tipo de factura)
+    if (compraActual.fac_tip_cod !== 'COM') {
+      throw new Error(`La factura ${fac_nro} no es una compra (tipo: ${compraActual.fac_tip_cod})`);
+    }
+
+    const detallesActualizados = [];
+
+    // 3. ACTUALIZAR DETALLES (si se proporcionaron)
+    if (datosActualizacion.detalles && datosActualizacion.detalles.length > 0) {
+      for (const detalleNuevo of datosActualizacion.detalles) {
+        const { kar_sec, cantidad, costo_unitario } = detalleNuevo;
+
+        // 3.1 Obtener detalle original
+        const resultDetalleOriginal = await transaction.request()
+          .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+          .input('kar_sec', sql.Int, kar_sec)
+          .query(`
+            SELECT art_sec, kar_uni, kar_pre, kar_total
+            FROM dbo.facturakardes
+            WHERE fac_sec = @fac_sec AND kar_sec = @kar_sec
+          `);
+
+        if (resultDetalleOriginal.recordset.length === 0) {
+          throw new Error(`Detalle kar_sec ${kar_sec} no encontrado en compra ${fac_nro}`);
+        }
+
+        const detalleOriginal = resultDetalleOriginal.recordset[0];
+        const art_sec = detalleOriginal.art_sec;
+        const cantidad_original = parseFloat(detalleOriginal.kar_uni);
+        const costo_original = parseFloat(detalleOriginal.kar_pre);
+
+        // Determinar nuevos valores (usar original si no se proporciona)
+        const cantidad_nueva = cantidad !== undefined ? parseFloat(cantidad) : cantidad_original;
+        const costo_nuevo = costo_unitario !== undefined ? parseFloat(costo_unitario) : costo_original;
+
+        // Si no hay cambios, saltar
+        if (cantidad_nueva === cantidad_original && costo_nuevo === costo_original) {
+          continue;
+        }
+
+        // 3.2 Obtener estado actual del artículo
+        const resultArticulo = await transaction.request()
+          .input('art_sec', sql.VarChar(30), art_sec)
+          .query(`
+            SELECT
+              ISNULL(ad.art_bod_cos_cat, 0) AS costo_actual,
+              ISNULL(ve.existencia, 0) AS existencia_actual
+            FROM dbo.articulos a
+            LEFT JOIN dbo.articulosdetalle ad
+              ON ad.art_sec = a.art_sec AND ad.bod_sec = '1' AND ad.lis_pre_cod = 1
+            LEFT JOIN dbo.vwExistencias ve ON ve.art_sec = a.art_sec
+            WHERE a.art_sec = @art_sec
+          `);
+
+        if (resultArticulo.recordset.length === 0) {
+          throw new Error(`Artículo ${art_sec} no encontrado`);
+        }
+
+        const { costo_actual, existencia_actual } = resultArticulo.recordset[0];
+        const costo_actual_float = parseFloat(costo_actual);
+        const existencia_actual_float = parseFloat(existencia_actual);
+
+        // 3.3 REVERSAR el efecto de la compra original
+        // Fórmula inversa del costo promedio:
+        // Si: Costo_Actual = (Valor_Anterior + Valor_Compra_Original) / (Existencia_Actual)
+        // Entonces: Valor_Anterior = (Costo_Actual * Existencia_Actual) - Valor_Compra_Original
+        // Y: Costo_Anterior = Valor_Anterior / (Existencia_Actual - Cantidad_Original)
+
+        const valor_actual_total = costo_actual_float * existencia_actual_float;
+        const valor_compra_original = costo_original * cantidad_original;
+        const valor_sin_compra_original = valor_actual_total - valor_compra_original;
+        const existencia_sin_compra_original = existencia_actual_float - cantidad_original;
+
+        // 3.4 APLICAR el efecto de la compra corregida
+        const valor_compra_nueva = costo_nuevo * cantidad_nueva;
+        const valor_con_compra_nueva = valor_sin_compra_original + valor_compra_nueva;
+        const existencia_con_compra_nueva = existencia_sin_compra_original + cantidad_nueva;
+
+        let costo_promedio_nuevo;
+        if (existencia_con_compra_nueva <= 0) {
+          costo_promedio_nuevo = 0;
+        } else {
+          costo_promedio_nuevo = valor_con_compra_nueva / existencia_con_compra_nueva;
+        }
+
+        // Redondear a 2 decimales
+        costo_promedio_nuevo = Math.round(costo_promedio_nuevo * 100) / 100;
+
+        // 3.5 Actualizar facturakardes
+        await transaction.request()
+          .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+          .input('kar_sec', sql.Int, kar_sec)
+          .input('kar_uni', sql.Decimal(17, 2), cantidad_nueva)
+          .input('kar_pre', sql.Decimal(17, 2), costo_nuevo)
+          .input('kar_pre_pub', sql.Decimal(17, 2), costo_nuevo)
+          .input('kar_total', sql.Decimal(17, 2), cantidad_nueva * costo_nuevo)
+          .query(`
+            UPDATE dbo.facturakardes
+            SET kar_uni = @kar_uni,
+                kar_pre = @kar_pre,
+                kar_pre_pub = @kar_pre_pub,
+                kar_total = @kar_total
+            WHERE fac_sec = @fac_sec AND kar_sec = @kar_sec
+          `);
+
+        // 3.6 Actualizar costo promedio en articulosdetalle
+        await transaction.request()
+          .input('art_sec', sql.VarChar(30), art_sec)
+          .input('nuevo_costo', sql.Decimal(17, 2), costo_promedio_nuevo)
+          .query(`
+            UPDATE dbo.articulosdetalle
+            SET art_bod_cos_cat = @nuevo_costo
+            WHERE art_sec = @art_sec AND bod_sec = '1' AND lis_pre_cod = 1
+          `);
+
+        // 3.7 Registrar en historial de costos
+        await transaction.request()
+          .input('art_sec', sql.VarChar(30), art_sec)
+          .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+          .input('cantidad_antes', sql.Decimal(17, 2), existencia_actual_float)
+          .input('costo_antes', sql.Decimal(17, 2), costo_actual_float)
+          .input('valor_antes', sql.Decimal(17, 2), valor_actual_total)
+          .input('cantidad_mov', sql.Decimal(17, 2), cantidad_nueva - cantidad_original)
+          .input('costo_mov', sql.Decimal(17, 2), costo_nuevo)
+          .input('valor_mov', sql.Decimal(17, 2), valor_compra_nueva - valor_compra_original)
+          .input('cantidad_despues', sql.Decimal(17, 2), existencia_con_compra_nueva)
+          .input('costo_despues', sql.Decimal(17, 2), costo_promedio_nuevo)
+          .input('valor_despues', sql.Decimal(17, 2), valor_con_compra_nueva)
+          .input('usu_cod', sql.VarChar(100), datosActualizacion.usu_cod)
+          .input('observaciones', sql.VarChar(500),
+            `AJUSTE ${fac_nro} kar_sec ${kar_sec}: ` +
+            `${cantidad_original}→${cantidad_nueva} unids, ` +
+            `$${costo_original}→$${costo_nuevo} c/u`
+          )
+          .query(`
+            INSERT INTO dbo.historial_costos (
+              hc_art_sec, hc_fac_sec, hc_fecha, hc_tipo_mov,
+              hc_cantidad_antes, hc_costo_antes, hc_valor_antes,
+              hc_cantidad_mov, hc_costo_mov, hc_valor_mov,
+              hc_cantidad_despues, hc_costo_despues, hc_valor_despues,
+              hc_usu_cod, hc_observaciones
+            ) VALUES (
+              @art_sec, @fac_sec, GETDATE(), 'AJUSTE_MANUAL',
+              @cantidad_antes, @costo_antes, @valor_antes,
+              @cantidad_mov, @costo_mov, @valor_mov,
+              @cantidad_despues, @costo_despues, @valor_despues,
+              @usu_cod, @observaciones
+            )
+          `);
+
+        detallesActualizados.push({
+          kar_sec,
+          art_sec,
+          cantidad_original,
+          cantidad_nueva,
+          costo_original,
+          costo_nuevo,
+          costo_promedio_anterior: costo_actual_float,
+          costo_promedio_nuevo
+        });
+      }
+    }
+
+    // 4. ACTUALIZAR ENCABEZADO (si se proporcionaron campos)
+    const camposActualizables = [];
+    const request = transaction.request();
+
+    if (datosActualizacion.fac_fec !== undefined) {
+      camposActualizables.push('fac_fec = @fac_fec');
+      request.input('fac_fec', sql.DateTime, datosActualizacion.fac_fec);
+    }
+
+    if (datosActualizacion.nit_sec !== undefined) {
+      // Validar que el proveedor existe
+      const resultProveedor = await transaction.request()
+        .input('nit_sec', sql.VarChar(16), datosActualizacion.nit_sec)
+        .query(`SELECT nit_sec FROM dbo.nit WHERE nit_sec = @nit_sec`);
+
+      if (resultProveedor.recordset.length === 0) {
+        throw new Error(`Proveedor ${datosActualizacion.nit_sec} no encontrado`);
+      }
+
+      camposActualizables.push('nit_sec = @nit_sec');
+      request.input('nit_sec', sql.VarChar(16), datosActualizacion.nit_sec);
+    }
+
+    if (datosActualizacion.fac_obs !== undefined) {
+      camposActualizables.push('fac_obs = @fac_obs');
+      request.input('fac_obs', sql.VarChar(1024), datosActualizacion.fac_obs);
+    }
+
+    if (datosActualizacion.fac_est_fac !== undefined) {
+      // Validar estado válido
+      if (!['A', 'I', 'C'].includes(datosActualizacion.fac_est_fac)) {
+        throw new Error('Estado inválido. Usar A (Activa), I (Inactiva) o C (Cancelada)');
+      }
+
+      camposActualizables.push('fac_est_fac = @fac_est_fac');
+      request.input('fac_est_fac', sql.Char(1), datosActualizacion.fac_est_fac);
+    }
+
+    // Si hay campos del encabezado para actualizar
+    if (camposActualizables.length > 0) {
+      // Agregar campos de auditoría
+      camposActualizables.push('fac_fch_mod = GETDATE()');
+      camposActualizables.push('fac_usu_cod_mod = @fac_usu_cod_mod');
+      request.input('fac_usu_cod_mod', sql.VarChar(100), datosActualizacion.usu_cod);
+
+      // Ejecutar UPDATE
+      request.input('fac_nro', sql.VarChar(15), fac_nro);
+      const updateQuery = `
+        UPDATE dbo.factura
+        SET ${camposActualizables.join(', ')}
+        WHERE fac_nro = @fac_nro
+      `;
+
+      await request.query(updateQuery);
+    }
+
+    // Validar que se actualizó algo
+    if (camposActualizables.length === 0 && detallesActualizados.length === 0) {
+      throw new Error('No se proporcionaron campos o detalles para actualizar');
+    }
+
+    // 5. Commit
+    await transaction.commit();
+
+    return {
+      success: true,
+      fac_nro,
+      message: 'Compra actualizada exitosamente',
+      encabezado_actualizado: camposActualizables.length > 0,
+      campos_actualizados: camposActualizables.filter(c =>
+        !c.includes('fac_fch_mod') && !c.includes('fac_usu_cod_mod')
+      ),
+      detalles_actualizados: detallesActualizados
+    };
+
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+};
+
 module.exports = {
   calcularCostoPromedio,
   generarNumeroCompra,
   generarFacSec,
   registrarCompra,
+  actualizarCompra,
   obtenerHistorialCompras,
   obtenerDetalleCompra,
   obtenerValorizadoInventario,
