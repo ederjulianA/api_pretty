@@ -425,12 +425,13 @@ const obtenerHistorialCompras = async (filtros = {}) => {
 
     query += `
       GROUP BY f.fac_nro, f.fac_fec, f.nit_sec, n.nit_nom, f.fac_obs, f.fac_usu_cod_cre
-      ORDER BY f.fac_fec DESC
     `;
 
     if (filtros.limit) {
-      query = `SELECT TOP (@limit) * FROM (${query}) AS compras`;
+      query = `SELECT TOP (@limit) * FROM (${query}) AS compras ORDER BY fac_fec DESC`;
       request.input('limit', sql.Int, filtros.limit);
+    } else {
+      query += ` ORDER BY f.fac_fec DESC`;
     }
 
     const result = await request.query(query);
