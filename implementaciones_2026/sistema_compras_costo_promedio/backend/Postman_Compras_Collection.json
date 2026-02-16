@@ -1,0 +1,533 @@
+{
+  "info": {
+    "name": "Sistema de Compras - Costo Promedio",
+    "description": "Colección completa para testing del Sistema de Compras con Cálculo Automático de Costo Promedio Ponderado\n\n**Fase:** 1 - Sistema de Compras\n**Fecha:** 2026-02-16 (Actualizada)\n**Versión:** 1.1 (Correcciones de estructura BD)\n\n## Correcciones v1.1 (2026-02-16)\n- ✅ Cambiado `nit_cod` → `nit_sec` (campo correcto de BD)\n- ✅ Totales calculados desde `facturakardes.kar_total`\n- ✅ Alineado con estructura real de base de datos\n\n## Características\n- ✅ Registro de compras con múltiples detalles\n- ✅ Cálculo automático de costo promedio\n- ✅ Reportes de variación y proveedores\n- ✅ Lógica 100% en JavaScript (database-agnostic)\n\n## Flujo Recomendado\n1. **Autenticación** → Obtener token JWT\n2. **Registrar Compra** → POST /api/compras (usar `nit_sec`)\n3. **Ver Detalle** → GET /api/compras/:fac_nro\n4. **Consultar Historial** → GET /api/compras\n5. **Reportes** → Variación de costos y por proveedor\n\n## Variables de Entorno\n- `base_url`: http://localhost:3000\n- `token`: Se actualiza automáticamente al hacer login\n\n## Documentación\nVer: `docs/API_ENDPOINTS_COMPRAS.md` y `CORRECCIONES_ESTRUCTURA_BD.md`",
+    "_postman_id": "compras-collection-2026-02-16",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "0. Autenticación",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Guardar token automáticamente",
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.environment.set('token', jsonData.token);",
+                  "        console.log('✅ Token guardado:', jsonData.token.substring(0, 20) + '...');",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usu_cod\": \"admin\",\n  \"usu_pass\": \"tu_password\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene un token JWT válido por 24 horas.\n\nEl token se guarda automáticamente en las variables de entorno."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. Registrar Compra",
+      "item": [
+        {
+          "name": "Compra Simple - 1 Artículo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nit_sec\": \"900123456\",\n  \"fac_fec\": \"2026-02-15\",\n  \"fac_obs\": \"Compra de prueba - 1 artículo\",\n  \"detalles\": [\n    {\n      \"art_sec\": \"ART001\",\n      \"cantidad\": 100,\n      \"costo_unitario\": 25000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/compras",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras"
+              ]
+            },
+            "description": "Registra una compra simple con un solo artículo.\n\n**Ejemplo de cálculo:**\nSi el artículo tiene:\n- Costo actual: $24,000\n- Existencia: 200 unidades\n\nAl comprar 100 unidades a $25,000:\n- Valor actual: 24,000 × 200 = 4,800,000\n- Valor compra: 25,000 × 100 = 2,500,000\n- Nuevo costo: (4,800,000 + 2,500,000) / 300 = $24,333.33"
+          },
+          "response": [
+            {
+              "name": "Éxito - Primera Compra",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"nit_sec\": \"900123456\",\n  \"fac_fec\": \"2026-02-15\",\n  \"fac_obs\": \"Primera compra de este producto\",\n  \"detalles\": [\n    {\n      \"art_sec\": \"NUEVO001\",\n      \"cantidad\": 50,\n      \"costo_unitario\": 30000\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/compras",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "compras"
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Compra registrada exitosamente\",\n  \"data\": {\n    \"fac_nro\": \"COM000001\",\n    \"total_items\": 1,\n    \"total_valor\": 1500000,\n    \"detalles_actualizacion\": [\n      {\n        \"art_sec\": \"NUEVO001\",\n        \"cantidad\": 50,\n        \"costo_unitario\": 30000,\n        \"costo_anterior\": 0,\n        \"costo_nuevo\": 30000,\n        \"diferencia\": 30000,\n        \"existencia_anterior\": 0,\n        \"existencia_nueva\": 50\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Compra Múltiple - 3 Artículos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nit_sec\": \"900123456\",\n  \"fac_fec\": \"2026-02-15\",\n  \"fac_obs\": \"Compra quincenal febrero 2026\",\n  \"detalles\": [\n    {\n      \"art_sec\": \"ART001\",\n      \"cantidad\": 100,\n      \"costo_unitario\": 25000\n    },\n    {\n      \"art_sec\": \"ART002\",\n      \"cantidad\": 50,\n      \"costo_unitario\": 45000\n    },\n    {\n      \"art_sec\": \"ART003\",\n      \"cantidad\": 200,\n      \"costo_unitario\": 15000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/compras",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras"
+              ]
+            },
+            "description": "Registra una compra con múltiples artículos.\n\n**Proceso:**\n1. Genera un solo fac_nro (ej: COM000002)\n2. Calcula costo promedio para cada artículo independientemente\n3. Registra 3 líneas en facturakardes\n4. Actualiza 3 costos en articulosdetalle\n5. Crea 3 entradas en historial_costos"
+          },
+          "response": [
+            {
+              "name": "Éxito - Compra Múltiple",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"nit_sec\": \"900123456\",\n  \"fac_fec\": \"2026-02-15\",\n  \"fac_obs\": \"Compra quincenal febrero 2026\",\n  \"detalles\": [\n    {\n      \"art_sec\": \"ART001\",\n      \"cantidad\": 100,\n      \"costo_unitario\": 25000\n    },\n    {\n      \"art_sec\": \"ART002\",\n      \"cantidad\": 50,\n      \"costo_unitario\": 45000\n    },\n    {\n      \"art_sec\": \"ART003\",\n      \"cantidad\": 200,\n      \"costo_unitario\": 15000\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/compras",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "compras"
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Compra registrada exitosamente\",\n  \"data\": {\n    \"fac_nro\": \"COM000002\",\n    \"total_items\": 3,\n    \"total_valor\": 7750000,\n    \"detalles_actualizacion\": [\n      {\n        \"art_sec\": \"ART001\",\n        \"cantidad\": 100,\n        \"costo_unitario\": 25000,\n        \"costo_anterior\": 24000,\n        \"costo_nuevo\": 24333.33,\n        \"diferencia\": 333.33,\n        \"existencia_anterior\": 200,\n        \"existencia_nueva\": 300\n      },\n      {\n        \"art_sec\": \"ART002\",\n        \"cantidad\": 50,\n        \"costo_unitario\": 45000,\n        \"costo_anterior\": 42000,\n        \"costo_nuevo\": 43000,\n        \"diferencia\": 1000,\n        \"existencia_anterior\": 150,\n        \"existencia_nueva\": 200\n      },\n      {\n        \"art_sec\": \"ART003\",\n        \"cantidad\": 200,\n        \"costo_unitario\": 15000,\n        \"costo_anterior\": 14500,\n        \"costo_nuevo\": 14666.67,\n        \"diferencia\": 166.67,\n        \"existencia_anterior\": 300,\n        \"existencia_nueva\": 500\n      }\n    ]\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Listar Compras",
+      "item": [
+        {
+          "name": "Todas las Compras (últimas 100)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compras",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras"
+              ]
+            },
+            "description": "Lista todas las compras ordenadas por fecha descendente (más recientes primero).\n\nPor defecto muestra las últimas 100 compras."
+          },
+          "response": []
+        },
+        {
+          "name": "Filtrar por Fecha",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compras?fecha_desde=2026-02-01&fecha_hasta=2026-02-28",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras"
+              ],
+              "query": [
+                {
+                  "key": "fecha_desde",
+                  "value": "2026-02-01"
+                },
+                {
+                  "key": "fecha_hasta",
+                  "value": "2026-02-28"
+                }
+              ]
+            },
+            "description": "Filtra compras por rango de fechas.\n\nFormato: YYYY-MM-DD"
+          },
+          "response": []
+        },
+        {
+          "name": "Filtrar por Proveedor",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compras?nit_sec=900123456",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras"
+              ],
+              "query": [
+                {
+                  "key": "nit_sec",
+                  "value": "900123456"
+                }
+              ]
+            },
+            "description": "Filtra compras de un proveedor específico."
+          },
+          "response": []
+        },
+        {
+          "name": "Limitar Resultados",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compras?limit=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Limita el número de resultados devueltos."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Detalle de Compra",
+      "item": [
+        {
+          "name": "Obtener Detalle por Número",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compras/COM000001",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras",
+                "COM000001"
+              ]
+            },
+            "description": "Obtiene el detalle completo de una compra específica.\n\n**Incluye:**\n- Encabezado de la compra\n- Información del proveedor\n- Lista de artículos comprados\n- Costo actual de cada artículo"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Reportes",
+      "item": [
+        {
+          "name": "Reporte de Variación de Costos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compras/reportes/variacion-costos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras",
+                "reportes",
+                "variacion-costos"
+              ]
+            },
+            "description": "Genera un reporte de artículos con variación de costos.\n\n**Muestra:**\n- Productos con mayor variación\n- Costo mínimo y máximo\n- Variación absoluta y porcentual\n- Última actualización\n\n**Ordenado por:** Variación porcentual descendente"
+          },
+          "response": []
+        },
+        {
+          "name": "Variación de Costos - Febrero 2026",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compras/reportes/variacion-costos?fecha_desde=2026-02-01&fecha_hasta=2026-02-28&limit=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras",
+                "reportes",
+                "variacion-costos"
+              ],
+              "query": [
+                {
+                  "key": "fecha_desde",
+                  "value": "2026-02-01"
+                },
+                {
+                  "key": "fecha_hasta",
+                  "value": "2026-02-28"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Reporte de variación de costos en febrero 2026, limitado a los 10 productos con mayor variación."
+          },
+          "response": []
+        },
+        {
+          "name": "Reporte por Proveedor",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compras/reportes/por-proveedor",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras",
+                "reportes",
+                "por-proveedor"
+              ]
+            },
+            "description": "Genera un reporte agrupado por proveedor.\n\n**Muestra:**\n- Total de compras por proveedor\n- Valor total y promedio\n- Primera y última compra\n\n**Ordenado por:** Valor total descendente"
+          },
+          "response": []
+        },
+        {
+          "name": "Proveedores - Febrero 2026",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-access-token",
+                "value": "{{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/compras/reportes/por-proveedor?fecha_desde=2026-02-01&fecha_hasta=2026-02-28",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "compras",
+                "reportes",
+                "por-proveedor"
+              ],
+              "query": [
+                {
+                  "key": "fecha_desde",
+                  "value": "2026-02-01"
+                },
+                {
+                  "key": "fecha_hasta",
+                  "value": "2026-02-28"
+                }
+              ]
+            },
+            "description": "Reporte de compras por proveedor en febrero 2026."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Script global pre-request",
+          "console.log('🚀 Ejecutando request a:', pm.request.url.toString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Script global de tests",
+          "pm.test('Status code es exitoso', function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+          "});",
+          "",
+          "pm.test('Respuesta es JSON', function () {",
+          "    pm.response.to.have.header('Content-Type');",
+          "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+          "});",
+          "",
+          "pm.test('Respuesta tiene campo success', function () {",
+          "    const jsonData = pm.response.json();",
+          "    pm.expect(jsonData).to.have.property('success');",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "default"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "default"
+    }
+  ]
+}
