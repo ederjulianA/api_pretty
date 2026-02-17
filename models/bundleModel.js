@@ -402,10 +402,15 @@ const getBundleComponents = async (art_sec) => {
         c.art_nom,
         c.art_url_img_servi,
         aa.ConKarUni AS cantidad,
-        ISNULL(ve.existencia, 0) AS stock_disponible
+        ISNULL(ve.existencia, 0) AS stock_disponible,
+        ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
+        ISNULL(ad2.art_bod_pre, 0) AS precio_mayor,
+        ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio
       FROM dbo.articulosArmado aa
       INNER JOIN dbo.articulos c ON c.art_sec = aa.ComArtSec
       LEFT JOIN dbo.vwExistencias ve ON ve.art_sec = aa.ComArtSec
+      LEFT JOIN dbo.articulosdetalle ad1 ON c.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+      LEFT JOIN dbo.articulosdetalle ad2 ON c.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
       WHERE aa.art_sec = @art_sec
     `);
 
@@ -415,7 +420,10 @@ const getBundleComponents = async (art_sec) => {
     art_nom: r.art_nom,
     art_url_img_servi: r.art_url_img_servi || null,
     cantidad: r.cantidad,
-    stock_disponible: r.stock_disponible
+    stock_disponible: r.stock_disponible,
+    precio_detal: r.precio_detal || 0,
+    precio_mayor: r.precio_mayor || 0,
+    costo_promedio: r.costo_promedio || 0
   }));
 
   return {
