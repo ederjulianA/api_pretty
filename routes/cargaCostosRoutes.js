@@ -12,7 +12,10 @@ const {
   obtenerResumenCarga,
   obtenerProductosConAlertas,
   calcularCostosAutomatico,
-  aplicarCostosValidados
+  aplicarCostosValidados,
+  registrarCostoIndividual,
+  aprobarCostoIndividual,
+  aprobarCostosMasivo
 } = require('../controllers/cargaCostosController');
 
 const router = express.Router();
@@ -23,5 +26,8 @@ router.get('/resumen', auth, obtenerResumenCarga);
 router.get('/alertas', auth, obtenerProductosConAlertas);
 router.post('/calcular-automatico', auth, calcularCostosAutomatico);
 router.post('/aplicar', auth, aplicarCostosValidados);
+router.post('/registrar-individual', auth, registrarCostoIndividual);
+router.put('/aprobar/:art_cod', auth, aprobarCostoIndividual);
+router.put('/actualizar-estado', auth, aprobarCostosMasivo);
 
 module.exports = router;

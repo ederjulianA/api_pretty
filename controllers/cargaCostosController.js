@@ -479,11 +479,370 @@ const aplicarCostosValidados = async (req, res) => {
   }
 };
 
+/**
+ * Registrar costo individual para un artículo
+ * POST /api/carga-costos/registrar-individual
+ */
+const registrarCostoIndividual = async (req, res) => {
+  try {
+    const { art_sec, art_cod, costo_inicial, cantidad, metodo, observaciones } = req.body;
+    const usu_cod = req.usuario?.usu_cod || 'sistema';
+
+    // Validaciones
+    if (!art_sec && !art_cod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere art_sec o art_cod'
+      });
+    }
+
+    if (!costo_inicial || parseFloat(costo_inicial) < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El costo inicial debe ser un número mayor o igual a 0'
+      });
+    }
+
+    const pool = await poolPromise;
+
+    // 1. Buscar el artículo y sus precios
+    const articuloQuery = `
+      SELECT
+        a.art_sec,
+        a.art_cod,
+        a.art_nom,
+        ISNULL(ad_detal.art_bod_pre, 0) AS precio_venta_detal,
+        ISNULL(ad_mayor.art_bod_pre, 0) AS precio_venta_mayor
+      FROM dbo.articulos a
+      LEFT JOIN dbo.articulosdetalle ad_detal ON ad_detal.art_sec = a.art_sec
+        AND ad_detal.bod_sec = '1' AND ad_detal.lis_pre_cod = 1
+      LEFT JOIN dbo.articulosdetalle ad_mayor ON ad_mayor.art_sec = a.art_sec
+        AND ad_mayor.bod_sec = '1' AND ad_mayor.lis_pre_cod = 2
+      WHERE ${art_sec ? 'a.art_sec = @art_sec' : 'a.art_cod = @art_cod'}
+    `;
+
+    const articuloResult = await pool.request()
+      .input('art_sec', sql.VarChar(30), art_sec || null)
+      .input('art_cod', sql.VarChar(30), art_cod || null)
+      .query(articuloQuery);
+
+    if (articuloResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Artículo no encontrado'
+      });
+    }
+
+    const articulo = articuloResult.recordset[0];
+    const costoNumerico = parseFloat(costo_inicial);
+    const precioVenta = parseFloat(articulo.precio_venta_detal) || parseFloat(articulo.precio_venta_mayor) || 0;
+
+    // 2. Calcular margen y determinar estado
+    let margen = 0;
+    let estado = 'PENDIENTE';
+    let observacionesValidacion = observaciones || '';
+
+    if (precioVenta > 0 && costoNumerico > 0) {
+      margen = ((precioVenta - costoNumerico) / precioVenta) * 100;
+
+      if (costoNumerico >= precioVenta) {
+        estado = 'RECHAZADO';
+        observacionesValidacion += ' | ERROR: Costo mayor o igual que precio venta';
+      } else if (margen < 20) {
+        estado = 'VALIDADO_CON_ALERTAS';
+        observacionesValidacion += ' | ALERTA: Margen muy bajo (<20%)';
+      } else {
+        estado = 'VALIDADO';
+      }
+    } else if (costoNumerico === 0) {
+      estado = 'PENDIENTE';
+    } else {
+      estado = 'RECHAZADO';
+      observacionesValidacion += ' | ERROR: Sin precio de venta definido';
+    }
+
+    // 3. Insertar o actualizar en tabla temporal
+    const upsertQuery = `
+      MERGE INTO dbo.carga_inicial_costos AS target
+      USING (SELECT @art_sec AS cic_art_sec) AS source
+      ON target.cic_art_sec = source.cic_art_sec
+      WHEN MATCHED THEN
+        UPDATE SET
+          cic_costo_propuesto = @costo_inicial,
+          cic_metodo_calculo = @metodo,
+          cic_observaciones = @observaciones,
+          cic_estado = @estado
+      WHEN NOT MATCHED THEN
+        INSERT (
+          cic_art_sec,
+          cic_art_cod,
+          cic_art_nom,
+          cic_precio_venta_detal,
+          cic_precio_venta_mayor,
+          cic_costo_propuesto,
+          cic_metodo_calculo,
+          cic_observaciones,
+          cic_estado,
+          cic_usuario_carga,
+          cic_fecha_carga
+        )
+        VALUES (
+          @art_sec,
+          @art_cod,
+          @art_nom,
+          @precio_detal,
+          @precio_mayor,
+          @costo_inicial,
+          @metodo,
+          @observaciones,
+          @estado,
+          @usu_cod,
+          GETDATE()
+        );
+    `;
+
+    await pool.request()
+      .input('art_sec', sql.VarChar(30), articulo.art_sec)
+      .input('art_cod', sql.VarChar(30), articulo.art_cod)
+      .input('art_nom', sql.VarChar(100), articulo.art_nom)
+      .input('precio_detal', sql.Decimal(17, 2), parseFloat(articulo.precio_venta_detal) || 0)
+      .input('precio_mayor', sql.Decimal(17, 2), parseFloat(articulo.precio_venta_mayor) || 0)
+      .input('costo_inicial', sql.Decimal(17, 2), costoNumerico)
+      .input('metodo', sql.VarChar(50), metodo || 'MANUAL')
+      .input('observaciones', sql.VarChar(500), observacionesValidacion)
+      .input('estado', sql.VarChar(50), estado)
+      .input('usu_cod', sql.VarChar(50), usu_cod)
+      .query(upsertQuery);
+
+    // 4. Devolver respuesta
+    return res.json({
+      success: true,
+      message: estado === 'VALIDADO'
+        ? 'Costo registrado exitosamente. Use /api/carga-costos/aplicar para confirmar.'
+        : estado === 'VALIDADO_CON_ALERTAS'
+        ? 'Costo registrado con alertas. Revise antes de aplicar.'
+        : 'Costo rechazado. Corrija los errores antes de aplicar.',
+      data: {
+        art_sec: articulo.art_sec,
+        art_cod: articulo.art_cod,
+        art_nom: articulo.art_nom,
+        costo_propuesto: costoNumerico,
+        precio_venta: precioVenta,
+        margen: margen.toFixed(2),
+        estado,
+        observaciones: observacionesValidacion,
+        siguiente_paso: estado === 'RECHAZADO'
+          ? 'Corrija el costo antes de aplicar'
+          : 'Use POST /api/carga-costos/aplicar para confirmar'
+      }
+    });
+
+  } catch (error) {
+    console.error('Error registrando costo individual:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al registrar costo individual',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Aprobar costo individual (cambiar de VALIDADO_CON_ALERTAS a VALIDADO)
+ * PUT /api/carga-costos/aprobar/:art_cod
+ */
+const aprobarCostoIndividual = async (req, res) => {
+  try {
+    const { art_cod } = req.params;
+    const { observaciones } = req.body;
+    const usu_cod = req.usuario?.usu_cod || 'sistema';
+
+    if (!art_cod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere art_cod'
+      });
+    }
+
+    const pool = await poolPromise;
+
+    // 1. Verificar que existe y obtener datos actuales
+    const checkQuery = `
+      SELECT
+        cic_art_cod,
+        cic_art_nom,
+        cic_estado,
+        cic_margen_resultante_detal,
+        cic_observaciones
+      FROM dbo.carga_inicial_costos
+      WHERE cic_art_cod = @art_cod
+    `;
+
+    const checkResult = await pool.request()
+      .input('art_cod', sql.VarChar(30), art_cod)
+      .query(checkQuery);
+
+    if (checkResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `No se encontró costo para el artículo ${art_cod}`
+      });
+    }
+
+    const costoActual = checkResult.recordset[0];
+
+    // 2. Verificar que el estado actual permite la aprobación
+    if (costoActual.cic_estado !== 'VALIDADO_CON_ALERTAS' && costoActual.cic_estado !== 'RECHAZADO') {
+      return res.status(400).json({
+        success: false,
+        message: `Solo se pueden aprobar costos con estado VALIDADO_CON_ALERTAS o RECHAZADO. Estado actual: ${costoActual.cic_estado}`
+      });
+    }
+
+    // 3. Actualizar estado a VALIDADO
+    const nuevaObservacion = (costoActual.cic_observaciones || '') +
+      ` | Aprobado manualmente por ${usu_cod}: ${observaciones || 'Sin observaciones'}`;
+
+    const updateQuery = `
+      UPDATE dbo.carga_inicial_costos
+      SET cic_estado = 'VALIDADO',
+          cic_observaciones = @nuevaObservacion,
+          cic_fecha_validacion = GETDATE(),
+          cic_usuario_validacion = @usu_cod
+      WHERE cic_art_cod = @art_cod
+    `;
+
+    await pool.request()
+      .input('art_cod', sql.VarChar(30), art_cod)
+      .input('nuevaObservacion', sql.VarChar(500), nuevaObservacion.substring(0, 500))
+      .input('usu_cod', sql.VarChar(100), usu_cod)
+      .query(updateQuery);
+
+    return res.json({
+      success: true,
+      message: 'Costo aprobado exitosamente',
+      data: {
+        art_cod: costoActual.cic_art_cod,
+        art_nom: costoActual.cic_art_nom,
+        estado_anterior: costoActual.cic_estado,
+        estado_nuevo: 'VALIDADO',
+        margen: costoActual.cic_margen_resultante_detal,
+        aprobado_por: usu_cod
+      }
+    });
+
+  } catch (error) {
+    console.error('Error aprobando costo individual:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al aprobar costo',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Aprobar costos masivamente
+ * PUT /api/carga-costos/actualizar-estado
+ */
+const aprobarCostosMasivo = async (req, res) => {
+  try {
+    const { art_cods, observaciones } = req.body;
+    const usu_cod = req.usuario?.usu_cod || 'sistema';
+
+    if (!art_cods || !Array.isArray(art_cods) || art_cods.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere un array de art_cods'
+      });
+    }
+
+    const pool = await poolPromise;
+    const errores = [];
+    let totalActualizados = 0;
+
+    // Procesar cada artículo
+    for (const art_cod of art_cods) {
+      try {
+        // 1. Verificar que existe y obtener datos actuales
+        const checkQuery = `
+          SELECT cic_art_cod, cic_estado, cic_observaciones
+          FROM dbo.carga_inicial_costos
+          WHERE cic_art_cod = @art_cod
+        `;
+
+        const checkResult = await pool.request()
+          .input('art_cod', sql.VarChar(30), art_cod)
+          .query(checkQuery);
+
+        if (checkResult.recordset.length === 0) {
+          errores.push(`${art_cod}: No encontrado`);
+          continue;
+        }
+
+        const costoActual = checkResult.recordset[0];
+
+        // 2. Verificar estado
+        if (costoActual.cic_estado !== 'VALIDADO_CON_ALERTAS' && costoActual.cic_estado !== 'RECHAZADO') {
+          errores.push(`${art_cod}: Estado ${costoActual.cic_estado} no puede aprobarse`);
+          continue;
+        }
+
+        // 3. Actualizar
+        const nuevaObservacion = (costoActual.cic_observaciones || '') +
+          ` | Aprobado masivamente por ${usu_cod}: ${observaciones || 'Sin observaciones'}`;
+
+        const updateQuery = `
+          UPDATE dbo.carga_inicial_costos
+          SET cic_estado = 'VALIDADO',
+              cic_observaciones = @nuevaObservacion,
+              cic_fecha_validacion = GETDATE(),
+              cic_usuario_validacion = @usu_cod
+          WHERE cic_art_cod = @art_cod
+        `;
+
+        await pool.request()
+          .input('art_cod', sql.VarChar(30), art_cod)
+          .input('nuevaObservacion', sql.VarChar(500), nuevaObservacion.substring(0, 500))
+          .input('usu_cod', sql.VarChar(100), usu_cod)
+          .query(updateQuery);
+
+        totalActualizados++;
+
+      } catch (error) {
+        errores.push(`${art_cod}: ${error.message}`);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Estados actualizados: ${totalActualizados}/${art_cods.length}`,
+      data: {
+        total_solicitados: art_cods.length,
+        total_actualizados: totalActualizados,
+        total_errores: errores.length,
+        errores: errores
+      }
+    });
+
+  } catch (error) {
+    console.error('Error aprobando costos masivo:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al aprobar costos masivamente',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   exportarPlantillaCostos,
   importarCostosDesdeExcel,
   obtenerResumenCarga,
   obtenerProductosConAlertas,
   calcularCostosAutomatico,
-  aplicarCostosValidados
+  aplicarCostosValidados,
+  registrarCostoIndividual,
+  aprobarCostoIndividual,
+  aprobarCostosMasivo
 };
