@@ -1,6 +1,7 @@
 import wcPkg from "@woocommerce/woocommerce-rest-api";
 import { poolPromise, sql } from '../db.js';
 import { generateFacNro, valorMayorista, generateConsecutivo } from '../utils/facturaUtils.js';
+import { obtenerCostosPromedioMultiples } from '../utils/costoUtils.js';
 
 const WooCommerceRestApi = wcPkg.default || wcPkg;
 
@@ -553,6 +554,11 @@ const createOrder = async (orderData, nitSec, usuario) => {
 
         console.log(`[BUNDLE] Total items a insertar (después de expansión): ${expandedItems.length}`);
 
+        // Obtener costos promedio de todos los artículos en una sola query
+        const art_secs = expandedItems.map(item => String(item.art_sec));
+        const costosMap = await obtenerCostosPromedioMultiples(transaction, art_secs);
+        console.log(`[COSTOS] Costos obtenidos para ${costosMap.size} artículos`);
+
         // Procesar items expandidos (incluye bundles + componentes + artículos normales)
         let karSecCounter = 1; // CORREGIDO: Contador secuencial para kar_sec
         for (const item of expandedItems) {
@@ -607,6 +613,9 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 karPrePub = subtotal / quantity;
             }
 
+            // Obtener costo histórico del mapa
+            const kar_cos = costosMap.get(String(articleInfo)) || 0;
+
             console.log('Insertando item:', {
                 facSec,
                 itemId: item.id,
@@ -615,6 +624,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 price: item.price,
                 precioDetalFinal,
                 precioMayorFinal,
+                kar_cos,
                 tienePromocion: !!tieneOferta && tieneOferta === 'S',
                 esBundle: item._es_bundle_padre || false,
                 esComponente: item._es_componente || false,
@@ -642,6 +652,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 .input('kar_codigo_promocion', sql.VarChar(50), codigoPromocion)
                 .input('kar_descripcion_promocion', sql.VarChar(200), descripcionPromocion)
                 .input('kar_bundle_padre', sql.VarChar(30), item.kar_bundle_padre)
+                .input('kar_cos', sql.Decimal(18, 4), kar_cos)
                 .query(`
                     INSERT INTO dbo.facturakardes (
                         fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni,
@@ -649,7 +660,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
                         kar_sub_tot, kar_lis_pre_cod, kar_total,
                         kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta,
                         kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion,
-                        kar_bundle_padre
+                        kar_bundle_padre, kar_cos
                     )
                     VALUES (
                         @fac_sec, @kar_sec, @art_sec, @kar_bod_sec, @kar_uni,
@@ -657,7 +668,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
                         @kar_sub_tot, @kar_lis_pre_cod, @kar_total,
                         @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta,
                         @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion,
-                        @kar_bundle_padre
+                        @kar_bundle_padre, @kar_cos
                     )
                 `);
         }
@@ -863,6 +874,9 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 karPrePub = subtotal / quantity;
             }
 
+            // Obtener costo histórico del mapa
+            const kar_cos = costosMap.get(String(articleInfo)) || 0;
+
             console.log('Insertando item:', {
                 facSec,
                 itemId: item.id,
@@ -871,6 +885,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 price: item.price,
                 precioDetalFinal,
                 precioMayorFinal,
+                kar_cos,
                 tienePromocion: !!tieneOferta && tieneOferta === 'S',
                 esBundle: item._es_bundle_padre || false,
                 esComponente: item._es_componente || false,
@@ -898,6 +913,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 .input('kar_codigo_promocion', sql.VarChar(50), codigoPromocion)
                 .input('kar_descripcion_promocion', sql.VarChar(200), descripcionPromocion)
                 .input('kar_bundle_padre', sql.VarChar(30), item.kar_bundle_padre)
+                .input('kar_cos', sql.Decimal(18, 4), kar_cos)
                 .query(`
                     INSERT INTO dbo.facturakardes (
                         fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni,
@@ -905,7 +921,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
                         kar_sub_tot, kar_lis_pre_cod, kar_total,
                         kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta,
                         kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion,
-                        kar_bundle_padre
+                        kar_bundle_padre, kar_cos
                     )
                     VALUES (
                         @fac_sec, @kar_sec, @art_sec, @kar_bod_sec, @kar_uni,
@@ -913,7 +929,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
                         @kar_sub_tot, @kar_lis_pre_cod, @kar_total,
                         @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta,
                         @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion,
-                        @kar_bundle_padre
+                        @kar_bundle_padre, @kar_cos
                     )
                 `);
         }

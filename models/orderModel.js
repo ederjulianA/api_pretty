@@ -2,6 +2,7 @@
 
 import { sql, poolPromise } from "../db.js";
 import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
+import { obtenerCostosPromedioMultiples } from "../utils/costoUtils.js";
 
 /**
  * Normaliza el estado de WooCommerce para consistencia en la base de datos
@@ -202,6 +203,10 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     // 4. Expandir bundles antes de eliminar detalles (para mantener consistencia con createCompleteOrder)
     const detallesExpandidos = await expandirBundles(pool, detalles, fac_tip_cod);
 
+    // 4.1 Obtener costos promedio de todos los artículos en una sola query
+    const art_secs = detallesExpandidos.map(d => String(d.art_sec));
+    const costosMap = await obtenerCostosPromedioMultiples(transaction, art_secs);
+
     // 5. Eliminar los detalles existentes para este pedido con un nuevo Request
     const deleteDetailsRequest = new sql.Request(transaction);
     await deleteDetailsRequest
@@ -349,6 +354,10 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       if (descuento > 0) {
         kar_total = kar_total * (1 - (descuento / 100))
       }
+
+      // Obtener costo histórico del mapa
+      const kar_cos = costosMap.get(String(detail.art_sec)) || 0;
+
       await insertDetailRequest
         .input('fac_sec', sql.Decimal(18, 0), fac_sec)
         .input('NewKarSec', sql.Int, newKarSec)
@@ -371,13 +380,14 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
         .input('kar_codigo_promocion', sql.VarChar(20), precioInfo.codigo_promocion)
         .input('kar_descripcion_promocion', sql.VarChar(200), precioInfo.descripcion_promocion)
         .input('kar_bundle_padre', sql.VarChar(30), detail.kar_bundle_padre ?? null)
+        .input('kar_cos', sql.Decimal(18, 4), kar_cos)
         .query(`
           INSERT INTO dbo.facturakardes
             (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori,
-             kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion, kar_bundle_padre)
+             kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion, kar_bundle_padre, kar_cos)
           VALUES
             (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @kar_lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori,
-             @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion, @kar_bundle_padre)
+             @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion, @kar_bundle_padre, @kar_cos)
         `);
 
       // Si existe kar_fac_sec_ori, actualizar fac_nro_origen en la tabla factura
@@ -476,13 +486,21 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
         f.fac_est_fac,
         SUM(fd.kar_total) - ISNULL(MAX(f.fac_descuento_general), 0) AS total_pedido,
         ISNULL(MAX(f.fac_descuento_general), 0) AS descuento_general,
-        (SELECT STRING_AGG(fac_nro_origen, ', ') 
-         FROM (SELECT DISTINCT f.fac_nro_origen 
-               FROM factura f2 
-               WHERE f2.fac_nro = f.fac_nro_origen 
-               AND f2.fac_est_fac = 'A' 
+        (SELECT STRING_AGG(fac_nro_origen, ', ')
+         FROM (SELECT DISTINCT f.fac_nro_origen
+               FROM factura f2
+               WHERE f2.fac_nro = f.fac_nro_origen
+               AND f2.fac_est_fac = 'A'
                AND f2.fac_tip_cod = 'VTA') AS docs) as documentos,
-        f.fac_usu_cod_cre
+        f.fac_usu_cod_cre,
+        -- Rentabilidad real de la factura
+        SUM(fd.kar_uni * ISNULL(fd.kar_cos, 0)) AS costo_total_factura,
+        SUM(fd.kar_total) - SUM(fd.kar_uni * ISNULL(fd.kar_cos, 0)) AS utilidad_bruta_factura,
+        CASE
+          WHEN SUM(fd.kar_total) > 0
+          THEN ((SUM(fd.kar_total) - SUM(fd.kar_uni * ISNULL(fd.kar_cos, 0))) / SUM(fd.kar_total) * 100)
+          ELSE 0
+        END AS rentabilidad_real_factura
     FROM dbo.factura f
     INNER JOIN dbo.nit n
         ON f.nit_sec = n.nit_sec
@@ -562,7 +580,7 @@ const getOrder = async (fac_nro) => {
 
     // Consulta de los detalles, usando los campos guardados en facturakardes
     const detailQuery = `
-      SELECT 
+      SELECT
         fd.*,
         -- Usar los precios guardados en facturakardes para consistencia histórica
         fd.kar_pre_pub_detal AS precio_detal_original,
@@ -576,6 +594,15 @@ const getOrder = async (fac_nro) => {
         fd.kar_codigo_promocion AS codigo_promocion,
         fd.kar_descripcion_promocion AS descripcion_promocion,
         fd.kar_tiene_oferta AS tiene_oferta,
+        -- Información de rentabilidad real por producto
+        ISNULL(fd.kar_cos, 0) AS costo_unitario,
+        (fd.kar_uni * ISNULL(fd.kar_cos, 0)) AS costo_total_linea,
+        (fd.kar_total - (fd.kar_uni * ISNULL(fd.kar_cos, 0))) AS utilidad_linea,
+        CASE
+          WHEN fd.kar_total > 0
+          THEN ((fd.kar_total - (fd.kar_uni * ISNULL(fd.kar_cos, 0))) / fd.kar_total * 100)
+          ELSE 0
+        END AS rentabilidad_real,
         vw.existencia,
         a.art_cod,
 		    a.art_nom,
@@ -583,7 +610,7 @@ const getOrder = async (fac_nro) => {
         ISNULL(a.art_bundle, 'N') AS art_bundle
       FROM dbo.facturakardes fd
       INNER JOIN dbo.articulos a ON fd.art_sec = a.art_sec
-      LEFT JOIN dbo.vwExistencias vw 
+      LEFT JOIN dbo.vwExistencias vw
         ON a.art_sec = vw.art_sec
       WHERE fd.fac_sec = @fac_sec
       ORDER BY fd.kar_sec;
@@ -713,6 +740,10 @@ const createCompleteOrder = async ({
       .input('fac_est_woo', sql.VarChar(50), null) // Inicializar como null para nuevos pedidos
       .input('fac_descuento_general', sql.Decimal(17, 2), fac_descuento_general || 0) // Usar el valor proporcionado o 0 por defecto
       .query(insertHeaderQuery);
+
+    // 4.5 Obtener costos promedio de todos los artículos en una sola query
+    const art_secs_create = detallesExpandidos.map(d => String(d.art_sec));
+    const costosMapCreate = await obtenerCostosPromedioMultiples(transaction, art_secs_create);
 
     // 5. Insertar cada detalle en la tabla facturakardes (bundles ya expandidos)
     for (const detalle of detallesExpandidos) {
@@ -876,13 +907,17 @@ const createCompleteOrder = async ({
       }
       insertRequest.input('kar_total', sql.Decimal(17, 2), kar_total);
 
+      // Obtener costo histórico del mapa
+      const kar_cos_create = costosMapCreate.get(String(detalle.art_sec)) || 0;
+      insertRequest.input('kar_cos', sql.Decimal(18, 4), kar_cos_create);
+
       const insertDetailQuery = `
         INSERT INTO dbo.facturakardes
           (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno, kar_kar_sec_ori, kar_fac_sec_ori,
-           kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion, kar_bundle_padre)
+           kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje, kar_codigo_promocion, kar_descripcion_promocion, kar_bundle_padre, kar_cos)
         VALUES
           (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_total, @lis_pre_cod, @kar_des_uno, @kar_kar_sec_ori, @kar_fac_sec_ori,
-           @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion, @kar_bundle_padre)
+           @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion, @kar_bundle_padre, @kar_cos)
       `;
       await insertRequest.query(insertDetailQuery);
 

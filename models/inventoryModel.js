@@ -1,5 +1,6 @@
 import { sql, poolPromise } from "../db.js";
 import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
+import { obtenerCostosPromedioMultiples } from "../utils/costoUtils.js";
 
 const createInventoryAdjustment = async ({
   nit_sec,
@@ -72,6 +73,13 @@ const createInventoryAdjustment = async ({
       .input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre)
       .query(insertHeaderQuery);
 
+    // 4.5 Obtener costos promedio solo para salidas
+    const salidas = detalles.filter(d => d.kar_nat === '-');
+    const art_secs_salidas = salidas.map(d => String(d.art_sec));
+    const costosMapSalidas = art_secs_salidas.length > 0
+      ? await obtenerCostosPromedioMultiples(transaction, art_secs_salidas)
+      : new Map();
+
     // 5. Insertar los detalles del ajuste
     for (const detalle of detalles) {
       if (!detalle.kar_nat || !['+', '-'].includes(detalle.kar_nat)) {
@@ -96,11 +104,17 @@ const createInventoryAdjustment = async ({
       insertRequest.input('kar_uni', sql.Decimal(17, 2), detalle.kar_uni);
       insertRequest.input('kar_pre_pub', sql.Decimal(17, 2), detalle.kar_pre_pub || 0);
 
+      // Obtener kar_cos solo para salidas
+      const kar_cos = detalle.kar_nat === '-'
+        ? (costosMapSalidas.get(String(detalle.art_sec)) || 0)
+        : 0;
+      insertRequest.input('kar_cos', sql.Decimal(18, 4), kar_cos);
+
       const insertDetailQuery = `
           INSERT INTO dbo.facturakardes
-            (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total)
+            (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_cos)
           VALUES
-            (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_uni * @kar_pre_pub)
+            (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_uni * @kar_pre_pub, @kar_cos)
         `;
       await insertRequest.query(insertDetailQuery);
     }
@@ -197,6 +211,13 @@ const updateInventoryAdjustment = async ({
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
       .query('DELETE FROM dbo.facturakardes WHERE fac_sec = @fac_sec');
 
+    // 3.5 Obtener costos promedio solo para salidas
+    const salidasUpdate = detalles.filter(d => d.kar_nat === '-');
+    const art_secs_salidasUpdate = salidasUpdate.map(d => String(d.art_sec));
+    const costosMapSalidasUpdate = art_secs_salidasUpdate.length > 0
+      ? await obtenerCostosPromedioMultiples(transaction, art_secs_salidasUpdate)
+      : new Map();
+
     // 4. Insertar los nuevos detalles
     for (const detalle of detalles) {
       if (!detalle.kar_nat || !['+', '-'].includes(detalle.kar_nat)) {
@@ -221,11 +242,17 @@ const updateInventoryAdjustment = async ({
         .input('kar_uni', sql.Decimal(17, 2), detalle.kar_uni)
         .input('kar_pre_pub', sql.Decimal(17, 2), detalle.kar_pre_pub || 0);
 
+      // Obtener kar_cos solo para salidas
+      const kar_cos_update = detalle.kar_nat === '-'
+        ? (costosMapSalidasUpdate.get(String(detalle.art_sec)) || 0)
+        : 0;
+      insertRequest.input('kar_cos', sql.Decimal(18, 4), kar_cos_update);
+
       const insertDetailQuery = `
         INSERT INTO dbo.facturakardes
-          (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total)
+          (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_cos)
         VALUES
-          (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_uni * @kar_pre_pub)
+          (@fac_sec, @NewKarSec, @art_sec, '1', @kar_uni, @kar_nat, @kar_pre_pub, @kar_uni * @kar_pre_pub, @kar_cos)
       `;
       await insertRequest.query(insertDetailQuery);
     }
