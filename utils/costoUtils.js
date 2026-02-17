@@ -49,34 +49,38 @@ export const obtenerCostoPromedioActual = async (transaction, art_sec, lis_pre_c
  * @returns {Promise<Map<string, number>>} Map con art_sec como key y costo como value
  */
 export const obtenerCostosPromedioMultiples = async (transaction, art_secs, lis_pre_cod = 1, bod_sec = '1') => {
-  try {
-    if (!art_secs || art_secs.length === 0) {
-      return new Map();
-    }
+  if (!art_secs || art_secs.length === 0) {
+    return new Map();
+  }
 
-    // Crear tabla temporal con los art_secs
-    const artSecsString = art_secs.map(sec => `'${sec}'`).join(',');
+  // Inicializar Map con todos los artículos en costo 0
+  const costosMap = new Map();
+  art_secs.forEach(art_sec => {
+    costosMap.set(art_sec, 0);
+  });
 
-    const result = await transaction.request()
+  // Consultar en lotes de 50 usando parámetros individuales (evitar SQL injection)
+  const BATCH_SIZE = 50;
+  for (let i = 0; i < art_secs.length; i += BATCH_SIZE) {
+    const batch = art_secs.slice(i, i + BATCH_SIZE);
+    const request = transaction.request()
       .input('lis_pre_cod', sql.Int, lis_pre_cod)
-      .input('bod_sec', sql.VarChar(10), bod_sec)
-      .query(`
-        SELECT
-          art_sec,
-          art_bod_cos_cat
-        FROM dbo.articulosdetalle
-        WHERE art_sec IN (${artSecsString})
-          AND lis_pre_cod = @lis_pre_cod
-          AND bod_sec = @bod_sec
-      `);
+      .input('bod_sec', sql.VarChar(10), bod_sec);
 
-    // Crear Map con los resultados
-    const costosMap = new Map();
-
-    // Inicializar todos los artículos con costo 0
-    art_secs.forEach(art_sec => {
-      costosMap.set(art_sec, 0);
+    // Agregar cada art_sec como parámetro individual
+    const placeholders = batch.map((sec, idx) => {
+      const paramName = `art_sec_${idx}`;
+      request.input(paramName, sql.VarChar(30), sec);
+      return `@${paramName}`;
     });
+
+    const result = await request.query(`
+      SELECT art_sec, art_bod_cos_cat
+      FROM dbo.articulosdetalle
+      WHERE art_sec IN (${placeholders.join(',')})
+        AND lis_pre_cod = @lis_pre_cod
+        AND bod_sec = @bod_sec
+    `);
 
     // Actualizar con los costos encontrados
     result.recordset.forEach(row => {
@@ -84,17 +88,9 @@ export const obtenerCostosPromedioMultiples = async (transaction, art_secs, lis_
         costosMap.set(row.art_sec, parseFloat(row.art_bod_cos_cat));
       }
     });
-
-    return costosMap;
-  } catch (error) {
-    console.error('Error obteniendo costos promedio múltiples:', error);
-    // Retornar Map con todos los costos en 0
-    const costosMap = new Map();
-    art_secs.forEach(art_sec => {
-      costosMap.set(art_sec, 0);
-    });
-    return costosMap;
   }
+
+  return costosMap;
 };
 
 /**

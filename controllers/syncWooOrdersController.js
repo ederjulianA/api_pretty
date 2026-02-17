@@ -497,11 +497,10 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 continue;
             }
 
-            // Verificar si el artículo es un bundle
-            const bundleCheckResult = await poolPromise.then(pool => pool.request()
+            // Verificar si el artículo es un bundle (usar transaction para evitar deadlocks)
+            const bundleCheckResult = await transaction.request()
                 .input('art_sec', sql.VarChar(30), String(articleInfo))
-                .query('SELECT art_bundle FROM dbo.articulos WHERE art_sec = @art_sec')
-            );
+                .query('SELECT art_bundle FROM dbo.articulos WHERE art_sec = @art_sec');
 
             const esBundle = bundleCheckResult.recordset[0]?.art_bundle === 'S';
 
@@ -516,15 +515,14 @@ const createOrder = async (orderData, nitSec, usuario) => {
                     _es_bundle_padre: true   // Flag interno para logging
                 });
 
-                // Obtener componentes del bundle
-                const componentesResult = await poolPromise.then(pool => pool.request()
+                // Obtener componentes del bundle (usar transaction para evitar deadlocks)
+                const componentesResult = await transaction.request()
                     .input('bundle_art_sec', sql.VarChar(30), String(articleInfo))
                     .query(`
                         SELECT ComArtSec, ConKarUni
                         FROM dbo.articulosArmado
                         WHERE art_sec = @bundle_art_sec
-                    `)
-                );
+                    `);
 
                 console.log(`[BUNDLE] Encontrados ${componentesResult.recordset.length} componentes para bundle ${item.sku}`);
 
@@ -683,7 +681,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
         return facSec;
     } catch (error) {
         console.error('Error en createOrder:', error);
-        if (transaction._activeRequest) {
+        if (transaction) {
             console.log('Intentando rollback de la transacción...');
             try {
                 await transaction.rollback();
@@ -763,11 +761,10 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 continue;
             }
 
-            // Verificar si el artículo es un bundle
-            const bundleCheckResult = await poolPromise.then(pool => pool.request()
+            // Verificar si el artículo es un bundle (usar transaction para evitar deadlocks)
+            const bundleCheckResult = await transaction.request()
                 .input('art_sec', sql.VarChar(30), String(articleInfo))
-                .query('SELECT art_bundle FROM dbo.articulos WHERE art_sec = @art_sec')
-            );
+                .query('SELECT art_bundle FROM dbo.articulos WHERE art_sec = @art_sec');
 
             const esBundle = bundleCheckResult.recordset[0]?.art_bundle === 'S';
 
@@ -782,15 +779,14 @@ const updateOrder = async (orderData, facSec, usuario) => {
                     _es_bundle_padre: true   // Flag interno para logging
                 });
 
-                // Obtener componentes del bundle
-                const componentesResult = await poolPromise.then(pool => pool.request()
+                // Obtener componentes del bundle (usar transaction para evitar deadlocks)
+                const componentesResult = await transaction.request()
                     .input('bundle_art_sec', sql.VarChar(30), String(articleInfo))
                     .query(`
                         SELECT ComArtSec, ConKarUni
                         FROM dbo.articulosArmado
                         WHERE art_sec = @bundle_art_sec
-                    `)
-                );
+                    `);
 
                 console.log(`[BUNDLE] Encontrados ${componentesResult.recordset.length} componentes para bundle ${item.sku}`);
 
@@ -819,6 +815,11 @@ const updateOrder = async (orderData, facSec, usuario) => {
         }
 
         console.log(`[BUNDLE] Total items a insertar (después de expansión): ${expandedItems.length}`);
+
+        // Obtener costos promedio de todos los artículos en una sola query
+        const art_secs = expandedItems.map(item => String(item.art_sec));
+        const costosMap = await obtenerCostosPromedioMultiples(transaction, art_secs);
+        console.log(`[COSTOS] Costos obtenidos para ${costosMap.size} artículos`);
 
         // Insertar nuevos detalles (items expandidos)
         let karSecCounter = 1; // CORREGIDO: Contador secuencial para kar_sec en UPDATE
@@ -942,7 +943,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
         await actualizarListaPrecios(facSec);
     } catch (error) {
         console.error('Error en updateOrder:', error);
-        if (transaction._activeRequest) {
+        if (transaction) {
             console.log('Intentando rollback de la transacción...');
             try {
                 await transaction.rollback();
