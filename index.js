@@ -17,6 +17,7 @@ const require = createRequire(import.meta.url);
 const cargaCostosRoutes = require('./routes/cargaCostosRoutes.js');
 const compraRoutes = require('./routes/compraRoutes.js');
 const bundleRoutes = require('./routes/bundleRoutes.js');
+const rentabilidadRoutes = require('./routes/rentabilidadRoutes.js');
 // const aiRoutes = require('./routes/aiRoutes.js'); // Comentado temporalmente - archivos no en repo
 
 const app = express();
@@ -102,6 +103,7 @@ app.use("/api/eventos-promocionales", eventoPromocionalRoutes);
 app.use("/api/carga-costos", cargaCostosRoutes);
 app.use("/api/compras", compraRoutes);
 app.use("/api/bundles", bundleRoutes);
+app.use("/api/reportes", rentabilidadRoutes);
 // app.use("/api", aiRoutes); // Comentado temporalmente - archivos no en repo
 app.get("/", (req, res) => {
   res.send("API Working");
