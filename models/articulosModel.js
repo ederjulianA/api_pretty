@@ -355,6 +355,36 @@ WITH ArticulosBase AS (
         ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
         -- Costo promedio ponderado
         ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio,
+        -- Rentabilidad (% sobre precio de venta al detal)
+        CASE
+            WHEN ad1.art_bod_pre > 0 AND ad1.art_bod_cos_cat IS NOT NULL
+            THEN CAST(((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 AS DECIMAL(5,2))
+            ELSE 0
+        END AS rentabilidad_detal,
+        -- Margen de ganancia (% sobre costo al detal)
+        CASE
+            WHEN ad1.art_bod_cos_cat > 0 AND ad1.art_bod_pre IS NOT NULL
+            THEN CAST(((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_cos_cat) * 100 AS DECIMAL(5,2))
+            ELSE 0
+        END AS margen_ganancia_detal,
+        -- Utilidad bruta al detal
+        CASE
+            WHEN ad1.art_bod_pre IS NOT NULL AND ad1.art_bod_cos_cat IS NOT NULL
+            THEN CAST(ad1.art_bod_pre - ad1.art_bod_cos_cat AS DECIMAL(17,2))
+            ELSE 0
+        END AS utilidad_bruta_detal,
+        -- Clasificación de rentabilidad
+        CASE
+            WHEN ad1.art_bod_pre > 0 AND ad1.art_bod_cos_cat IS NOT NULL THEN
+                CASE
+                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 40 THEN 'ALTA'
+                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 20 THEN 'MEDIA'
+                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 10 THEN 'BAJA'
+                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 0 THEN 'MINIMA'
+                    ELSE 'PERDIDA'
+                END
+            ELSE 'N/A'
+        END AS clasificacion_rentabilidad,
         -- Precios con oferta aplicada (usando la promoción más prioritaria)
         CASE 
             WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0 
@@ -810,6 +840,42 @@ const getArticulo = async (art_sec) => {
         -- Precios originales
         ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
         ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
+        -- Costo promedio ponderado
+        ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio,
+        ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio_ponderado,
+        ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio_actual,
+        ISNULL(ad1.art_bod_cos_cat, 0) AS kar_cos_pro,
+        ISNULL(ad1.art_bod_cos_cat, 0) AS art_bod_cos_cat,
+        -- Rentabilidad (% sobre precio de venta al detal)
+        CASE
+            WHEN ad1.art_bod_pre > 0 AND ad1.art_bod_cos_cat IS NOT NULL
+            THEN CAST(((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 AS DECIMAL(5,2))
+            ELSE 0
+        END AS rentabilidad_detal,
+        -- Margen de ganancia (% sobre costo al detal)
+        CASE
+            WHEN ad1.art_bod_cos_cat > 0 AND ad1.art_bod_pre IS NOT NULL
+            THEN CAST(((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_cos_cat) * 100 AS DECIMAL(5,2))
+            ELSE 0
+        END AS margen_ganancia_detal,
+        -- Utilidad bruta al detal
+        CASE
+            WHEN ad1.art_bod_pre IS NOT NULL AND ad1.art_bod_cos_cat IS NOT NULL
+            THEN CAST(ad1.art_bod_pre - ad1.art_bod_cos_cat AS DECIMAL(17,2))
+            ELSE 0
+        END AS utilidad_bruta_detal,
+        -- Clasificación de rentabilidad
+        CASE
+            WHEN ad1.art_bod_pre > 0 AND ad1.art_bod_cos_cat IS NOT NULL THEN
+                CASE
+                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 40 THEN 'ALTA'
+                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 20 THEN 'MEDIA'
+                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 10 THEN 'BAJA'
+                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 0 THEN 'MINIMA'
+                    ELSE 'PERDIDA'
+                END
+            ELSE 'N/A'
+        END AS clasificacion_rentabilidad,
         -- Precios con oferta aplicada (usando la promoción más prioritaria)
         CASE 
             WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0 
@@ -850,9 +916,9 @@ const getArticulo = async (art_sec) => {
 	      LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
 	      left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
         LEFT JOIN dbo.articulosdetalle ad1
-        ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
+        ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
         LEFT JOIN dbo.articulosdetalle ad2
-        ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+        ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
         -- Subquery para obtener la promoción más prioritaria por artículo
         LEFT JOIN (
             SELECT 
