@@ -38,12 +38,38 @@ const getArticleKardex = async (art_cod, startDate = null, endDate = null) => {
 
     const query = `
       WITH KardexMovements AS (
-        SELECT 
+        SELECT
           f.fac_nro as documento,
           f.fac_fec as fecha,
           f.fac_tip_cod as tipo_documento,
           fk.kar_nat as naturaleza,
           fk.kar_uni as cantidad,
+          -- Información de costo y rentabilidad (solo para ventas)
+          CASE
+            WHEN f.fac_tip_cod = 'VTA' THEN fk.kar_pre_pub
+            ELSE NULL
+          END as precio_unitario_venta,
+          CASE
+            WHEN f.fac_tip_cod = 'VTA' THEN fk.kar_total
+            ELSE NULL
+          END as total_venta,
+          CASE
+            WHEN f.fac_tip_cod = 'VTA' THEN fk.kar_cos
+            ELSE NULL
+          END as costo_unitario,
+          CASE
+            WHEN f.fac_tip_cod = 'VTA' THEN (fk.kar_uni * ISNULL(fk.kar_cos, 0))
+            ELSE NULL
+          END as costo_total,
+          CASE
+            WHEN f.fac_tip_cod = 'VTA' THEN (fk.kar_total - (fk.kar_uni * ISNULL(fk.kar_cos, 0)))
+            ELSE NULL
+          END as utilidad,
+          CASE
+            WHEN f.fac_tip_cod = 'VTA' AND fk.kar_total > 0
+            THEN ((fk.kar_total - (fk.kar_uni * ISNULL(fk.kar_cos, 0))) / fk.kar_total * 100)
+            ELSE NULL
+          END as rentabilidad_real,
           ROW_NUMBER() OVER (ORDER BY f.fac_fec, f.fac_sec) as row_num
         FROM dbo.facturakardes fk
         INNER JOIN dbo.factura f ON f.fac_sec = fk.fac_sec
@@ -52,9 +78,9 @@ const getArticleKardex = async (art_cod, startDate = null, endDate = null) => {
         AND fk.kar_nat IN ('+', '-')
         ${dateFilter}
       )
-      SELECT 
+      SELECT
         k.*,
-        SUM(CASE WHEN k.naturaleza = '+' THEN k.cantidad ELSE -k.cantidad END) 
+        SUM(CASE WHEN k.naturaleza = '+' THEN k.cantidad ELSE -k.cantidad END)
         OVER (ORDER BY k.row_num) as saldo
       FROM KardexMovements k
       ORDER BY k.fecha, k.row_num;
