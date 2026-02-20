@@ -953,33 +953,22 @@ const actualizarCostosMasivo = async (req, res) => {
     const errores        = [];
 
     console.log(`[actualizarCostosMasivo] Inicio | total=${total} | margen_mayor=${margen_mayor}% | margen_detal=${margen_detal}% | forzar=${forzar}`);
-    const LOG_INTERVALO = 50; // log cada N artículos
-    const tiempoInicio  = Date.now();
+    const tiempoInicio = Date.now();
 
-    // 2. Procesar cada artículo
-    for (let idx = 0; idx < productos.length; idx++) {
-      const prod = productos[idx];
-      const posicion = idx + 1;
+    // 2. Calcular en JS qué artículos deben actualizarse y con qué costo
+    const aActualizar = [];
 
-      // Log de progreso cada LOG_INTERVALO artículos
-      if (posicion % LOG_INTERVALO === 0 || posicion === 1) {
-        const elapsed = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
-        console.log(`[actualizarCostosMasivo] Progreso: ${posicion}/${total} | actualizados=${actualizados} | omitidos=${omitidos} | errores=${errores.length} | ${elapsed}s`);
-      }
-
-      // Determinar precio base y costo calculado según prioridad
-      let precio_base, costo_calculado, metodo, fuente;
+    for (const prod of productos) {
+      let precio_base, costo_calculado, fuente;
 
       if (prod.precio_venta_mayor > 0) {
         precio_base     = prod.precio_venta_mayor;
         costo_calculado = Math.round((precio_base / divisor_mayor) * 100) / 100;
-        metodo          = `REVERSO_MAYOR_${margen_mayor}%`;
         fuente          = 'mayor';
         calculados_mayor++;
       } else if (prod.precio_venta_detal > 0) {
         precio_base     = prod.precio_venta_detal;
         costo_calculado = Math.round((precio_base / divisor_detal) * 100) / 100;
-        metodo          = `REVERSO_DETAL_${margen_detal}%`;
         fuente          = 'detal';
         calculados_detal++;
       } else {
@@ -988,9 +977,7 @@ const actualizarCostosMasivo = async (req, res) => {
         continue;
       }
 
-      // Evaluar si aplica según modo forzar
       if (!forzar) {
-        // Solo actualizar si costo = 0 (sin asignar) o margen actual < margen parámetro
         const margen_referencia = fuente === 'mayor' ? margen_mayor : margen_detal;
         const margen_actual = prod.costo_actual > 0 && precio_base > 0
           ? ((precio_base - prod.costo_actual) / precio_base) * 100
@@ -1008,60 +995,97 @@ const actualizarCostosMasivo = async (req, res) => {
         }
       }
 
-      // UPDATE + INSERT historial en transacción individual por artículo
+      aActualizar.push({
+        art_sec:         prod.art_sec,
+        art_cod:         prod.art_cod,
+        existencia:      prod.existencia,
+        costo_anterior:  prod.costo_actual,
+        costo_calculado,
+        precio_base,
+        fuente,
+        metodo: fuente === 'mayor'
+          ? `REVERSO_MAYOR_${margen_mayor}%`
+          : `REVERSO_DETAL_${margen_detal}%`
+      });
+    }
+
+    actualizados = aActualizar.length;
+    console.log(`[actualizarCostosMasivo] Calculados en JS: ${actualizados} a actualizar, ${omitidos} omitidos, ${sin_precio} sin precio | ${((Date.now() - tiempoInicio)/1000).toFixed(1)}s`);
+
+    // 3. Ejecutar en batches de 100 artículos (un UPDATE + un INSERT por batch)
+    const BATCH_SIZE = 100;
+    const batches = [];
+    for (let i = 0; i < aActualizar.length; i += BATCH_SIZE) {
+      batches.push(aActualizar.slice(i, i + BATCH_SIZE));
+    }
+
+    for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+      const batch = batches[bIdx];
+      const elapsed = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
+      console.log(`[actualizarCostosMasivo] Batch ${bIdx + 1}/${batches.length} (${batch.length} arts) | ${elapsed}s`);
+
       const transaction = new sql.Transaction(pool);
       await transaction.begin();
 
       try {
-        const costo_anterior = prod.costo_actual;
+        // UPDATE masivo: UPDATE articulosdetalle SET ... FROM ... JOIN (VALUES(...)) AS v
+        const updateRows = batch
+          .map((r, i) => `(@sec${i}, @cos${i})`)
+          .join(',\n              ');
 
-        // Actualizar costo en articulosdetalle (ambas listas, mismo costo)
-        await transaction.request()
-          .input('art_sec',         sql.VarChar(30),    prod.art_sec)
-          .input('costo_calculado', sql.Decimal(17, 2), costo_calculado)
-          .query(`
-            UPDATE dbo.articulosdetalle
-            SET art_bod_cos_cat = @costo_calculado
-            WHERE art_sec = @art_sec AND bod_sec = '1'
-          `);
+        const updateReq = transaction.request();
+        batch.forEach((r, i) => {
+          updateReq.input(`sec${i}`, sql.VarChar(30),    r.art_sec);
+          updateReq.input(`cos${i}`, sql.Decimal(17, 2), r.costo_calculado);
+        });
 
-        // Registrar en historial_costos para auditoría
-        await transaction.request()
-          .input('art_sec',          sql.VarChar(30),    prod.art_sec)
-          .input('cantidad_antes',   sql.Decimal(17, 2), prod.existencia)
-          .input('costo_antes',      sql.Decimal(17, 2), costo_anterior)
-          .input('valor_antes',      sql.Decimal(17, 2), prod.existencia * costo_anterior)
-          .input('costo_calculado',  sql.Decimal(17, 2), costo_calculado)
-          .input('valor_despues',    sql.Decimal(17, 2), prod.existencia * costo_calculado)
-          .input('usu_cod',          sql.VarChar(100),   usuario)
-          .input('observaciones',    sql.VarChar(500),
-            `Ajuste masivo | ${metodo} | Precio base: $${precio_base} | Costo anterior: $${costo_anterior} | Costo nuevo: $${costo_calculado} | forzar: ${forzar}`
-          )
-          .query(`
-            INSERT INTO dbo.historial_costos (
-              hc_art_sec, hc_fac_sec, hc_fecha, hc_tipo_mov,
-              hc_cantidad_antes, hc_costo_antes, hc_valor_antes,
-              hc_cantidad_mov,   hc_costo_mov,   hc_valor_mov,
-              hc_cantidad_despues, hc_costo_despues, hc_valor_despues,
-              hc_usu_cod, hc_observaciones
-            ) VALUES (
-              @art_sec, NULL, GETDATE(), 'AJUSTE_MANUAL',
-              @cantidad_antes, @costo_antes, @valor_antes,
-              0, @costo_calculado, 0,
-              @cantidad_antes, @costo_calculado, @valor_despues,
-              @usu_cod, @observaciones
-            )
-          `);
+        await updateReq.query(`
+          UPDATE ad
+          SET ad.art_bod_cos_cat = v.costo
+          FROM dbo.articulosdetalle ad
+          INNER JOIN (VALUES ${updateRows}) AS v(art_sec, costo)
+            ON ad.art_sec = v.art_sec
+          WHERE ad.bod_sec = '1'
+        `);
+
+        // INSERT masivo en historial_costos
+        const insertRows = batch
+          .map((r, i) => `(@hs${i}, NULL, GETDATE(), 'AJUSTE_MANUAL', @qb${i}, @cb${i}, @vb${i}, 0, @cd${i}, 0, @qb${i}, @cd${i}, @vd${i}, @usr, @obs${i})`)
+          .join(',\n              ');
+
+        const insertReq = transaction.request();
+        insertReq.input('usr', sql.VarChar(100), usuario);
+        batch.forEach((r, i) => {
+          insertReq.input(`hs${i}`,  sql.VarChar(30),    r.art_sec);
+          insertReq.input(`qb${i}`,  sql.Decimal(17, 2), r.existencia);
+          insertReq.input(`cb${i}`,  sql.Decimal(17, 2), r.costo_anterior);
+          insertReq.input(`vb${i}`,  sql.Decimal(17, 2), r.existencia * r.costo_anterior);
+          insertReq.input(`cd${i}`,  sql.Decimal(17, 2), r.costo_calculado);
+          insertReq.input(`vd${i}`,  sql.Decimal(17, 2), r.existencia * r.costo_calculado);
+          insertReq.input(`obs${i}`, sql.VarChar(500),
+            `Ajuste masivo | ${r.metodo} | Base: $${r.precio_base} | Antes: $${r.costo_anterior} | Nuevo: $${r.costo_calculado} | forzar: ${forzar}`
+          );
+        });
+
+        await insertReq.query(`
+          INSERT INTO dbo.historial_costos (
+            hc_art_sec, hc_fac_sec, hc_fecha, hc_tipo_mov,
+            hc_cantidad_antes, hc_costo_antes, hc_valor_antes,
+            hc_cantidad_mov,   hc_costo_mov,   hc_valor_mov,
+            hc_cantidad_despues, hc_costo_despues, hc_valor_despues,
+            hc_usu_cod, hc_observaciones
+          ) VALUES ${insertRows}
+        `);
 
         await transaction.commit();
-        actualizados++;
 
-      } catch (errItem) {
-        await transaction.rollback();
-        console.error(`[actualizarCostosMasivo] ERROR en ${prod.art_cod}: ${errItem.message}`);
-        errores.push(`${prod.art_cod}: ${errItem.message}`);
-        omitidos++;
-        fuente === 'mayor' ? calculados_mayor-- : calculados_detal--;
+      } catch (errBatch) {
+        try { await transaction.rollback(); } catch (_) { /* conexión ya cerrada */ }
+        console.error(`[actualizarCostosMasivo] ERROR en batch ${bIdx + 1}: ${errBatch.message}`);
+        // Registrar artículos del batch fallido
+        batch.forEach(r => errores.push(`${r.art_cod}: batch error - ${errBatch.message}`));
+        actualizados -= batch.length;
+        omitidos     += batch.length;
       }
     }
 
