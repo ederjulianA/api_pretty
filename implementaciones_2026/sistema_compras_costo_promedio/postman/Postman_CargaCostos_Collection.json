@@ -765,6 +765,92 @@
 				}
 			]
 		}
+	,
+	{
+		"name": "7. Actualizar Costos Masivo (Directo en BD)",
+		"request": {
+			"method": "POST",
+			"header": [
+				{
+					"key": "x-access-token",
+					"value": "{{jwt_token}}",
+					"type": "text"
+				},
+				{
+					"key": "Content-Type",
+					"value": "application/json",
+					"type": "text"
+				}
+			],
+			"body": {
+				"mode": "raw",
+				"raw": "{\n  \"usu_cod\": \"admin\",\n  \"margen_mayor\": 25,\n  \"margen_detal\": 25,\n  \"forzar\": false\n}",
+				"options": {
+					"raw": {
+						"language": "json"
+					}
+				}
+			},
+			"url": {
+				"raw": "{{base_url}}/api/carga-costos/actualizar-costos-masivo",
+				"host": [
+					"{{base_url}}"
+				],
+				"path": [
+					"api",
+					"carga-costos",
+					"actualizar-costos-masivo"
+				]
+			},
+			"description": "Actualiza el costo (art_bod_cos_cat) directamente en articulosdetalle sin pasar por la tabla de staging.\n\nDiferencias vs /calcular-automatico:\n- Este endpoint actualiza DIRECTAMENTE articulosdetalle (operación PERMANENTE)\n- /calcular-automatico solo propone costos en tabla temporal carga_inicial_costos\n\nParámetro forzar:\n- false (default): Solo actualiza artículos con costo=0 o con margen actual < parámetro\n- true: Actualiza TODOS los artículos que tengan precio configurado\n\nPrioridad de precio:\n1. precio_mayor > 0 → Costo = Precio Mayor / (1 + margen_mayor/100)\n2. Solo precio_detal > 0 → Costo = Precio Detal / (1 + margen_detal/100)\n3. Sin ningún precio → se omite\n\nUSO RECOMENDADO: Para corregir costos que quedaron con margen insuficiente (ej: 16% en vez de 20%)"
+		},
+		"response": [
+			{
+				"name": "Éxito - Costos actualizados",
+				"originalRequest": {
+					"method": "POST",
+					"header": [
+						{
+							"key": "x-access-token",
+							"value": "{{jwt_token}}",
+							"type": "text"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"type": "text"
+						}
+					],
+					"body": {
+						"mode": "raw",
+						"raw": "{\n  \"usu_cod\": \"admin\",\n  \"margen_mayor\": 25,\n  \"margen_detal\": 25,\n  \"forzar\": false\n}",
+						"options": {
+							"raw": {
+								"language": "json"
+							}
+						}
+					},
+					"url": {
+						"raw": "{{base_url}}/api/carga-costos/actualizar-costos-masivo",
+						"host": [
+							"{{base_url}}"
+						],
+						"path": [
+							"api",
+							"carga-costos",
+							"actualizar-costos-masivo"
+						]
+					}
+				},
+				"status": "OK",
+				"code": 200,
+				"_postman_previewlanguage": "json",
+				"header": [],
+				"cookie": [],
+				"body": "{\n  \"success\": true,\n  \"message\": \"Actualización masiva de costos completada\",\n  \"data\": {\n    \"total\": 650,\n    \"actualizados\": 435,\n    \"omitidos\": 210,\n    \"sin_precio\": 5,\n    \"calculados_desde_mayor\": 420,\n    \"calculados_desde_detal\": 15,\n    \"markup_mayor_aplicado\": \"25%\",\n    \"markup_detal_aplicado\": \"25%\"\n  }\n}"
+			}
+		]
+	}
 	],
 	"event": [
 		{
