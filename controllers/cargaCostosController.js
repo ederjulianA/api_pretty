@@ -897,6 +897,211 @@ const aprobarCostosMasivo = async (req, res) => {
   }
 };
 
+/**
+ * Actualizar costos masivamente directo en articulosdetalle
+ * POST /api/carga-costos/actualizar-costos-masivo
+ *
+ * A diferencia de calcular-automatico (que usa tabla staging y respeta costos existentes),
+ * este endpoint actualiza DIRECTAMENTE art_bod_cos_cat con control por forzar:
+ *   - forzar: false (default) → actualiza solo artículos con costo=0 O margen actual < margen parámetro
+ *   - forzar: true            → actualiza absolutamente todos los artículos con precio configurado
+ *
+ * Registra cada cambio en historial_costos para auditoría.
+ */
+const actualizarCostosMasivo = async (req, res) => {
+  try {
+    const usuario      = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const margen_mayor = parseFloat(req.body.margen_mayor) || 20;
+    const margen_detal = parseFloat(req.body.margen_detal) || margen_mayor;
+    const forzar       = req.body.forzar === true || req.body.forzar === 'true';
+
+    const divisor_mayor = 1 + (margen_mayor / 100);
+    const divisor_detal = 1 + (margen_detal / 100);
+
+    const pool = await poolPromise;
+
+    // 1. Obtener todos los artículos con al menos un precio configurado
+    const productosResult = await pool.request().query(`
+      SELECT
+        a.art_sec,
+        a.art_cod,
+        a.art_nom,
+        ISNULL(ve.existencia, 0)            AS existencia,
+        ISNULL(ad_detal.art_bod_pre, 0)     AS precio_venta_detal,
+        ISNULL(ad_mayor.art_bod_pre, 0)     AS precio_venta_mayor,
+        ISNULL(ad_detal.art_bod_cos_cat, 0) AS costo_actual
+      FROM dbo.articulos a
+      LEFT JOIN dbo.vwExistencias ve
+        ON ve.art_sec = a.art_sec
+      LEFT JOIN dbo.articulosdetalle ad_detal
+        ON ad_detal.art_sec = a.art_sec
+        AND ad_detal.bod_sec = '1' AND ad_detal.lis_pre_cod = 1
+      LEFT JOIN dbo.articulosdetalle ad_mayor
+        ON ad_mayor.art_sec = a.art_sec
+        AND ad_mayor.bod_sec = '1' AND ad_mayor.lis_pre_cod = 2
+      WHERE ad_detal.art_bod_pre > 0 OR ad_mayor.art_bod_pre > 0
+    `);
+
+    const productos = productosResult.recordset;
+
+    let total            = productos.length;
+    let actualizados     = 0;
+    let omitidos         = 0;
+    let sin_precio       = 0;
+    let calculados_mayor = 0;
+    let calculados_detal = 0;
+    const errores        = [];
+
+    console.log(`[actualizarCostosMasivo] Inicio | total=${total} | margen_mayor=${margen_mayor}% | margen_detal=${margen_detal}% | forzar=${forzar}`);
+    const LOG_INTERVALO = 50; // log cada N artículos
+    const tiempoInicio  = Date.now();
+
+    // 2. Procesar cada artículo
+    for (let idx = 0; idx < productos.length; idx++) {
+      const prod = productos[idx];
+      const posicion = idx + 1;
+
+      // Log de progreso cada LOG_INTERVALO artículos
+      if (posicion % LOG_INTERVALO === 0 || posicion === 1) {
+        const elapsed = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
+        console.log(`[actualizarCostosMasivo] Progreso: ${posicion}/${total} | actualizados=${actualizados} | omitidos=${omitidos} | errores=${errores.length} | ${elapsed}s`);
+      }
+
+      // Determinar precio base y costo calculado según prioridad
+      let precio_base, costo_calculado, metodo, fuente;
+
+      if (prod.precio_venta_mayor > 0) {
+        precio_base     = prod.precio_venta_mayor;
+        costo_calculado = Math.round((precio_base / divisor_mayor) * 100) / 100;
+        metodo          = `REVERSO_MAYOR_${margen_mayor}%`;
+        fuente          = 'mayor';
+        calculados_mayor++;
+      } else if (prod.precio_venta_detal > 0) {
+        precio_base     = prod.precio_venta_detal;
+        costo_calculado = Math.round((precio_base / divisor_detal) * 100) / 100;
+        metodo          = `REVERSO_DETAL_${margen_detal}%`;
+        fuente          = 'detal';
+        calculados_detal++;
+      } else {
+        sin_precio++;
+        omitidos++;
+        continue;
+      }
+
+      // Evaluar si aplica según modo forzar
+      if (!forzar) {
+        // Solo actualizar si costo = 0 (sin asignar) o margen actual < margen parámetro
+        const margen_referencia = fuente === 'mayor' ? margen_mayor : margen_detal;
+        const margen_actual = prod.costo_actual > 0 && precio_base > 0
+          ? ((precio_base - prod.costo_actual) / precio_base) * 100
+          : null;
+
+        const debe_actualizar =
+          prod.costo_actual === 0 ||
+          margen_actual === null ||
+          margen_actual < margen_referencia;
+
+        if (!debe_actualizar) {
+          omitidos++;
+          fuente === 'mayor' ? calculados_mayor-- : calculados_detal--;
+          continue;
+        }
+      }
+
+      // UPDATE + INSERT historial en transacción individual por artículo
+      const transaction = new sql.Transaction(pool);
+      await transaction.begin();
+
+      try {
+        const costo_anterior = prod.costo_actual;
+
+        // Actualizar costo en articulosdetalle (ambas listas, mismo costo)
+        await transaction.request()
+          .input('art_sec',         sql.VarChar(30),    prod.art_sec)
+          .input('costo_calculado', sql.Decimal(17, 2), costo_calculado)
+          .query(`
+            UPDATE dbo.articulosdetalle
+            SET art_bod_cos_cat = @costo_calculado
+            WHERE art_sec = @art_sec AND bod_sec = '1'
+          `);
+
+        // Registrar en historial_costos para auditoría
+        await transaction.request()
+          .input('art_sec',          sql.VarChar(30),    prod.art_sec)
+          .input('cantidad_antes',   sql.Decimal(17, 2), prod.existencia)
+          .input('costo_antes',      sql.Decimal(17, 2), costo_anterior)
+          .input('valor_antes',      sql.Decimal(17, 2), prod.existencia * costo_anterior)
+          .input('costo_calculado',  sql.Decimal(17, 2), costo_calculado)
+          .input('valor_despues',    sql.Decimal(17, 2), prod.existencia * costo_calculado)
+          .input('usu_cod',          sql.VarChar(100),   usuario)
+          .input('observaciones',    sql.VarChar(500),
+            `Ajuste masivo | ${metodo} | Precio base: $${precio_base} | Costo anterior: $${costo_anterior} | Costo nuevo: $${costo_calculado} | forzar: ${forzar}`
+          )
+          .query(`
+            INSERT INTO dbo.historial_costos (
+              hc_art_sec, hc_fac_sec, hc_fecha, hc_tipo_mov,
+              hc_cantidad_antes, hc_costo_antes, hc_valor_antes,
+              hc_cantidad_mov,   hc_costo_mov,   hc_valor_mov,
+              hc_cantidad_despues, hc_costo_despues, hc_valor_despues,
+              hc_usu_cod, hc_observaciones
+            ) VALUES (
+              @art_sec, NULL, GETDATE(), 'AJUSTE_MASIVO',
+              @cantidad_antes, @costo_antes, @valor_antes,
+              0, @costo_calculado, 0,
+              @cantidad_antes, @costo_calculado, @valor_despues,
+              @usu_cod, @observaciones
+            )
+          `);
+
+        await transaction.commit();
+        actualizados++;
+
+      } catch (errItem) {
+        await transaction.rollback();
+        console.error(`[actualizarCostosMasivo] ERROR en ${prod.art_cod}: ${errItem.message}`);
+        errores.push(`${prod.art_cod}: ${errItem.message}`);
+        omitidos++;
+        fuente === 'mayor' ? calculados_mayor-- : calculados_detal--;
+      }
+    }
+
+    const totalSegundos = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
+    console.log(`[actualizarCostosMasivo] Finalizado | total=${total} | actualizados=${actualizados} | omitidos=${omitidos} | errores=${errores.length} | tiempo=${totalSegundos}s`);
+
+    return res.json({
+      success: true,
+      message: `Actualización masiva completada. ${actualizados} artículos actualizados.`,
+      data: {
+        total,
+        actualizados,
+        omitidos,
+        sin_precio,
+        calculados_desde_mayor: calculados_mayor,
+        calculados_desde_detal: calculados_detal,
+        errores_count: errores.length,
+        errores: errores.length > 0 ? errores : undefined,
+        parametros_usados: {
+          margen_mayor:  `${margen_mayor}%`,
+          margen_detal:  `${margen_detal}%`,
+          forzar,
+          formulas: {
+            desde_mayor: `Costo = Precio Mayor / ${divisor_mayor.toFixed(2)}`,
+            desde_detal: `Costo = Precio Detal / ${divisor_detal.toFixed(2)}`
+          }
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en actualización masiva de costos:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al actualizar costos masivamente',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   exportarPlantillaCostos,
   importarCostosDesdeExcel,
@@ -906,5 +1111,6 @@ module.exports = {
   aplicarCostosValidados,
   registrarCostoIndividual,
   aprobarCostoIndividual,
-  aprobarCostosMasivo
+  aprobarCostosMasivo,
+  actualizarCostosMasivo
 };
