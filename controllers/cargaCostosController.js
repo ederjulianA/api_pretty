@@ -1045,7 +1045,7 @@ const actualizarCostosMasivo = async (req, res) => {
               hc_cantidad_despues, hc_costo_despues, hc_valor_despues,
               hc_usu_cod, hc_observaciones
             ) VALUES (
-              @art_sec, NULL, GETDATE(), 'AJUSTE_MASIVO',
+              @art_sec, NULL, GETDATE(), 'AJUSTE_MANUAL',
               @cantidad_antes, @costo_antes, @valor_antes,
               0, @costo_calculado, 0,
               @cantidad_antes, @costo_calculado, @valor_despues,
