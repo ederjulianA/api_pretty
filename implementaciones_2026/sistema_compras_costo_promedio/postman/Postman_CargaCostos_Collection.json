@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "carga-costos-2026-02-09",
 		"name": "API Pretty - Carga de Costos",
-		"description": "Colección completa para probar el sistema de carga inicial de costos con costo promedio ponderado.\n\n**Documentación:** analisis_2026/API_ENDPOINTS_CARGA_COSTOS.md\n\n**Flujo A - Cálculo Automático (RECOMENDADO para 600+ productos):**\n1. Login → Obtener token\n2. Calcular Automático → Calcula costos desde precio mayor (margen 20%)\n3. Resumen → Verificar estado (validados vs alertas)\n4. Alertas → Revisar productos con margen bajo\n5. Aplicar → Aplicar a BD\n\n**Flujo B - Carga Manual (para pocos productos):**\n1. Login → Obtener token\n2. Exportar → Descargar Excel\n3. Importar → Subir Excel con costos completados\n4. Resumen → Ver estado\n5. Alertas → Revisar problemas\n6. Aplicar → Aplicar a BD",
+		"description": "Colección completa para probar el sistema de carga inicial de costos con costo promedio ponderado.\n\n**Documentación:** implementaciones_2026/sistema_compras_costo_promedio/\n\n**Flujo A - Cálculo Automático (RECOMENDADO para 600+ productos):**\n1. Login → Obtener token\n2. Calcular Automático → Calcula costos desde precio mayor (solo artículos SIN costo asignado)\n3. Resumen → Verificar estado (validados vs alertas)\n4. [Si hay VALIDADO_CON_ALERTAS] → Actualizar Estado → Aprobar masivamente\n5. Alertas → Revisar productos rechazados\n6. Aplicar → Aplicar costos VALIDADOS a BD\n\n**Flujo B - Carga Manual (para pocos productos):**\n1. Login → Obtener token\n2. Exportar → Descargar Excel (incluye columnas informativas: costo actual, rentabilidad, unidades vendidas)\n3. Completar columna `costo_inicial` en el Excel\n4. Importar → Subir Excel con costos completados\n5. Resumen → Ver estado\n6. Alertas → Revisar problemas\n7. Aplicar → Aplicar costos VALIDADOS a BD\n\n**Notas importantes:**\n- `calcular-automatico` OMITE artículos que ya tienen `art_bod_cos_cat > 0`\n- `aplicar` solo procesa registros en estado `VALIDADO` (no `VALIDADO_CON_ALERTAS`)\n- Para aprobar alertas masivamente usar `PUT /actualizar-estado`",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -116,7 +116,7 @@
 						"exportar"
 					]
 				},
-				"description": "**GET** `/api/carga-costos/exportar`\n\nGenera y descarga un archivo Excel con todos los productos activos.\n\n**Headers requeridos:**\n- `x-access-token`: Token JWT\n\n**Respuesta:**\n- Archivo Excel (`.xlsx`) con columnas:\n  - Categoría, Subcategoría, SKU, Nombre\n  - Existencia, Precio Venta Detal, Precio Venta Mayor\n  - **costo_inicial** (usuario completa)\n  - **metodo** (usuario completa)\n  - **observaciones** (usuario completa)\n\n**Nota:** Guardar el archivo descargado, completar las columnas editables y usarlo en el endpoint de importación."
+				"description": "**GET** `/api/carga-costos/exportar`\n\nGenera y descarga un archivo Excel con TODOS los artículos (sin importar existencia).\n\n**Headers requeridos:**\n- `x-access-token`: Token JWT\n\n**Respuesta:**\n- Archivo Excel (`.xlsx`) con las siguientes columnas:\n\n| Col | Campo | Editable | Descripción |\n|-----|-------|----------|-------------|\n| A | categoria | ❌ | Nombre de categoría |\n| B | subcategoria | ❌ | Nombre de subcategoría |\n| C | art_cod (SKU) | ❌ | Código del artículo |\n| D | art_nom | ❌ | Nombre del artículo |\n| E | existencia | ❌ | Stock actual (puede ser 0) |\n| F | precio_venta_detal | ❌ | Precio lista 1 |\n| G | precio_venta_mayor | ❌ | Precio lista 2 |\n| H | costo_promedio_actual | ❌ | Costo actual en articulosdetalle (0 = sin costo) |\n| I | rentabilidad_detal_pct | ❌ | % margen sobre precio detal (solo si tiene costo) |\n| J | rentabilidad_mayor_pct | ❌ | % margen sobre precio mayor (solo si tiene costo) |\n| K | total_unidades_vendidas | ❌ | Unidades vendidas en facturas tipo VTA activas |\n| **L** | **costo_inicial** | **✅** | **COMPLETAR: costo a asignar** |\n| **M** | **metodo** | **✅** | **COMPLETAR: método de cálculo** |\n| **N** | **observaciones** | **✅** | **COMPLETAR: notas adicionales** |\n\n**Importante:**\n- Columnas A–K son de solo lectura (informativas)\n- Solo completar columnas L, M, N\n- Al importar, se usa la posición L como `costo_inicial`\n- Artículos con `costo_promedio_actual > 0` ya tienen costo asignado"
 			},
 			"response": []
 		},
@@ -159,7 +159,7 @@
 						"importar"
 					]
 				},
-				"description": "**POST** `/api/carga-costos/importar`\n\nImporta costos desde un archivo Excel con lógica incremental (UPSERT).\n\n**Headers:**\n- `x-access-token`: Token JWT\n\n**Body (multipart/form-data):**\n- `archivo`: Archivo Excel (.xlsx, .xls) - **Máximo 10MB**\n- `usu_cod`: Usuario (opcional)\n\n**Lógica incremental:**\n- Si el producto YA existe → **ACTUALIZA** el costo\n- Si es nuevo → **INSERTA** el registro\n- **NO genera errores de duplicados**\n\n**Validaciones:**\n- Solo procesa filas con `costo_inicial` completado\n- Ignora filas vacías o sin SKU\n- Valida que el SKU exista en la BD\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Importación completada exitosamente\",\n  \"data\": {\n    \"total_filas\": 250,\n    \"procesados\": 70,\n    \"nuevos\": 40,\n    \"actualizados\": 30,\n    \"ignorados\": 180,\n    \"errores\": []\n  }\n}\n```"
+				"description": "**POST** `/api/carga-costos/importar`\n\nImporta costos desde un archivo Excel con lógica incremental (UPSERT).\n\n**Headers:**\n- `x-access-token`: Token JWT\n\n**Body (multipart/form-data):**\n- `archivo`: Archivo Excel (.xlsx, .xls) - **Máximo 10MB**\n- `usu_cod`: Usuario (opcional)\n\n**Estructura esperada del Excel:**\n- Columna L (posición 12): `costo_inicial` ← se lee de aquí\n- Columna C (posición 3): `art_cod` (SKU) ← identificador\n- Columnas A–K: informativas, ignoradas al importar\n- Columnas M–N: metodo y observaciones\n\n**Lógica incremental:**\n- Si el producto YA existe en `carga_inicial_costos` → **ACTUALIZA** el costo\n- Si es nuevo → **INSERTA** el registro\n- Ignora filas sin `costo_inicial` completado\n- Ignora filas con SKU no encontrado en BD\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Importación completada exitosamente\",\n  \"data\": {\n    \"total_filas\": 250,\n    \"procesados\": 70,\n    \"nuevos\": 40,\n    \"actualizados\": 30,\n    \"ignorados\": 180,\n    \"errores\": []\n  }\n}\n```"
 			},
 			"response": [
 				{
@@ -237,7 +237,7 @@
 			]
 		},
 		{
-			"name": "3. Calcular Costos Automáticamente (NUEVO)",
+			"name": "3. Calcular Costos Automáticamente",
 			"request": {
 				"method": "POST",
 				"header": [
@@ -254,7 +254,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"usu_cod\": \"{{username}}\",\n  \"margen_mayor\": 20\n}",
+					"raw": "{\n  \"usu_cod\": \"{{username}}\",\n  \"margen_mayor\": 25,\n  \"margen_detal\": 25\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -272,11 +272,11 @@
 						"calcular-automatico"
 					]
 				},
-				"description": "**POST** `/api/carga-costos/calcular-automatico`\n\n⭐ **RECOMENDADO** para clientes con 600+ productos sin historial de compras.\n\nCalcula automáticamente los costos iniciales usando la fórmula:\n```\nCosto = Precio Mayor / (1 + margen/100)\n```\n\n**Ejemplo con margen 20%:**\n- Precio Mayor: $30,000\n- Divisor: 1.20\n- Costo Calculado: $30,000 / 1.20 = $25,000\n\n**Headers:**\n- `x-access-token`: Token JWT\n- `Content-Type`: application/json\n\n**Body (JSON):**\n```json\n{\n  \"usu_cod\": \"admin\",        // Opcional, se toma del token\n  \"margen_mayor\": 20          // Opcional, por defecto 20%\n}\n```\n\n**Parámetros:**\n- `margen_mayor`: Porcentaje de margen sobre el precio mayor (default: 20)\n  - Ejemplos: 15, 20, 25, 30\n  - Fórmula divisor: 1 + (margen/100)\n\n**Proceso:**\n1. Consulta todos los productos con `precio_venta_mayor > 0`\n2. Calcula: `costo = precio_mayor / divisor`\n3. Inserta/actualiza en `carga_inicial_costos` (UPSERT)\n4. Ejecuta validación automática\n5. **NO aplica directamente** (solo prepara para revisión)\n\n**Productos procesados:**\n- ✅ Con precio mayor configurado (lis_pre_cod = 2)\n- ❌ Sin precio mayor (se ignoran, contador: `sin_precio_mayor`)\n\n**Ventajas:**\n- ⚡ Procesa 600+ productos en segundos\n- 🔄 Soporta importación incremental (actualiza existentes)\n- ✅ Validación automática incluida\n- 📊 Permite revisión antes de aplicar\n\n**Siguiente paso:**\n1. Revisar con `GET /api/carga-costos/resumen`\n2. Verificar alertas con `GET /api/carga-costos/alertas`\n3. Aplicar con `POST /api/carga-costos/aplicar`\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Cálculo automático de costos completado exitosamente\",\n  \"data\": {\n    \"total_productos\": 650,\n    \"procesados\": 645,\n    \"nuevos\": 620,\n    \"actualizados\": 25,\n    \"sin_precio_mayor\": 5,\n    \"margen_aplicado\": \"20%\",\n    \"formula\": \"Costo = Precio Mayor / 1.20\",\n    \"siguiente_paso\": \"Revisar con GET /api/carga-costos/resumen y aplicar con POST /api/carga-costos/aplicar\"\n  }\n}\n```"
+				"description": "**POST** `/api/carga-costos/calcular-automatico`\n\n⭐ **RECOMENDADO** para clientes con 600+ productos sin historial de compras.\n\n**Prioridad de cálculo por artículo:**\n1. Tiene precio mayor → `Costo = Precio Mayor / (1 + margen_mayor/100)`\n2. Solo tiene precio detal → `Costo = Precio Detal / (1 + margen_detal/100)`\n3. Sin ningún precio → se omite (`sin_precio`)\n\n**Diferencia importante: Markup vs Margen**\n```\nMarkup 20% → Margen resultante 16.67%  (markup sobre costo)\nMarkup 25% → Margen resultante 20.00%  (pasa validación del SP)\nMarkup 30% → Margen resultante 23.08%  (pasa sin alertas)\n```\nUsar `margen_mayor: 25` para obtener margen del 20% sobre precio venta.\n\n**⚠️ RESPETA artículos con costo ya asignado:**\n- Si `art_bod_cos_cat > 0` → se **OMITE** (no sobreescribe)\n- El contador `ya_con_costo` indica cuántos se omitieron\n\n**Body (JSON):**\n```json\n{\n  \"usu_cod\": \"admin\",      // Opcional\n  \"margen_mayor\": 25,      // Markup para precio mayor (default: 20)\n  \"margen_detal\": 25       // Markup para precio detal (default: igual a margen_mayor)\n}\n```\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"data\": {\n    \"total_productos\": 650,\n    \"procesados\": 500,\n    \"ya_con_costo\": 150,\n    \"calculados_desde_mayor\": 490,\n    \"calculados_desde_detal\": 10,\n    \"sin_precio\": 5,\n    \"nuevos\": 480,\n    \"actualizados\": 20,\n    \"markup_mayor_aplicado\": \"25%\",\n    \"markup_detal_aplicado\": \"25%\",\n    \"formulas\": {\n      \"desde_mayor\": \"Costo = Precio Mayor / 1.25\",\n      \"desde_detal\": \"Costo = Precio Detal / 1.25\"\n    }\n  }\n}\n```\n\n**Siguiente paso:**\n1. `GET /resumen` → verificar estados\n2. Si hay `VALIDADO_CON_ALERTAS` → `PUT /actualizar-estado` para aprobarlos\n3. `POST /aplicar` → aplica solo los `VALIDADO`"
 			},
 			"response": [
 				{
-					"name": "Cálculo Exitoso (600+ productos)",
+					"name": "Cálculo Exitoso - Markup 25% (margen 20%)",
 					"originalRequest": {
 						"method": "POST",
 						"header": [
@@ -291,7 +291,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"usu_cod\": \"admin\",\n  \"margen_mayor\": 20\n}",
+							"raw": "{\n  \"usu_cod\": \"admin\",\n  \"margen_mayor\": 25,\n  \"margen_detal\": 25\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -315,10 +315,10 @@
 					"_postman_previewlanguage": "json",
 					"header": [],
 					"cookie": [],
-					"body": "{\n  \"success\": true,\n  \"message\": \"Cálculo automático de costos completado exitosamente\",\n  \"data\": {\n    \"total_productos\": 650,\n    \"procesados\": 645,\n    \"nuevos\": 620,\n    \"actualizados\": 25,\n    \"sin_precio_mayor\": 5,\n    \"margen_aplicado\": \"20%\",\n    \"formula\": \"Costo = Precio Mayor / 1.20\",\n    \"siguiente_paso\": \"Revisar con GET /api/carga-costos/resumen y aplicar con POST /api/carga-costos/aplicar\"\n  }\n}"
+					"body": "{\n  \"success\": true,\n  \"message\": \"Cálculo automático de costos completado exitosamente\",\n  \"data\": {\n    \"total_productos\": 650,\n    \"procesados\": 500,\n    \"ya_con_costo\": 150,\n    \"calculados_desde_mayor\": 490,\n    \"calculados_desde_detal\": 10,\n    \"sin_precio\": 5,\n    \"nuevos\": 480,\n    \"actualizados\": 20,\n    \"markup_mayor_aplicado\": \"25%\",\n    \"markup_detal_aplicado\": \"25%\",\n    \"formulas\": {\n      \"desde_mayor\": \"Costo = Precio Mayor / 1.25\",\n      \"desde_detal\": \"Costo = Precio Detal / 1.25\"\n    },\n    \"siguiente_paso\": \"Revisar con GET /api/carga-costos/resumen. Si hay VALIDADO_CON_ALERTAS usar PUT /actualizar-estado antes de aplicar.\"\n  }\n}"
 				},
 				{
-					"name": "Cálculo con Margen 25%",
+					"name": "Cálculo Exitoso - Markup 30% (sin alertas)",
 					"originalRequest": {
 						"method": "POST",
 						"header": [
@@ -333,7 +333,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"usu_cod\": \"admin\",\n  \"margen_mayor\": 25\n}",
+							"raw": "{\n  \"usu_cod\": \"admin\",\n  \"margen_mayor\": 30,\n  \"margen_detal\": 30\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -357,7 +357,7 @@
 					"_postman_previewlanguage": "json",
 					"header": [],
 					"cookie": [],
-					"body": "{\n  \"success\": true,\n  \"message\": \"Cálculo automático de costos completado exitosamente\",\n  \"data\": {\n    \"total_productos\": 650,\n    \"procesados\": 645,\n    \"nuevos\": 0,\n    \"actualizados\": 645,\n    \"sin_precio_mayor\": 5,\n    \"margen_aplicado\": \"25%\",\n    \"formula\": \"Costo = Precio Mayor / 1.25\"\n  }\n}"
+					"body": "{\n  \"success\": true,\n  \"message\": \"Cálculo automático de costos completado exitosamente\",\n  \"data\": {\n    \"total_productos\": 650,\n    \"procesados\": 500,\n    \"ya_con_costo\": 150,\n    \"calculados_desde_mayor\": 490,\n    \"calculados_desde_detal\": 10,\n    \"sin_precio\": 5,\n    \"nuevos\": 0,\n    \"actualizados\": 500,\n    \"markup_mayor_aplicado\": \"30%\",\n    \"markup_detal_aplicado\": \"30%\",\n    \"formulas\": {\n      \"desde_mayor\": \"Costo = Precio Mayor / 1.30\",\n      \"desde_detal\": \"Costo = Precio Detal / 1.30\"\n    }\n  }\n}"
 				}
 			]
 		},
@@ -383,7 +383,7 @@
 						"resumen"
 					]
 				},
-				"description": "**GET** `/api/carga-costos/resumen`\n\nRetorna el estado actual de la carga de costos agrupado por estado.\n\n**Headers:**\n- `x-access-token`: Token JWT\n\n**Estados posibles:**\n- `PENDIENTE`: Aún no validado\n- `VALIDADO`: Aprobado automáticamente (margen ≥ 20%)\n- `VALIDADO_CON_ALERTAS`: Margen bajo (<20%), requiere revisión\n- `RECHAZADO`: Costo inválido (negativo o mayor que precio venta)\n- `APLICADO`: Ya aplicado a `articulosdetalle`\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"data\": [\n    { \"estado\": \"VALIDADO\", \"cantidad\": 65, \"margen_promedio\": 45.5 },\n    { \"estado\": \"VALIDADO_CON_ALERTAS\", \"cantidad\": 5, \"margen_promedio\": 18.2 },\n    { \"estado\": \"RECHAZADO\", \"cantidad\": 2, \"margen_promedio\": null },\n    { \"estado\": \"PENDIENTE\", \"cantidad\": 180, \"margen_promedio\": null }\n  ]\n}\n```"
+				"description": "**GET** `/api/carga-costos/resumen`\n\nRetorna el estado actual de la carga de costos agrupado por estado.\n\n**Headers:**\n- `x-access-token`: Token JWT\n\n**Estados posibles:**\n- `PENDIENTE`: Aún no validado\n- `VALIDADO`: Aprobado automáticamente (margen ≥ 20%)\n- `VALIDADO_CON_ALERTAS`: Margen bajo (<20%), requiere revisión manual\n- `RECHAZADO`: Costo inválido (negativo o mayor que precio venta)\n- `APLICADO`: Ya aplicado a `articulosdetalle`\n\n**⚠️ Nota:** El SP validador usa umbral `< 20%` para alertas. Con `margen_mayor: 20` muchos artículos quedan en `VALIDADO_CON_ALERTAS`. Usar `PUT /actualizar-estado` para aprobarlos masivamente.\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"data\": [\n    { \"estado\": \"VALIDADO\", \"cantidad\": 65, \"margen_promedio\": 45.5 },\n    { \"estado\": \"VALIDADO_CON_ALERTAS\", \"cantidad\": 435, \"margen_promedio\": 20.0 },\n    { \"estado\": \"RECHAZADO\", \"cantidad\": 2, \"margen_promedio\": null },\n    { \"estado\": \"PENDIENTE\", \"cantidad\": 0, \"margen_promedio\": null }\n  ]\n}\n```"
 			},
 			"response": [
 				{
@@ -413,7 +413,7 @@
 					"_postman_previewlanguage": "json",
 					"header": [],
 					"cookie": [],
-					"body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"estado\": \"VALIDADO\",\n      \"cantidad\": 65,\n      \"margen_promedio\": 45.5\n    },\n    {\n      \"estado\": \"VALIDADO_CON_ALERTAS\",\n      \"cantidad\": 5,\n      \"margen_promedio\": 18.2\n    },\n    {\n      \"estado\": \"RECHAZADO\",\n      \"cantidad\": 2,\n      \"margen_promedio\": null\n    },\n    {\n      \"estado\": \"PENDIENTE\",\n      \"cantidad\": 180,\n      \"margen_promedio\": null\n    }\n  ]\n}"
+					"body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"estado\": \"VALIDADO\",\n      \"cantidad\": 65,\n      \"margen_promedio\": 45.5\n    },\n    {\n      \"estado\": \"VALIDADO_CON_ALERTAS\",\n      \"cantidad\": 435,\n      \"margen_promedio\": 20.0\n    },\n    {\n      \"estado\": \"RECHAZADO\",\n      \"cantidad\": 2,\n      \"margen_promedio\": null\n    },\n    {\n      \"estado\": \"PENDIENTE\",\n      \"cantidad\": 0,\n      \"margen_promedio\": null\n    }\n  ]\n}"
 				}
 			]
 		},
@@ -439,7 +439,7 @@
 						"alertas"
 					]
 				},
-				"description": "**GET** `/api/carga-costos/alertas`\n\nLista todos los productos que requieren revisión manual (con alertas o rechazados).\n\n**Headers:**\n- `x-access-token`: Token JWT\n\n**Retorna productos con:**\n- Estado: `VALIDADO_CON_ALERTAS` (margen <20%)\n- Estado: `RECHAZADO` (costo inválido)\n\n**Casos de rechazo:**\n- Costo negativo\n- Costo mayor o igual que precio de venta\n\n**Casos de alerta:**\n- Margen resultante menor al 20%\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"data\": [\n    {\n      \"art_cod\": \"SM005\",\n      \"art_nom\": \"Sombra Mate Coral\",\n      \"costo_propuesto\": 41000,\n      \"precio_venta\": 50000,\n      \"margen\": 18.0,\n      \"estado\": \"VALIDADO_CON_ALERTAS\",\n      \"observaciones\": \" | ALERTA: Margen muy bajo (<20%)\"\n    }\n  ]\n}\n```"
+				"description": "**GET** `/api/carga-costos/alertas`\n\nLista todos los productos que requieren revisión manual (con alertas o rechazados).\n\n**Headers:**\n- `x-access-token`: Token JWT\n\n**Retorna productos con:**\n- Estado: `VALIDADO_CON_ALERTAS` (margen <20%)\n- Estado: `RECHAZADO` (costo inválido)\n\n**Casos de rechazo:**\n- Costo negativo\n- Costo mayor o igual que precio de venta\n\n**Casos de alerta:**\n- Margen resultante menor al 20%\n\n**Acción recomendada para VALIDADO_CON_ALERTAS:**\nSi los costos calculados son correctos, aprobarlos con `PUT /actualizar-estado`\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"data\": [\n    {\n      \"art_cod\": \"SM005\",\n      \"art_nom\": \"Sombra Mate Coral\",\n      \"costo_propuesto\": 25000,\n      \"precio_venta\": 30000,\n      \"margen\": 20.0,\n      \"estado\": \"VALIDADO_CON_ALERTAS\",\n      \"observaciones\": \" | ALERTA: Margen muy bajo (<20%)\"\n    }\n  ]\n}\n```"
 			},
 			"response": [
 				{
@@ -469,7 +469,132 @@
 					"_postman_previewlanguage": "json",
 					"header": [],
 					"cookie": [],
-					"body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"art_cod\": \"SM005\",\n      \"art_nom\": \"Sombra Mate Coral\",\n      \"costo_propuesto\": 41000,\n      \"precio_venta\": 50000,\n      \"margen\": 18.0,\n      \"estado\": \"VALIDADO_CON_ALERTAS\",\n      \"observaciones\": \" | ALERTA: Margen muy bajo (<20%)\"\n    },\n    {\n      \"art_cod\": \"LP012\",\n      \"art_nom\": \"Labial Premium Oro\",\n      \"costo_propuesto\": 65000,\n      \"precio_venta\": 60000,\n      \"margen\": -8.33,\n      \"estado\": \"RECHAZADO\",\n      \"observaciones\": \" | ERROR: Costo mayor o igual que precio venta\"\n    }\n  ]\n}"
+					"body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"art_cod\": \"SM005\",\n      \"art_nom\": \"Sombra Mate Coral\",\n      \"costo_propuesto\": 25000,\n      \"precio_venta\": 30000,\n      \"margen\": 20.0,\n      \"estado\": \"VALIDADO_CON_ALERTAS\",\n      \"observaciones\": \" | ALERTA: Margen muy bajo (<20%)\"\n    },\n    {\n      \"art_cod\": \"LP012\",\n      \"art_nom\": \"Labial Premium Oro\",\n      \"costo_propuesto\": 65000,\n      \"precio_venta\": 60000,\n      \"margen\": -8.33,\n      \"estado\": \"RECHAZADO\",\n      \"observaciones\": \" | ERROR: Costo mayor o igual que precio venta\"\n    }\n  ]\n}"
+				}
+			]
+		},
+		{
+			"name": "5b. Actualizar Estado (Aprobar Alertas Masivamente)",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "x-access-token",
+						"value": "{{jwt_token}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"estado_actual\": \"VALIDADO_CON_ALERTAS\",\n  \"nuevo_estado\": \"VALIDADO\",\n  \"usu_cod\": \"{{username}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{base_url}}/api/carga-costos/actualizar-estado",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"carga-costos",
+						"actualizar-estado"
+					]
+				},
+				"description": "**PUT** `/api/carga-costos/actualizar-estado`\n\n⚠️ **PASO CRÍTICO** del flujo cuando se usa `calcular-automatico` con `margen_mayor: 20`.\n\nEl SP validador marca como `VALIDADO_CON_ALERTAS` todos los artículos con margen < 20%. Como la fórmula calcula exactamente 20%, la mayoría de artículos quedarán en `VALIDADO_CON_ALERTAS` en vez de `VALIDADO`. Este endpoint los aprueba masivamente.\n\n**Cuándo usar:**\n- Después de `GET /resumen` cuando hay muchos `VALIDADO_CON_ALERTAS`\n- Antes de `POST /aplicar` (que solo procesa `VALIDADO`)\n\n**Headers:**\n- `x-access-token`: Token JWT\n- `Content-Type`: application/json\n\n**Body (JSON):**\n```json\n{\n  \"estado_actual\": \"VALIDADO_CON_ALERTAS\",   // Estado origen\n  \"nuevo_estado\": \"VALIDADO\",                 // Estado destino\n  \"usu_cod\": \"admin\"                          // Opcional\n}\n```\n\n**Casos de uso:**\n- `VALIDADO_CON_ALERTAS` → `VALIDADO`: Aprobar artículos con margen justo\n- `RECHAZADO` → `PENDIENTE`: Re-procesar artículos rechazados\n\n**No se recomienda:**\n- `RECHAZADO` → `VALIDADO` sin revisar (pueden tener costos inválidos)\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Estado actualizado: 435 registros de VALIDADO_CON_ALERTAS a VALIDADO\",\n  \"data\": {\n    \"afectados\": 435\n  }\n}\n```"
+			},
+			"response": [
+				{
+					"name": "Aprobación masiva VALIDADO_CON_ALERTAS → VALIDADO",
+					"originalRequest": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"estado_actual\": \"VALIDADO_CON_ALERTAS\",\n  \"nuevo_estado\": \"VALIDADO\",\n  \"usu_cod\": \"admin\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/carga-costos/actualizar-estado",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"carga-costos",
+								"actualizar-estado"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [],
+					"cookie": [],
+					"body": "{\n  \"success\": true,\n  \"message\": \"Estado actualizado: 435 registros de VALIDADO_CON_ALERTAS a VALIDADO\",\n  \"data\": {\n    \"afectados\": 435\n  }\n}"
+				},
+				{
+					"name": "Sin registros en estado origen",
+					"originalRequest": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"estado_actual\": \"VALIDADO_CON_ALERTAS\",\n  \"nuevo_estado\": \"VALIDADO\",\n  \"usu_cod\": \"admin\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/carga-costos/actualizar-estado",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"carga-costos",
+								"actualizar-estado"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [],
+					"cookie": [],
+					"body": "{\n  \"success\": true,\n  \"message\": \"Estado actualizado: 0 registros de VALIDADO_CON_ALERTAS a VALIDADO\",\n  \"data\": {\n    \"afectados\": 0\n  }\n}"
 				}
 			]
 		},
@@ -509,7 +634,7 @@
 						"aplicar"
 					]
 				},
-				"description": "**POST** `/api/carga-costos/aplicar`\n\nAplica todos los costos con estado `VALIDADO` a la tabla `articulosdetalle` y registra en el historial.\n\n**Headers:**\n- `x-access-token`: Token JWT\n- `Content-Type`: application/json\n\n**Body (JSON):**\n```json\n{\n  \"usu_cod\": \"maria.lopez\"  // Opcional, se toma del token\n}\n```\n\n**⚠️ IMPORTANTE:**\n- Esta operación es **irreversible** (modifica costos en BD)\n- Solo aplica costos con estado `VALIDADO`\n- Costos con alertas o rechazados **NO se aplican**\n- Se registra todo en `historial_costos` para auditoría\n\n**Proceso:**\n1. Actualiza `articulosdetalle.art_bod_cos_cat` (lista precio 1)\n2. Marca registros como `APLICADO` en `carga_inicial_costos`\n3. Inserta registros en `historial_costos` tipo `CARGA_INICIAL`\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Carga inicial aplicada exitosamente\",\n  \"data\": {\n    \"total_aplicados\": 65,\n    \"errores\": 0\n  }\n}\n```"
+				"description": "**POST** `/api/carga-costos/aplicar`\n\nAplica todos los costos con estado `VALIDADO` a la tabla `articulosdetalle` y registra en el historial.\n\n**Headers:**\n- `x-access-token`: Token JWT\n- `Content-Type`: application/json\n\n**Body (JSON):**\n```json\n{\n  \"usu_cod\": \"maria.lopez\"  // Opcional, se toma del token\n}\n```\n\n**⚠️ IMPORTANTE:**\n- Esta operación es **irreversible** (modifica costos en BD)\n- Solo aplica costos con estado `VALIDADO` (no `VALIDADO_CON_ALERTAS`)\n- Si `total_aplicados: 0` → verificar con `GET /resumen` si hay registros en `VALIDADO`\n  - Puede que todos estén en `VALIDADO_CON_ALERTAS` → usar `PUT /actualizar-estado` primero\n- Se registra todo en `historial_costos` para auditoría\n\n**Proceso:**\n1. Actualiza `articulosdetalle.art_bod_cos_cat` (lista precio 1 y 2)\n2. Marca registros como `APLICADO` en `carga_inicial_costos`\n3. Inserta registros en `historial_costos` tipo `CARGA_INICIAL`\n\n**Respuesta:**\n```json\n{\n  \"success\": true,\n  \"message\": \"Carga inicial aplicada exitosamente\",\n  \"data\": {\n    \"total_aplicados\": 500,\n    \"errores\": 0\n  }\n}\n```\n\n**Si retorna `total_aplicados: 0`:**\n1. Ejecutar `GET /resumen` para ver estados actuales\n2. Si hay `VALIDADO_CON_ALERTAS`, ejecutar `PUT /actualizar-estado` para aprobarlos\n3. Volver a ejecutar `POST /aplicar`"
 			},
 			"response": [
 				{
@@ -552,7 +677,49 @@
 					"_postman_previewlanguage": "json",
 					"header": [],
 					"cookie": [],
-					"body": "{\n  \"success\": true,\n  \"message\": \"Carga inicial aplicada exitosamente\",\n  \"data\": {\n    \"total_aplicados\": 65,\n    \"errores\": 0\n  }\n}"
+					"body": "{\n  \"success\": true,\n  \"message\": \"Carga inicial aplicada exitosamente\",\n  \"data\": {\n    \"total_aplicados\": 500,\n    \"errores\": 0\n  }\n}"
+				},
+				{
+					"name": "Aplicación con total_aplicados: 0 (sin VALIDADO)",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-access-token",
+								"value": "{{jwt_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"usu_cod\": \"admin\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/carga-costos/aplicar",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"carga-costos",
+								"aplicar"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [],
+					"cookie": [],
+					"body": "{\n  \"success\": true,\n  \"message\": \"Carga inicial aplicada exitosamente\",\n  \"data\": {\n    \"total_aplicados\": 0,\n    \"errores\": 0\n  }\n}"
 				},
 				{
 					"name": "Error al Aplicar",

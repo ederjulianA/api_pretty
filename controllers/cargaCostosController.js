@@ -25,18 +25,37 @@ const exportarPlantillaCostos = async (req, res) => {
         ISNULL(ve.existencia, 0) AS existencia,
         ISNULL(ad_detal.art_bod_pre, 0) AS precio_venta_detal,
         ISNULL(ad_mayor.art_bod_pre, 0) AS precio_venta_mayor,
+        ISNULL(ad_detal.art_bod_cos_cat, 0) AS costo_promedio_actual,
+        CASE
+          WHEN ISNULL(ad_detal.art_bod_cos_cat, 0) > 0 AND ISNULL(ad_detal.art_bod_pre, 0) > 0
+          THEN ROUND((ad_detal.art_bod_pre - ad_detal.art_bod_cos_cat) / ad_detal.art_bod_pre * 100, 2)
+          ELSE NULL
+        END AS rentabilidad_detal_pct,
+        CASE
+          WHEN ISNULL(ad_detal.art_bod_cos_cat, 0) > 0 AND ISNULL(ad_mayor.art_bod_pre, 0) > 0
+          THEN ROUND((ad_mayor.art_bod_pre - ad_detal.art_bod_cos_cat) / ad_mayor.art_bod_pre * 100, 2)
+          ELSE NULL
+        END AS rentabilidad_mayor_pct,
+        ISNULL((
+          SELECT SUM(fk.kar_uni)
+          FROM dbo.facturakardes fk
+          INNER JOIN dbo.factura f ON f.fac_sec = fk.fac_sec
+          WHERE fk.art_sec = a.art_sec
+            AND fk.kar_nat = '-'
+            AND f.fac_tip_cod = 'VTA'
+            AND f.fac_est_fac = 'A'
+        ), 0) AS total_unidades_vendidas,
         NULL AS costo_inicial,
         NULL AS metodo,
         NULL AS observaciones
       FROM dbo.articulos a
-      INNER JOIN dbo.vwExistencias ve ON ve.art_sec = a.art_sec
+      LEFT JOIN dbo.vwExistencias ve ON ve.art_sec = a.art_sec
       LEFT JOIN dbo.inventario_subgrupo isg ON isg.inv_sub_gru_cod = a.inv_sub_gru_cod
       LEFT JOIN dbo.inventario_grupo ig ON ig.inv_gru_cod = isg.inv_gru_cod
       LEFT JOIN dbo.articulosdetalle ad_detal ON ad_detal.art_sec = a.art_sec
         AND ad_detal.bod_sec = '1' AND ad_detal.lis_pre_cod = 1
       LEFT JOIN dbo.articulosdetalle ad_mayor ON ad_mayor.art_sec = a.art_sec
         AND ad_mayor.bod_sec = '1' AND ad_mayor.lis_pre_cod = 2
-      WHERE ve.existencia > 0
       ORDER BY ig.inv_gru_nom, isg.inv_sub_gru_nom, a.art_nom
     `);
 
@@ -46,8 +65,8 @@ const exportarPlantillaCostos = async (req, res) => {
 
     ws['!cols'] = [
       { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 35 },
-      { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
-      { wch: 18 }, { wch: 30 }
+      { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 18 },
+      { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 15 }, { wch: 18 }, { wch: 30 }
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Productos');
@@ -58,10 +77,14 @@ const exportarPlantillaCostos = async (req, res) => {
       { Instruccion: 'INSTRUCCIONES: Carga Inicial de Costos' },
       { Instruccion: '═══════════════════════════════════════════════════════════' },
       { Instruccion: '' },
-      { Instruccion: '1. COLUMNAS A-G: NO EDITAR (datos del sistema)' },
-      { Instruccion: '2. COLUMNA H (costo_inicial): OBLIGATORIA' },
-      { Instruccion: '3. COLUMNA I (metodo): ULTIMA_COMPRA, REVERSO_XX%, ESTIMADO, MANUAL' },
-      { Instruccion: '4. COLUMNA J (observaciones): OPCIONAL' },
+      { Instruccion: '1. COLUMNAS A-K: NO EDITAR (datos del sistema)' },
+      { Instruccion: '   COLUMNA H (costo_promedio_actual): Costo vigente en el sistema (referencia)' },
+      { Instruccion: '   COLUMNA I (rentabilidad_detal_pct): Margen % sobre precio detal con costo actual' },
+      { Instruccion: '   COLUMNA J (rentabilidad_mayor_pct): Margen % sobre precio mayor con costo actual' },
+      { Instruccion: '   COLUMNA K (total_unidades_vendidas): Total unidades vendidas (ventas activas)' },
+      { Instruccion: '2. COLUMNA L (costo_inicial): OBLIGATORIA - Ingrese el nuevo costo a aplicar' },
+      { Instruccion: '3. COLUMNA M (metodo): ULTIMA_COMPRA, REVERSO_XX%, ESTIMADO, MANUAL' },
+      { Instruccion: '4. COLUMNA N (observaciones): OPCIONAL' },
       { Instruccion: '' },
       { Instruccion: 'TRABAJO POR CATEGORÍAS: Use filtros, puede importar múltiples veces' }
     ];
@@ -300,20 +323,23 @@ const obtenerProductosConAlertas = async (req, res) => {
 };
 
 /**
- * Calcular costos automáticamente basados en precio mayor con margen fijo
+ * Calcular costos automáticamente basados en precio mayor y/o detal con margen fijo
  * POST /api/carga-costos/calcular-automatico
  *
- * Calcula el costo inicial de todos los productos usando la fórmula:
- * Costo = Precio Mayor / (1 + margen/100)
+ * Prioridad de cálculo por artículo:
+ *   1. Si tiene precio_mayor → Costo = Precio Mayor / (1 + margen_mayor/100)
+ *   2. Si NO tiene precio_mayor pero SÍ precio_detal → Costo = Precio Detal / (1 + margen_detal/100)
+ *   3. Si no tiene ningún precio → se omite (sin_precio)
  *
- * Por defecto usa 20% de margen sobre precio mayor
- * Los datos se cargan en la tabla temporal carga_inicial_costos para revisión
+ * Respeta artículos que ya tienen art_bod_cos_cat > 0 (no los sobreescribe)
  */
 const calcularCostosAutomatico = async (req, res) => {
   try {
     const usuario = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
-    const margen_mayor = parseFloat(req.body.margen_mayor) || 20; // 20% por defecto
-    const divisor = 1 + (margen_mayor / 100); // 1.20 para 20%
+    const margen_mayor = parseFloat(req.body.margen_mayor) || 20;
+    const margen_detal = parseFloat(req.body.margen_detal) || margen_mayor; // Por defecto usa el mismo margen
+    const divisor_mayor = 1 + (margen_mayor / 100);
+    const divisor_detal = 1 + (margen_detal / 100);
 
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
@@ -322,19 +348,22 @@ const calcularCostosAutomatico = async (req, res) => {
     let procesados = 0;
     let actualizados = 0;
     let nuevos = 0;
-    let sin_precio_mayor = 0;
+    let sin_precio = 0;
+    let ya_con_costo = 0;
+    let calculados_desde_mayor = 0;
+    let calculados_desde_detal = 0;
     const errores = [];
 
     try {
-      // 1. Obtener todos los productos con precio mayor
+      // 1. Obtener TODOS los productos (con y sin existencia, con cualquier precio)
       const productos = await transaction.request().query(`
         SELECT
           a.art_sec,
           a.art_cod,
           a.art_nom,
           ISNULL(ve.existencia, 0) AS existencia,
-          ad_detal.art_bod_pre AS precio_venta_detal,
-          ad_mayor.art_bod_pre AS precio_venta_mayor,
+          ISNULL(ad_detal.art_bod_pre, 0) AS precio_venta_detal,
+          ISNULL(ad_mayor.art_bod_pre, 0) AS precio_venta_mayor,
           ISNULL(ad_detal.art_bod_cos_cat, 0) AS costo_actual
         FROM dbo.articulos a
         LEFT JOIN dbo.vwExistencias ve ON ve.art_sec = a.art_sec
@@ -342,76 +371,82 @@ const calcularCostosAutomatico = async (req, res) => {
           AND ad_detal.bod_sec = '1' AND ad_detal.lis_pre_cod = 1
         LEFT JOIN dbo.articulosdetalle ad_mayor ON ad_mayor.art_sec = a.art_sec
           AND ad_mayor.bod_sec = '1' AND ad_mayor.lis_pre_cod = 2
-        WHERE ad_mayor.art_bod_pre > 0  -- Solo productos con precio mayor configurado
+        WHERE ad_detal.art_bod_pre > 0 OR ad_mayor.art_bod_pre > 0
       `);
 
       // 2. Procesar cada producto
       for (const prod of productos.recordset) {
-        if (!prod.precio_venta_mayor || prod.precio_venta_mayor <= 0) {
-          sin_precio_mayor++;
+        // Respetar artículos que ya tienen costo asignado
+        if (prod.costo_actual > 0) {
+          ya_con_costo++;
           continue;
         }
 
-        // Calcular costo usando la fórmula de costo reverso
-        const costo_calculado = Math.round((prod.precio_venta_mayor / divisor) * 100) / 100;
+        // Determinar precio base y parámetros según prioridad
+        let precio_base, costo_calculado, metodo, observacion;
+
+        if (prod.precio_venta_mayor > 0) {
+          precio_base = prod.precio_venta_mayor;
+          costo_calculado = Math.round((precio_base / divisor_mayor) * 100) / 100;
+          metodo = `REVERSO_MAYOR_${margen_mayor}%`;
+          observacion = `Cálculo automático desde precio mayor ($${precio_base}) con markup ${margen_mayor}%. Fórmula: Costo = Precio Mayor / ${divisor_mayor.toFixed(2)}`;
+          calculados_desde_mayor++;
+        } else if (prod.precio_venta_detal > 0) {
+          precio_base = prod.precio_venta_detal;
+          costo_calculado = Math.round((precio_base / divisor_detal) * 100) / 100;
+          metodo = `REVERSO_DETAL_${margen_detal}%`;
+          observacion = `Cálculo automático desde precio detal ($${precio_base}) con markup ${margen_detal}%. Fórmula: Costo = Precio Detal / ${divisor_detal.toFixed(2)}`;
+          calculados_desde_detal++;
+        } else {
+          sin_precio++;
+          continue;
+        }
 
         // Verificar si ya existe en carga_inicial_costos (UPSERT)
         const existeResult = await transaction.request()
           .input('art_sec', sql.VarChar(30), prod.art_sec)
           .query('SELECT cic_id FROM dbo.carga_inicial_costos WHERE cic_art_sec = @art_sec');
 
+        const params = (req) => req
+          .input('art_sec', sql.VarChar(30), prod.art_sec)
+          .input('art_cod', sql.VarChar(30), prod.art_cod)
+          .input('art_nom', sql.VarChar(100), prod.art_nom)
+          .input('existencia', sql.Decimal(17, 2), prod.existencia)
+          .input('precio_detal', sql.Decimal(17, 2), prod.precio_venta_detal)
+          .input('precio_mayor', sql.Decimal(17, 2), prod.precio_venta_mayor)
+          .input('costo', sql.Decimal(17, 2), costo_calculado)
+          .input('metodo', sql.VarChar(50), metodo)
+          .input('obs', sql.VarChar(500), observacion)
+          .input('usuario', sql.VarChar(100), usuario);
+
         if (existeResult.recordset.length > 0) {
-          // ACTUALIZAR registro existente
-          await transaction.request()
-            .input('art_sec', sql.VarChar(30), prod.art_sec)
-            .input('art_cod', sql.VarChar(30), prod.art_cod)
-            .input('art_nom', sql.VarChar(100), prod.art_nom)
-            .input('existencia', sql.Decimal(17, 2), prod.existencia)
-            .input('precio_detal', sql.Decimal(17, 2), prod.precio_venta_detal || 0)
-            .input('precio_mayor', sql.Decimal(17, 2), prod.precio_venta_mayor)
-            .input('costo', sql.Decimal(17, 2), costo_calculado)
-            .input('metodo', sql.VarChar(50), `REVERSO_${margen_mayor}%`)
-            .input('obs', sql.VarChar(500), `Cálculo automático desde precio mayor ($${prod.precio_venta_mayor}) con margen ${margen_mayor}%. Fórmula: Costo = Precio Mayor / ${divisor.toFixed(2)}`)
-            .input('usuario', sql.VarChar(100), usuario)
-            .query(`
-              UPDATE dbo.carga_inicial_costos
-              SET cic_art_cod = @art_cod,
-                  cic_art_nom = @art_nom,
-                  cic_existencia = @existencia,
-                  cic_precio_venta_detal = @precio_detal,
-                  cic_precio_venta_mayor = @precio_mayor,
-                  cic_costo_propuesto = @costo,
-                  cic_metodo_calculo = @metodo,
-                  cic_observaciones = @obs,
-                  cic_estado = 'PENDIENTE',
-                  cic_fecha_carga = GETDATE(),
-                  cic_usuario_carga = @usuario
-              WHERE cic_art_sec = @art_sec
-            `);
+          await params(transaction.request()).query(`
+            UPDATE dbo.carga_inicial_costos
+            SET cic_art_cod = @art_cod,
+                cic_art_nom = @art_nom,
+                cic_existencia = @existencia,
+                cic_precio_venta_detal = @precio_detal,
+                cic_precio_venta_mayor = @precio_mayor,
+                cic_costo_propuesto = @costo,
+                cic_metodo_calculo = @metodo,
+                cic_observaciones = @obs,
+                cic_estado = 'PENDIENTE',
+                cic_fecha_carga = GETDATE(),
+                cic_usuario_carga = @usuario
+            WHERE cic_art_sec = @art_sec
+          `);
           actualizados++;
         } else {
-          // INSERTAR nuevo registro
-          await transaction.request()
-            .input('art_sec', sql.VarChar(30), prod.art_sec)
-            .input('art_cod', sql.VarChar(30), prod.art_cod)
-            .input('art_nom', sql.VarChar(100), prod.art_nom)
-            .input('existencia', sql.Decimal(17, 2), prod.existencia)
-            .input('precio_detal', sql.Decimal(17, 2), prod.precio_venta_detal || 0)
-            .input('precio_mayor', sql.Decimal(17, 2), prod.precio_venta_mayor)
-            .input('costo', sql.Decimal(17, 2), costo_calculado)
-            .input('metodo', sql.VarChar(50), `REVERSO_${margen_mayor}%`)
-            .input('obs', sql.VarChar(500), `Cálculo automático desde precio mayor ($${prod.precio_venta_mayor}) con margen ${margen_mayor}%. Fórmula: Costo = Precio Mayor / ${divisor.toFixed(2)}`)
-            .input('usuario', sql.VarChar(100), usuario)
-            .query(`
-              INSERT INTO dbo.carga_inicial_costos (
-                cic_art_sec, cic_art_cod, cic_art_nom, cic_existencia,
-                cic_precio_venta_detal, cic_precio_venta_mayor,
-                cic_costo_propuesto, cic_metodo_calculo, cic_observaciones, cic_usuario_carga
-              ) VALUES (
-                @art_sec, @art_cod, @art_nom, @existencia,
-                @precio_detal, @precio_mayor, @costo, @metodo, @obs, @usuario
-              )
-            `);
+          await params(transaction.request()).query(`
+            INSERT INTO dbo.carga_inicial_costos (
+              cic_art_sec, cic_art_cod, cic_art_nom, cic_existencia,
+              cic_precio_venta_detal, cic_precio_venta_mayor,
+              cic_costo_propuesto, cic_metodo_calculo, cic_observaciones, cic_usuario_carga
+            ) VALUES (
+              @art_sec, @art_cod, @art_nom, @existencia,
+              @precio_detal, @precio_mayor, @costo, @metodo, @obs, @usuario
+            )
+          `);
           nuevos++;
         }
 
@@ -429,12 +464,19 @@ const calcularCostosAutomatico = async (req, res) => {
         data: {
           total_productos: productos.recordset.length,
           procesados,
+          ya_con_costo,
+          calculados_desde_mayor,
+          calculados_desde_detal,
+          sin_precio,
           nuevos,
           actualizados,
-          sin_precio_mayor,
-          margen_aplicado: `${margen_mayor}%`,
-          formula: `Costo = Precio Mayor / ${divisor.toFixed(2)}`,
-          siguiente_paso: 'Revisar con GET /api/carga-costos/resumen y aplicar con POST /api/carga-costos/aplicar'
+          markup_mayor_aplicado: `${margen_mayor}%`,
+          markup_detal_aplicado: `${margen_detal}%`,
+          formulas: {
+            desde_mayor: `Costo = Precio Mayor / ${divisor_mayor.toFixed(2)}`,
+            desde_detal: `Costo = Precio Detal / ${divisor_detal.toFixed(2)}`
+          },
+          siguiente_paso: 'Revisar con GET /api/carga-costos/resumen. Si hay VALIDADO_CON_ALERTAS usar PUT /actualizar-estado antes de aplicar.'
         }
       });
 
@@ -742,94 +784,114 @@ const aprobarCostoIndividual = async (req, res) => {
 };
 
 /**
- * Aprobar costos masivamente
+ * Actualizar estado masivamente
  * PUT /api/carga-costos/actualizar-estado
+ *
+ * Modo 1 (por estado): { estado_actual, nuevo_estado } → actualiza TODOS los registros en estado_actual
+ * Modo 2 (por lista):  { art_cods: [...], nuevo_estado } → actualiza solo los art_cods indicados
  */
 const aprobarCostosMasivo = async (req, res) => {
   try {
-    const { art_cods, observaciones } = req.body;
-    const usu_cod = req.usuario?.usu_cod || 'sistema';
+    const { estado_actual, nuevo_estado, art_cods, observaciones } = req.body;
+    const usu_cod = req.body.usu_cod || req.usuario?.usu_cod || 'sistema';
 
-    if (!art_cods || !Array.isArray(art_cods) || art_cods.length === 0) {
+    // Validar que se indicó al menos un modo de selección
+    const porEstado = estado_actual && nuevo_estado;
+    const porLista = art_cods && Array.isArray(art_cods) && art_cods.length > 0;
+
+    if (!porEstado && !porLista) {
       return res.status(400).json({
         success: false,
-        message: 'Se requiere un array de art_cods'
+        message: 'Se requiere (estado_actual + nuevo_estado) o un array de art_cods'
+      });
+    }
+
+    // Validar nuevo_estado
+    const estadosValidos = ['VALIDADO', 'VALIDADO_CON_ALERTAS', 'PENDIENTE', 'RECHAZADO'];
+    const estadoDestino = nuevo_estado || 'VALIDADO';
+    if (!estadosValidos.includes(estadoDestino)) {
+      return res.status(400).json({
+        success: false,
+        message: `nuevo_estado debe ser uno de: ${estadosValidos.join(', ')}`
       });
     }
 
     const pool = await poolPromise;
-    const errores = [];
     let totalActualizados = 0;
+    const errores = [];
 
-    // Procesar cada artículo
-    for (const art_cod of art_cods) {
-      try {
-        // 1. Verificar que existe y obtener datos actuales
-        const checkQuery = `
-          SELECT cic_art_cod, cic_estado, cic_observaciones
-          FROM dbo.carga_inicial_costos
-          WHERE cic_art_cod = @art_cod
-        `;
+    if (porEstado) {
+      // MODO 1: Actualizar todos los registros del estado origen
+      const estadosOrigen = ['PENDIENTE', 'VALIDADO', 'VALIDADO_CON_ALERTAS', 'RECHAZADO', 'APLICADO'];
+      if (!estadosOrigen.includes(estado_actual)) {
+        return res.status(400).json({
+          success: false,
+          message: `estado_actual debe ser uno de: ${estadosOrigen.join(', ')}`
+        });
+      }
 
-        const checkResult = await pool.request()
-          .input('art_cod', sql.VarChar(30), art_cod)
-          .query(checkQuery);
-
-        if (checkResult.recordset.length === 0) {
-          errores.push(`${art_cod}: No encontrado`);
-          continue;
-        }
-
-        const costoActual = checkResult.recordset[0];
-
-        // 2. Verificar estado
-        if (costoActual.cic_estado !== 'VALIDADO_CON_ALERTAS' && costoActual.cic_estado !== 'RECHAZADO') {
-          errores.push(`${art_cod}: Estado ${costoActual.cic_estado} no puede aprobarse`);
-          continue;
-        }
-
-        // 3. Actualizar
-        const nuevaObservacion = (costoActual.cic_observaciones || '') +
-          ` | Aprobado masivamente por ${usu_cod}: ${observaciones || 'Sin observaciones'}`;
-
-        const updateQuery = `
+      const result = await pool.request()
+        .input('estado_actual', sql.VarChar(50), estado_actual)
+        .input('nuevo_estado', sql.VarChar(50), estadoDestino)
+        .input('usu_cod', sql.VarChar(100), usu_cod)
+        .query(`
           UPDATE dbo.carga_inicial_costos
-          SET cic_estado = 'VALIDADO',
-              cic_observaciones = @nuevaObservacion,
+          SET cic_estado = @nuevo_estado,
               cic_fecha_validacion = GETDATE(),
               cic_usuario_validacion = @usu_cod
-          WHERE cic_art_cod = @art_cod
-        `;
+          WHERE cic_estado = @estado_actual
+        `);
 
-        await pool.request()
-          .input('art_cod', sql.VarChar(30), art_cod)
-          .input('nuevaObservacion', sql.VarChar(500), nuevaObservacion.substring(0, 500))
-          .input('usu_cod', sql.VarChar(100), usu_cod)
-          .query(updateQuery);
+      totalActualizados = result.rowsAffected[0];
 
-        totalActualizados++;
+    } else {
+      // MODO 2: Actualizar por lista de art_cods
+      for (const art_cod of art_cods) {
+        try {
+          const checkResult = await pool.request()
+            .input('art_cod', sql.VarChar(30), art_cod)
+            .query('SELECT cic_art_cod, cic_estado FROM dbo.carga_inicial_costos WHERE cic_art_cod = @art_cod');
 
-      } catch (error) {
-        errores.push(`${art_cod}: ${error.message}`);
+          if (checkResult.recordset.length === 0) {
+            errores.push(`${art_cod}: No encontrado`);
+            continue;
+          }
+
+          await pool.request()
+            .input('art_cod', sql.VarChar(30), art_cod)
+            .input('nuevo_estado', sql.VarChar(50), estadoDestino)
+            .input('usu_cod', sql.VarChar(100), usu_cod)
+            .query(`
+              UPDATE dbo.carga_inicial_costos
+              SET cic_estado = @nuevo_estado,
+                  cic_fecha_validacion = GETDATE(),
+                  cic_usuario_validacion = @usu_cod
+              WHERE cic_art_cod = @art_cod
+            `);
+
+          totalActualizados++;
+        } catch (error) {
+          errores.push(`${art_cod}: ${error.message}`);
+        }
       }
     }
 
     return res.json({
       success: true,
-      message: `Estados actualizados: ${totalActualizados}/${art_cods.length}`,
+      message: porEstado
+        ? `Estado actualizado: ${totalActualizados} registros de ${estado_actual} a ${estadoDestino}`
+        : `Estados actualizados: ${totalActualizados}/${art_cods.length}`,
       data: {
-        total_solicitados: art_cods.length,
-        total_actualizados: totalActualizados,
-        total_errores: errores.length,
-        errores: errores
+        afectados: totalActualizados,
+        errores: errores.length > 0 ? errores : undefined
       }
     });
 
   } catch (error) {
-    console.error('Error aprobando costos masivo:', error);
+    console.error('Error actualizando estados:', error);
     return res.status(500).json({
       success: false,
-      message: 'Error al aprobar costos masivamente',
+      message: 'Error al actualizar estados',
       error: error.message
     });
   }
