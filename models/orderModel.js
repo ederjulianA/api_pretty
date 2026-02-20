@@ -594,11 +594,22 @@ const getOrder = async (fac_nro) => {
         fd.kar_codigo_promocion AS codigo_promocion,
         fd.kar_descripcion_promocion AS descripcion_promocion,
         fd.kar_tiene_oferta AS tiene_oferta,
+        -- Identificación de líneas bundle
+        CASE
+          WHEN fd.kar_bundle_padre IS NOT NULL AND fd.kar_bundle_padre != ''
+          THEN 1 ELSE 0
+        END AS es_componente_bundle,
         -- Información de rentabilidad real por producto
+        -- Componentes de bundle tienen kar_cos=0 (costo absorbido por el padre), por lo que
+        -- costo_total_linea=0, utilidad_linea=0 y rentabilidad_real=NULL (sin significado individual)
         ISNULL(fd.kar_cos, 0) AS costo_unitario,
         (fd.kar_uni * ISNULL(fd.kar_cos, 0)) AS costo_total_linea,
-        (fd.kar_total - (fd.kar_uni * ISNULL(fd.kar_cos, 0))) AS utilidad_linea,
         CASE
+          WHEN fd.kar_bundle_padre IS NOT NULL AND fd.kar_bundle_padre != '' THEN 0
+          ELSE (fd.kar_total - (fd.kar_uni * ISNULL(fd.kar_cos, 0)))
+        END AS utilidad_linea,
+        CASE
+          WHEN fd.kar_bundle_padre IS NOT NULL AND fd.kar_bundle_padre != '' THEN NULL
           WHEN fd.kar_total > 0
           THEN ((fd.kar_total - (fd.kar_uni * ISNULL(fd.kar_cos, 0))) / fd.kar_total * 100)
           ELSE 0
@@ -907,8 +918,32 @@ const createCompleteOrder = async ({
       }
       insertRequest.input('kar_total', sql.Decimal(17, 2), kar_total);
 
-      // Obtener costo histórico del mapa
-      const kar_cos_create = costosMapCreate.get(String(detalle.art_sec)) || 0;
+      // Obtener costo histórico — lógica bundle-aware:
+      //   Componente de bundle (kar_bundle_padre != null) → costo = 0 (capturado en el padre)
+      //   Bundle padre (tiene componentes en detallesExpandidos)  → costo = suma de costos de componentes / kar_uni padre
+      //   Producto simple                                         → costo desde articulosdetalle
+      let kar_cos_create;
+      if (detalle.kar_bundle_padre !== null && detalle.kar_bundle_padre !== undefined) {
+        // Es componente: su costo queda en 0, el padre absorbe el costo total
+        kar_cos_create = 0;
+      } else {
+        const compsBundlePadre = detallesExpandidos.filter(d =>
+          d.kar_bundle_padre !== null &&
+          d.kar_bundle_padre !== undefined &&
+          String(d.kar_bundle_padre) === String(detalle.art_sec)
+        );
+        if (compsBundlePadre.length > 0) {
+          // Es bundle padre: costo unitario = suma de (unidades × costo_unitario_componente) / unidades del bundle
+          const totalCostoComponentes = compsBundlePadre.reduce((sum, comp) => {
+            return sum + (Number(comp.kar_uni) * (costosMapCreate.get(String(comp.art_sec)) || 0));
+          }, 0);
+          const karUniBundlePadre = Number(detalle.kar_uni) || 1;
+          kar_cos_create = karUniBundlePadre > 0 ? totalCostoComponentes / karUniBundlePadre : 0;
+        } else {
+          // Producto simple: costo desde articulosdetalle
+          kar_cos_create = costosMapCreate.get(String(detalle.art_sec)) || 0;
+        }
+      }
       insertRequest.input('kar_cos', sql.Decimal(18, 4), kar_cos_create);
 
       const insertDetailQuery = `
