@@ -1,502 +1,213 @@
 # Implementación: Cálculo Automático de Costos Iniciales
 
-**Fecha:** 2026-02-15
-**Tipo:** Feature - OPCIÓN 1 (Carga Segura en Dos Pasos)
-**Relacionado:** FASE_0_CARGA_INICIAL_COSTOS.md, ANALISIS_SISTEMA_COMPRAS_COSTO_PROMEDIO.md
+**Fecha inicial:** 2026-02-15
+**Última actualización:** 2026-02-19
+**Versión:** 2.0
+**Archivo principal:** `controllers/cargaCostosController.js`
 
 ---
 
 ## 📋 Resumen Ejecutivo
 
-Se implementó un **endpoint para calcular automáticamente los costos iniciales** de todos los productos (600+) basado en el precio mayorista con un margen configurable.
+Sistema de carga inicial de costos para clientes sin historial de compras (600+ productos). Calcula costos usando fórmula de markup reverso sobre precio mayor o detal según disponibilidad, con validación automática y flujo de aprobación.
 
-**Solución al problema:**
-- Cliente sin historial de compras
-- 600+ referencias de productos
-- Precio mayorista calculado históricamente con ~20% de margen sobre el costo
+---
 
-**Fórmula implementada:**
+## 🔑 Conceptos Clave
+
+### Markup vs Margen
+El parámetro `margen_mayor` del endpoint es un **markup** (ganancia sobre costo), no un margen comercial (ganancia sobre precio venta):
+
 ```
-Costo Inicial = Precio Mayor / (1 + margen/100)
+Markup 20% → Margen 16.67%   ← Todos quedan en VALIDADO_CON_ALERTAS
+Markup 25% → Margen 20.00%   ← Límite del SP validador
+Markup 30% → Margen 23.08%   ← Pasa validación directamente
+```
 
-Ejemplo (margen 20%):
-- Precio Mayor: $30,000
-- Costo Inicial: $30,000 / 1.20 = $25,000
+El SP `sp_ValidarCargaInicialCostos` usa umbral `< 20%` (margen sobre precio venta) para determinar alertas.
+
+### Fórmulas
+
+```
+Costo = Precio / (1 + markup/100)
+
+Ejemplo markup 25% sobre precio mayor $30,000:
+Costo = $30,000 / 1.25 = $24,000
+Margen = ($30,000 - $24,000) / $30,000 = 20%
 ```
 
 ---
 
-## 🎯 Implementación Realizada
+## 🎯 Funcionalidades Implementadas
 
-### 1. Controlador Actualizado
+### `calcularCostosAutomatico` — v2.0
 
-**Archivo:** `controllers/cargaCostosController.js`
+**Endpoint:** `POST /api/carga-costos/calcular-automatico`
 
-**Función agregada:** `calcularCostosAutomatico(req, res)`
+**Cambios v2.0 vs v1.0:**
+- ✅ Nuevo parámetro `margen_detal` independiente de `margen_mayor`
+- ✅ Incluye artículos con solo precio detal (antes solo procesaba con precio mayor)
+- ✅ Incluye artículos sin existencia (antes excluía stock = 0)
+- ✅ Respeta artículos con `art_bod_cos_cat > 0` (no sobreescribe costos reales)
+- ✅ Nuevos contadores: `ya_con_costo`, `calculados_desde_mayor`, `calculados_desde_detal`, `sin_precio`
+- ✅ Campo `metodo` diferencia origen: `REVERSO_MAYOR_25%` vs `REVERSO_DETAL_25%`
 
-**Características:**
-- ✅ Calcula costos usando fórmula de costo reverso
-- ✅ Soporta importación incremental (UPSERT)
-- ✅ Procesa solo productos con `precio_venta_mayor > 0`
-- ✅ Ejecuta validación automática post-cálculo
-- ✅ Transacción SQL completa (rollback en error)
-- ✅ Auditoría completa (usuario, fecha, observaciones)
-
-**Parámetros:**
-```javascript
+**Parámetros v2.0:**
+```json
 {
-  "usu_cod": "admin",      // Opcional (se toma del token JWT)
-  "margen_mayor": 20       // Opcional (default: 20%)
+  "usu_cod": "admin",    // Opcional (se toma del token JWT)
+  "margen_mayor": 25,    // Markup para precio mayor (default: 20)
+  "margen_detal": 25     // Markup para precio detal (default: igual a margen_mayor)
 }
 ```
 
-**Respuesta:**
+**Prioridad de cálculo por artículo:**
+1. `art_bod_cos_cat > 0` → **OMITIR** (ya tiene costo real asignado)
+2. `precio_mayor > 0` → `Costo = precio_mayor / (1 + margen_mayor/100)`
+3. `precio_detal > 0` (sin precio mayor) → `Costo = precio_detal / (1 + margen_detal/100)`
+4. Sin ningún precio → **OMITIR** (contador `sin_precio`)
+
+**Respuesta v2.0:**
 ```json
 {
   "success": true,
-  "message": "Cálculo automático de costos completado exitosamente",
   "data": {
     "total_productos": 650,
-    "procesados": 645,
-    "nuevos": 620,
-    "actualizados": 25,
-    "sin_precio_mayor": 5,
-    "margen_aplicado": "20%",
-    "formula": "Costo = Precio Mayor / 1.20",
-    "siguiente_paso": "Revisar con GET /api/carga-costos/resumen..."
-  }
-}
-```
-
----
-
-### 2. Ruta Agregada
-
-**Archivo:** `routes/cargaCostosRoutes.js`
-
-**Nueva ruta:**
-```javascript
-router.post('/calcular-automatico', auth, calcularCostosAutomatico);
-```
-
-**Endpoint completo:**
-```
-POST /api/carga-costos/calcular-automatico
-```
-
-**Headers requeridos:**
-- `x-access-token`: Token JWT
-- `Content-Type`: application/json
-
----
-
-### 3. Documentación Actualizada
-
-**Archivo:** `analisis_2026/API_ENDPOINTS_CARGA_COSTOS.md`
-
-**Secciones agregadas:**
-- Endpoint 3: Calcular Costos Automáticamente (NUEVO) ⭐
-- Escenario A: Flujo completo de carga automática
-- Ejemplos de uso con cURL y JavaScript
-
-**Renumeración:**
-- Endpoint 3: Calcular Costos Automáticamente ⭐ (NUEVO)
-- Endpoint 4: Obtener Resumen de Carga (antes 3)
-- Endpoint 5: Obtener Productos con Alertas (antes 4)
-- Endpoint 6: Aplicar Costos Validados (antes 5)
-
----
-
-### 4. Colección Postman Actualizada
-
-**Archivo:** `analisis_2026/Postman_CargaCostos_Collection.json`
-
-**Nuevos requests:**
-- "3. Calcular Costos Automáticamente (NUEVO)"
-  - Ejemplo con margen 20%
-  - Ejemplo con margen 25%
-
-**Descripción actualizada:**
-- Flujo A: Cálculo Automático (RECOMENDADO)
-- Flujo B: Carga Manual
-
----
-
-## 🔍 Detalles Técnicos
-
-### Proceso Interno
-
-1. **Consulta productos con precio mayor**
-   ```sql
-   SELECT a.art_sec, a.art_cod, a.art_nom,
-          ad_mayor.art_bod_pre AS precio_venta_mayor
-   FROM articulos a
-   LEFT JOIN articulosdetalle ad_mayor
-     ON ad_mayor.art_sec = a.art_sec
-     AND ad_mayor.bod_sec = '1'
-     AND ad_mayor.lis_pre_cod = 2
-   WHERE ad_mayor.art_bod_pre > 0
-   ```
-
-2. **Calcula costo por producto**
-   ```javascript
-   const divisor = 1 + (margen_mayor / 100); // 1.20 para 20%
-   const costo_calculado = Math.round((precio_mayor / divisor) * 100) / 100;
-   ```
-
-3. **UPSERT en carga_inicial_costos**
-   - Si existe registro → UPDATE
-   - Si es nuevo → INSERT
-
-4. **Validación automática**
-   ```javascript
-   await pool.request().execute('sp_ValidarCargaInicialCostos');
-   ```
-
-### Estados Resultantes
-
-Después de ejecutar el endpoint, los costos quedan en tabla temporal con estados:
-
-- **VALIDADO**: Margen ≥ 20%, listo para aplicar
-- **VALIDADO_CON_ALERTAS**: Margen < 20%, requiere revisión
-- **RECHAZADO**: Costo ≥ precio venta (error de datos)
-
----
-
-## 📊 Flujo Completo de Uso
-
-### Paso 1: Autenticación
-
-```bash
-POST /api/auth/login
-{
-  "usu_cod": "admin",
-  "usu_pass": "tu_password"
-}
-
-# Respuesta: { "token": "eyJhbGc..." }
-```
-
----
-
-### Paso 2: Calcular Costos (⚡ AUTOMÁTICO)
-
-```bash
-POST /api/carga-costos/calcular-automatico
-Headers:
-  x-access-token: eyJhbGc...
-  Content-Type: application/json
-
-Body:
-{
-  "usu_cod": "admin",
-  "margen_mayor": 20
-}
-
-# Respuesta:
-{
-  "success": true,
-  "data": {
-    "total_productos": 650,
-    "procesados": 645,
-    "nuevos": 620,
-    "margen_aplicado": "20%",
-    "formula": "Costo = Precio Mayor / 1.20"
-  }
-}
-```
-
-✅ **En segundos procesa 600+ productos**
-
----
-
-### Paso 3: Verificar Resumen
-
-```bash
-GET /api/carga-costos/resumen
-Headers:
-  x-access-token: eyJhbGc...
-
-# Respuesta:
-{
-  "success": true,
-  "data": [
-    { "estado": "VALIDADO", "cantidad": 640, "margen_promedio": 45.2 },
-    { "estado": "VALIDADO_CON_ALERTAS", "cantidad": 5, "margen_promedio": 18.0 }
-  ]
-}
-```
-
----
-
-### Paso 4: Revisar Alertas (Opcional)
-
-```bash
-GET /api/carga-costos/alertas
-Headers:
-  x-access-token: eyJhbGc...
-
-# Respuesta:
-{
-  "success": true,
-  "data": [
-    {
-      "art_cod": "SM005",
-      "art_nom": "Sombra Mate Coral",
-      "costo_propuesto": 41000,
-      "precio_venta": 50000,
-      "margen": 18.0,
-      "estado": "VALIDADO_CON_ALERTAS",
-      "observaciones": "ALERTA: Margen muy bajo (<20%)"
+    "procesados": 500,
+    "ya_con_costo": 150,
+    "calculados_desde_mayor": 490,
+    "calculados_desde_detal": 10,
+    "sin_precio": 5,
+    "nuevos": 480,
+    "actualizados": 20,
+    "markup_mayor_aplicado": "25%",
+    "markup_detal_aplicado": "25%",
+    "formulas": {
+      "desde_mayor": "Costo = Precio Mayor / 1.25",
+      "desde_detal": "Costo = Precio Detal / 1.25"
     }
-  ]
+  }
 }
 ```
 
-**Decisión:** Cliente decide si ajustar precio venta o aceptar margen bajo.
-
 ---
 
-### Paso 5: Aplicar Costos a BD
+### `aprobarCostosMasivo` (PUT /actualizar-estado) — v2.0
 
-```bash
-POST /api/carga-costos/aplicar
-Headers:
-  x-access-token: eyJhbGc...
-  Content-Type: application/json
+**Cambios v2.0:** Soporta dos modos de operación.
 
-Body:
+**Modo 1 — Por estado (nuevo en v2.0):**
+Actualiza TODOS los registros de un estado origen a uno destino en una sola query SQL.
+```json
 {
+  "estado_actual": "VALIDADO_CON_ALERTAS",
+  "nuevo_estado": "VALIDADO",
   "usu_cod": "admin"
 }
-
-# Respuesta:
-{
-  "success": true,
-  "message": "Carga inicial aplicada exitosamente",
-  "data": {
-    "total_aplicados": 640,
-    "errores": 0
-  }
-}
 ```
 
-✅ **Costos aplicados a `articulosdetalle.art_bod_cos_cat`**
-✅ **Registrados en `historial_costos`**
-✅ **Sistema listo para Fase 1: Compras con costo promedio**
-
----
-
-## ⚙️ Configuración Flexible
-
-### Cambiar el Margen
-
-**Ejemplo: Margen 15%**
+**Modo 2 — Por lista (comportamiento original):**
+Actualiza solo los artículos especificados.
 ```json
 {
-  "margen_mayor": 15
-}
-// Divisor: 1.15
-// Precio Mayor $30,000 → Costo $26,087
-```
-
-**Ejemplo: Margen 25%**
-```json
-{
-  "margen_mayor": 25
-}
-// Divisor: 1.25
-// Precio Mayor $30,000 → Costo $24,000
-```
-
-**Ejemplo: Margen 30%**
-```json
-{
-  "margen_mayor": 30
-}
-// Divisor: 1.30
-// Precio Mayor $30,000 → Costo $23,077
-```
-
-### Importación Incremental
-
-Si necesitas **recalcular** con un margen diferente:
-
-```bash
-# Primera ejecución (margen 20%)
-POST /api/carga-costos/calcular-automatico
-{ "margen_mayor": 20 }
-# Resultado: 645 nuevos
-
-# Segunda ejecución (margen 25% - corrección)
-POST /api/carga-costos/calcular-automatico
-{ "margen_mayor": 25 }
-# Resultado: 0 nuevos, 645 actualizados ✅
-```
-
----
-
-## 🎯 Ventajas de la Implementación
-
-### ✅ Velocidad
-- Procesa 600+ productos en **segundos**
-- Transacción única optimizada
-- Sin intervención manual
-
-### ✅ Seguridad
-- Usa tabla temporal (`carga_inicial_costos`)
-- Requiere aprobación antes de aplicar
-- Rollback automático en errores
-- Validación automática integrada
-
-### ✅ Flexibilidad
-- Margen configurable (15%, 20%, 25%, etc.)
-- Soporta importación incremental
-- Permite ajustes manuales posteriores
-
-### ✅ Trazabilidad
-- Registra usuario, fecha, método
-- Observaciones detalladas
-- Historial completo en `historial_costos`
-
-### ✅ Validación Automática
-- Rechaza costos negativos
-- Rechaza costos > precio venta
-- Alerta márgenes < 20%
-
----
-
-## 🔧 Casos de Uso
-
-### 1. Carga Inicial Masiva (600+ productos)
-
-**Situación:** Cliente sin historial de compras
-
-**Solución:**
-```bash
-POST /api/carga-costos/calcular-automatico
-{ "margen_mayor": 20 }
-```
-
-**Tiempo:** ~5 segundos para 600 productos
-
----
-
-### 2. Recalcular con Margen Diferente
-
-**Situación:** Cliente quiere probar con margen 25% en lugar de 20%
-
-**Solución:**
-```bash
-# Ejecutar nuevamente con margen diferente
-POST /api/carga-costos/calcular-automatico
-{ "margen_mayor": 25 }
-```
-
-**Resultado:** Actualiza los 600+ registros existentes
-
----
-
-### 3. Baseline + Ajustes Manuales
-
-**Situación:** Mayoría de productos con margen 20%, algunos con datos reales
-
-**Flujo:**
-1. Calcular automático (margen 20%) → 600 productos
-2. Exportar Excel
-3. Ajustar manualmente 10-20 productos específicos
-4. Importar Excel (solo ajusta los modificados)
-5. Aplicar
-
----
-
-## 📊 Ejemplo Real
-
-### Datos de Entrada
-
-**Productos en BD:**
-- Total: 650 productos
-- Con precio mayor: 645
-- Sin precio mayor: 5
-
-**Configuración:**
-- Margen mayor: 20%
-
-### Ejecución
-
-```bash
-POST /api/carga-costos/calcular-automatico
-{
-  "usu_cod": "admin",
-  "margen_mayor": 20
+  "art_cods": ["ART001", "ART002"],
+  "nuevo_estado": "VALIDADO"
 }
 ```
 
-### Resultados
+---
 
-**Procesamiento:**
-```json
-{
-  "total_productos": 650,
-  "procesados": 645,
-  "nuevos": 645,
-  "sin_precio_mayor": 5
-}
-```
+### `exportarPlantillaCostos` — v2.0
 
-**Validación automática:**
-```
-VALIDADO: 640 productos (margen ≥ 20%)
-VALIDADO_CON_ALERTAS: 5 productos (margen 15-19%)
-```
+**Cambios v2.0:**
+- `INNER JOIN vwExistencias` → `LEFT JOIN` (incluye artículos sin existencia)
+- Eliminado filtro `WHERE ve.existencia > 0`
+- 4 nuevas columnas de solo lectura (informativas):
+  - `H: costo_promedio_actual` — costo actual en `art_bod_cos_cat`
+  - `I: rentabilidad_detal_pct` — `(precio_detal - costo) / precio_detal * 100`
+  - `J: rentabilidad_mayor_pct` — `(precio_mayor - costo) / precio_mayor * 100`
+  - `K: total_unidades_vendidas` — SUM de `kar_uni` donde `kar_nat='-'`, `fac_tip_cod='VTA'`, `fac_est_fac='A'`
+- `costo_inicial` movido a columna **L** (era columna H)
+- Total: 14 columnas (antes 10)
 
-**Aplicación:**
-```bash
-POST /api/carga-costos/aplicar
-```
+---
 
-**Resultado final:**
+## 🔄 Flujo Completo Recomendado
+
 ```
-✅ 640 productos con costo en articulosdetalle.art_bod_cos_cat
-✅ 640 registros en historial_costos tipo CARGA_INICIAL
-✅ Sistema listo para Fase 1: Compras
+┌─────────────────────────────────────────────────────────┐
+│              FLUJO CARGA INICIAL DE COSTOS               │
+└─────────────────────────────────────────────────────────┘
+
+PASO 0 (si reimportando):
+  SQL: DELETE FROM carga_inicial_costos WHERE cic_estado != 'APLICADO'
+
+PASO 1:
+  POST /calcular-automatico
+  Body: { margen_mayor: 25, margen_detal: 25 }
+  → Calcula costos para artículos sin costo asignado
+
+PASO 2:
+  GET /resumen
+  → Verificar distribución de estados
+
+PASO 3 (si hay VALIDADO_CON_ALERTAS):
+  PUT /actualizar-estado
+  Body: { estado_actual: "VALIDADO_CON_ALERTAS", nuevo_estado: "VALIDADO" }
+  → Aprobar masivamente
+
+PASO 4 (revisar RECHAZADOS):
+  GET /alertas
+  → Artículos RECHAZADOS tienen precios invertidos (precio_mayor > precio_detal)
+  → Corregir precios en articulosdetalle y volver al PASO 1
+
+PASO 5:
+  POST /aplicar
+  → Aplica SOLO los VALIDADO a articulosdetalle.art_bod_cos_cat
+  → Registra en historial_costos tipo 'CARGA_INICIAL'
 ```
 
 ---
 
-## 🚀 Próximos Pasos
+## ⚠️ Problemas Conocidos y Soluciones
 
-Después de completar esta Fase 0:
+### `total_aplicados: 0` en POST /aplicar
+**Causa:** El SP `sp_AplicarCargaInicialCostos` solo procesa `cic_estado = 'VALIDADO'`. Con markup 25%, muchos quedan en `VALIDADO_CON_ALERTAS`.
+**Solución:** Ejecutar `PUT /actualizar-estado` antes de `/aplicar`.
 
-### ✅ Completado
-- [x] Carga inicial de costos (600+ productos)
-- [x] Validación de márgenes
-- [x] Aplicación a `articulosdetalle`
-- [x] Historial de costos creado
+### Artículos RECHAZADOS con margen negativo
+**Causa:** `precio_mayor > precio_detal` — precios invertidos en el sistema.
+**Ejemplo:** Precio mayor $40,000, precio detal $27,000 → Costo calculado $32,000 > precio detal.
+**Solución:** Corregir los precios del artículo en `articulosdetalle` antes de reprocesar.
 
-### 📍 Siguiente: Fase 1 - Sistema de Compras
-
-Ver: `ANALISIS_SISTEMA_COMPRAS_COSTO_PROMEDIO.md` → Fase 1
-
-**Tareas Fase 1:**
-1. Crear tipo de comprobante `COM`
-2. Endpoints para registrar compras
-3. Cálculo automático de costo promedio al comprar
-4. Vista de compras por período
-5. Reportes de variación de costos
-
----
-
-## 📚 Referencias
-
-- **Análisis original:** `analisis_2026/ANALISIS_SISTEMA_COMPRAS_COSTO_PROMEDIO.md`
-- **Fase 0 completa:** `analisis_2026/FASE_0_CARGA_INICIAL_COSTOS.md`
-- **API Endpoints:** `analisis_2026/API_ENDPOINTS_CARGA_COSTOS.md`
-- **Postman Collection:** `analisis_2026/Postman_CargaCostos_Collection.json`
+### Costos aplicados con margen < 20% (corrección posterior)
+```sql
+-- Corregir artículos con margen insuficiente ya aplicados
+UPDATE ad_d
+SET ad_d.art_bod_cos_cat = ROUND(ad.art_bod_pre / 1.25, 2)
+FROM dbo.articulosdetalle ad_d
+INNER JOIN dbo.articulos a ON a.art_sec = ad_d.art_sec
+INNER JOIN dbo.articulosdetalle ad ON ad.art_sec = ad_d.art_sec
+    AND ad.bod_sec = '1' AND ad.lis_pre_cod = 2
+WHERE ad_d.bod_sec = '1' AND ad_d.lis_pre_cod = 1
+  AND ad_d.art_bod_cos_cat > 0 AND ad_d.art_bod_pre > 0
+  AND (ad_d.art_bod_pre - ad_d.art_bod_cos_cat) / ad_d.art_bod_pre * 100 < 20
+  AND ad.art_bod_pre > 0;
+```
 
 ---
 
-**Documento creado por:** Claude Code
-**Fecha:** 2026-02-15
-**Versión:** 1.0
-**Estado:** ✅ Implementado y Probado
+## 📁 Archivos Relacionados
+
+| Archivo | Descripción |
+|---------|-------------|
+| `controllers/cargaCostosController.js` | Lógica principal |
+| `routes/cargaCostosRoutes.js` | Definición de rutas |
+| `docs/API_ENDPOINTS_CARGA_COSTOS.md` | Documentación completa de API |
+| `postman/Postman_CargaCostos_Collection.json` | Colección Postman v2.0 |
+| `sql/Fase1_PreparacionCompras_09022026.sql` | SP `sp_ValidarCargaInicialCostos`, `sp_AplicarCargaInicialCostos` |
+
+---
+
+**Última actualización:** 2026-02-19
+**Versión:** 2.0
