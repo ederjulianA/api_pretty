@@ -1,8 +1,8 @@
 # API Endpoints: Carga Inicial de Costos
 
 **Fecha:** 2026-02-09
-**Última actualización:** 2026-02-19
-**Versión:** 2.0
+**Última actualización:** 2026-02-20
+**Versión:** 2.1
 **Base URL:** `http://localhost:3000/api`
 
 ---
@@ -387,6 +387,129 @@ WHERE ad_d.bod_sec = '1' AND ad_d.lis_pre_cod = 1
 
 ---
 
+## 8. Reprocesar Costos de Documentos
+
+**`POST /api/carga-costos/reprocesar-costos`**
+
+Actualiza `kar_cos` en `facturakardes` con el **costo actual** (`art_bod_cos_cat`) de `articulosdetalle` para todos los documentos de venta activos en el período indicado. Solo afecta líneas de salida (`kar_nat = '-'`).
+
+### Caso de uso principal
+
+Cuando se implementó el campo `kar_cos` en `facturakardes`, los registros anteriores quedaron con `kar_cos = 0`. Este endpoint permite poblar esos registros históricos usando el costo vigente del artículo, mejorando los reportes de rentabilidad del dashboard.
+
+> ⚠️ **Advertencia:** Se usa el costo **actual** de `articulosdetalle`, no el que existía al momento de la venta original. Si el costo del artículo ha cambiado desde entonces, los reportes históricos reflejarán el costo presente, no el histórico real.
+
+### Manejo de bundles (bundle-aware)
+
+El endpoint respeta la estructura de artículos armados:
+
+| Tipo de línea | `kar_cos` asignado |
+|--------------|-------------------|
+| Componente (`kar_bundle_padre != NULL`) | `0` — costo absorbido por el padre |
+| Bundle padre | `SUM(comp.kar_uni × costo_comp) / kar_uni_padre` — suma de costos de componentes |
+| Producto simple | `articulosdetalle.art_bod_cos_cat` |
+
+Esto asegura que no haya doble contabilización del costo en documentos con bundles.
+
+### Parámetros (body JSON)
+
+| Campo | Tipo | Requerido | Descripción |
+|-------|------|-----------|-------------|
+| `fecha_inicio` | string | ✅ Sí | Fecha inicial del período. Formato `YYYY-MM-DD` |
+| `fecha_fin` | string | ✅ Sí | Fecha final del período. Formato `YYYY-MM-DD` |
+| `fac_nro` | string | No | Si se envía, solo procesa ese documento específico |
+| `usu_cod` | string | No | Usuario que ejecuta (para auditoría en logs) |
+
+### Ejemplo de request
+
+```json
+POST /api/carga-costos/reprocesar-costos
+
+{
+  "fecha_inicio": "2025-01-01",
+  "fecha_fin":    "2026-02-20",
+  "usu_cod":      "admin"
+}
+```
+
+Para un documento específico:
+```json
+{
+  "fecha_inicio": "2026-01-01",
+  "fecha_fin":    "2026-02-20",
+  "fac_nro":      "VTA00123",
+  "usu_cod":      "admin"
+}
+```
+
+### Respuesta exitosa
+
+```json
+{
+  "success": true,
+  "message": "Reprocesamiento completado. 1250 líneas actualizadas.",
+  "data": {
+    "periodo": {
+      "fecha_inicio": "2025-01-01",
+      "fecha_fin":    "2026-02-20"
+    },
+    "fac_nro_filtro":      null,
+    "total_lineas":        1350,
+    "actualizadas":        1250,
+    "sin_costo_en_bd":     100,
+    "errores_count":       0,
+    "documentos_afectados": 87,
+    "tiempo_segundos":     4.2
+  }
+}
+```
+
+| Campo | Descripción |
+|-------|-------------|
+| `total_lineas` | Líneas de facturakardes encontradas en el período |
+| `actualizadas` | Líneas donde se actualizó `kar_cos` exitosamente |
+| `sin_costo_en_bd` | Líneas de artículos que tienen `art_bod_cos_cat = 0` en articulosdetalle (no tienen costo configurado) |
+| `documentos_afectados` | Cantidad de documentos (facturas) que tenían al menos una línea en el período |
+| `tiempo_segundos` | Tiempo total de ejecución |
+
+### Respuesta con error de validación (400)
+
+```json
+{
+  "success": false,
+  "message": "Los parámetros fecha_inicio y fecha_fin son obligatorios (formato YYYY-MM-DD)"
+}
+```
+
+```json
+{
+  "success": false,
+  "message": "fecha_inicio no puede ser mayor que fecha_fin"
+}
+```
+
+### Estrategia de performance
+
+El endpoint usa 4 fases para minimizar round-trips a la BD:
+
+```
+Fase 1: 1 query JOIN factura + facturakardes  →  obtiene TODAS las líneas del período
+Fase 2: queries en lotes de 200 art_secs      →  obtiene costos actuales de articulosdetalle
+Fase 3: cálculo en JS                         →  sin acceso a BD
+Fase 4: UPDATE en batches de 100 filas        →  ~21 transacciones para 2000 líneas
+```
+
+**Total round-trips:** ~3 queries + N/100 batches vs N transacciones individuales.
+
+> 📌 **Nota de índices:** Para mejor performance, verificar que existan índices en:
+> ```sql
+> -- Recomendado (si no existe):
+> CREATE INDEX IX_factura_fec_tip_est ON dbo.factura (fac_fec, fac_tip_cod, fac_est_fac);
+> CREATE INDEX IX_facturakardes_fac_sec_nat ON dbo.facturakardes (fac_sec, kar_nat);
+> ```
+
+---
+
 ## Códigos de Respuesta
 
 | Código | Descripción |
@@ -399,5 +522,5 @@ WHERE ad_d.bod_sec = '1' AND ad_d.lis_pre_cod = 1
 
 ---
 
-**Última actualización:** 2026-02-19
-**Versión:** 2.0
+**Última actualización:** 2026-02-20
+**Versión:** 2.1

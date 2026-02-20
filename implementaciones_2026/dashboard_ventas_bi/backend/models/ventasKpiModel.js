@@ -31,7 +31,7 @@ const obtenerKPIsPrincipales = async (fechaInicio, fechaFin) => {
           COUNT(DISTINCT nit_sec) AS clientes_unicos,
           SUM(cantidad_vendida) AS unidades_vendidas,
           SUM(utilidad_linea) AS utilidad_bruta_total,
-          AVG(rentabilidad) AS rentabilidad_promedio,
+          AVG(rentabilidad_real) AS rentabilidad_promedio,
           SUM(costo_total_linea) AS costo_total_ventas
         FROM dbo.vw_ventas_dashboard
         WHERE fecha_venta >= @fecha_inicio
@@ -163,7 +163,7 @@ const obtenerTopProductos = async (fechaInicio, fechaFin, limite = 10, ordenarPo
           SUM(total_linea) AS ingresos_totales,
           SUM(utilidad_linea) AS utilidad_total,
           AVG(precio_unitario) AS precio_promedio,
-          AVG(rentabilidad) AS rentabilidad_promedio,
+          AVG(rentabilidad_real) AS rentabilidad_promedio,
           COUNT(DISTINCT fac_nro) AS numero_ordenes
         FROM dbo.vw_ventas_dashboard
         WHERE fecha_venta >= @fecha_inicio
@@ -214,7 +214,7 @@ const obtenerVentasPorCategoria = async (fechaInicio, fechaFin) => {
           SUM(cantidad_vendida) AS unidades_vendidas,
           SUM(total_linea) AS ventas_totales,
           SUM(utilidad_linea) AS utilidad_total,
-          AVG(rentabilidad) AS rentabilidad_promedio,
+          AVG(rentabilidad_real) AS rentabilidad_promedio,
           CASE
             WHEN (SELECT total FROM TotalVentas) > 0
             THEN (SUM(total_linea) * 100.0 / (SELECT total FROM TotalVentas))
@@ -259,7 +259,7 @@ const obtenerVentasPorRentabilidad = async (fechaInicio, fechaFin) => {
           COUNT(DISTINCT CAST(fac_nro AS VARCHAR) + '-' + art_cod) AS items_vendidos,
           SUM(total_linea) AS ventas_totales,
           SUM(utilidad_linea) AS utilidad_total,
-          AVG(rentabilidad) AS rentabilidad_promedio,
+          AVG(rentabilidad_real) AS rentabilidad_promedio,
           COUNT(DISTINCT fac_nro) AS numero_ordenes
         FROM dbo.vw_ventas_dashboard
         WHERE fecha_venta >= @fecha_inicio
@@ -404,7 +404,7 @@ const obtenerOrdenesPorCanal = async (fechaInicio, fechaFin) => {
             ELSE 0
           END AS ticket_promedio,
           SUM(utilidad_linea) AS utilidad_total,
-          AVG(rentabilidad) AS rentabilidad_promedio
+          AVG(rentabilidad_real) AS rentabilidad_promedio
         FROM dbo.vw_ventas_dashboard
         WHERE fecha_venta >= @fecha_inicio
           AND fecha_venta <= @fecha_fin

@@ -1,7 +1,8 @@
 # Implementación: Artículos Armados (Bundles)
 **Fecha:** 2026-02-10
-**Versión:** 1.0 (Documentación corregida)
-**Estado:** Listo para revisión
+**Última actualización:** 2026-02-20
+**Versión:** 2.0
+**Estado:** Implementado en producción
 
 ---
 
@@ -766,6 +767,82 @@ ORDER BY fk.kar_sec;
 3. **Usar nombres de campos EXACTOS** (kar_sec NO kar_sec_item)
 4. **Mantener campos promocionales** (7 campos kar_*)
 5. **Testing exhaustivo antes de producción**
+
+---
+
+## 11. Corrección de Rentabilidad en Bundles (2026-02-20)
+
+**Versión 2.0** — Corrección de cálculo de costos y rentabilidad para bundles.
+
+### Problema identificado
+
+Al vender un bundle, `facturakardes` generaba 4 líneas (1 padre + N componentes). Los componentes tenían `kar_total = $0` pero `kar_cos > 0`, lo que producía:
+
+- `utilidad_linea = $0 - costo = valor negativo` ❌
+- `rentabilidad_real = 0%` (por el `CASE WHEN kar_total > 0`) ❌
+- Doble contabilización: si el padre también tenía `kar_cos`, el costo total del bundle se sumaba dos veces
+
+### Solución implementada
+
+**Regla: el padre absorbe el costo total del bundle, los componentes tienen `kar_cos = 0`.**
+
+#### `models/orderModel.js` — `createCompleteOrder`
+
+Al insertar en `facturakardes`, el cálculo de `kar_cos` ahora es:
+
+| Tipo de línea | `kar_cos` asignado |
+|--------------|-------------------|
+| Componente de bundle (`kar_bundle_padre != null`) | `0` — costo absorbido por el padre |
+| Bundle padre (tiene componentes en `detallesExpandidos`) | `SUM(comp.kar_uni × comp_costo_unitario) / bundle_kar_uni` |
+| Producto simple | `articulosdetalle.art_bod_cos_cat` (sin cambio) |
+
+**Ejemplo:**
+```
+Bundle "Combo Amor y Amistad" — kar_uni = 1
+  Componentes:
+    Neceser pequeño animado  × 2 × $12.000 = $24.000
+    Cookies and cream        × 1 × $10.000 = $10.000
+    Mini mantequilla         × 1 × $7.360  = $7.360
+    Total componentes                       = $41.360
+
+Bundle padre → kar_cos = $41.360 / 1 = $41.360
+Componentes  → kar_cos = $0
+```
+
+Rentabilidad real: ingreso $50.000, costo $41.360, utilidad $8.640 → **margen 17.28%** ✅
+
+#### `models/orderModel.js` — `getOrder`
+
+Se agregó el campo `es_componente_bundle` para que el frontend pueda identificar visualmente los componentes:
+
+```sql
+CASE
+  WHEN fd.kar_bundle_padre IS NOT NULL AND fd.kar_bundle_padre != '' THEN 1
+  ELSE 0
+END AS es_componente_bundle
+```
+
+Para componentes de bundle, `utilidad_linea = 0` y `rentabilidad_real = NULL` (sin significado individual dado que su costo es 0).
+
+#### `controllers/cargaCostosController.js` — `reprocesarCostosDocumentos`
+
+El endpoint de reprocesamiento histórico también es bundle-aware:
+
+- Componentes → `kar_cos = 0`
+- Bundle padre → `kar_cos = SUM(costos de componentes en la misma factura) / kar_uni padre`
+- Producto simple → `articulosdetalle.art_bod_cos_cat` (comportamiento anterior)
+
+La Fase 1 ahora también obtiene `kar_bundle_padre` y `kar_uni` para poder realizar estos cálculos.
+
+### Impacto sobre sistemas existentes
+
+| Sistema | Impacto |
+|---------|---------|
+| `vw_ventas_dashboard` | ✅ Sin cambios — ya filtraba componentes con `kar_bundle_padre IS NULL` |
+| `vw_bundles_detalle` | ✅ Sin cambios — vista de análisis secundaria |
+| Dashboard BI (rentabilidad) | ✅ Mejorado — `kar_cos` del padre ahora refleja costo real |
+| Detalle de orden (frontend) | ✅ Mejorado — `es_componente_bundle=1` permite display correcto, no más utilidad negativa |
+| Historial de ordenes (`getOrdenes`) | ✅ Mejorado automáticamente — suma solo el padre y sus componentes en 0 |
 
 ---
 

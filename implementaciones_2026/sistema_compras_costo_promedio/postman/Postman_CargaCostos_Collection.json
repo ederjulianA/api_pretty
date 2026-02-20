@@ -850,6 +850,179 @@
 				"body": "{\n  \"success\": true,\n  \"message\": \"Actualización masiva de costos completada\",\n  \"data\": {\n    \"total\": 650,\n    \"actualizados\": 435,\n    \"omitidos\": 210,\n    \"sin_precio\": 5,\n    \"calculados_desde_mayor\": 420,\n    \"calculados_desde_detal\": 15,\n    \"markup_mayor_aplicado\": \"25%\",\n    \"markup_detal_aplicado\": \"25%\"\n  }\n}"
 			}
 		]
+	},
+	{
+		"name": "8. Reprocesar Costos de Documentos",
+		"request": {
+			"method": "POST",
+			"header": [
+				{
+					"key": "x-access-token",
+					"value": "{{jwt_token}}",
+					"type": "text"
+				},
+				{
+					"key": "Content-Type",
+					"value": "application/json",
+					"type": "text"
+				}
+			],
+			"body": {
+				"mode": "raw",
+				"raw": "{\n  \"fecha_inicio\": \"2025-01-01\",\n  \"fecha_fin\": \"2026-02-20\",\n  \"usu_cod\": \"admin\"\n}",
+				"options": {
+					"raw": {
+						"language": "json"
+					}
+				}
+			},
+			"url": {
+				"raw": "{{base_url}}/api/carga-costos/reprocesar-costos",
+				"host": [
+					"{{base_url}}"
+				],
+				"path": [
+					"api",
+					"carga-costos",
+					"reprocesar-costos"
+				]
+			},
+			"description": "Actualiza kar_cos en facturakardes con el costo actual (art_bod_cos_cat) de articulosdetalle para documentos VTA activos en el período.\n\nSolo afecta líneas kar_nat = '-' (salidas/ventas).\n\nParámetros:\n- fecha_inicio (obligatorio): formato YYYY-MM-DD\n- fecha_fin (obligatorio): formato YYYY-MM-DD\n- fac_nro (opcional): si se envía, solo procesa ese documento\n- usu_cod (opcional): para log de auditoría\n\nCaso de uso principal: corregir kar_cos=0 en documentos creados antes de que el campo existiera.\n\n⚠️ ADVERTENCIA: usa costo ACTUAL de articulosdetalle, no el histórico al momento de la venta.\n\nPerformance:\n- Fase 1: 1 query masiva JOIN factura+facturakardes\n- Fase 2: costos en lotes de 200 art_secs\n- Fase 3: cálculo en JS\n- Fase 4: UPDATE en batches de 100 filas por transacción"
+		},
+		"response": [
+			{
+				"name": "Éxito - Todos los documentos del período",
+				"originalRequest": {
+					"method": "POST",
+					"header": [
+						{
+							"key": "x-access-token",
+							"value": "{{jwt_token}}",
+							"type": "text"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"type": "text"
+						}
+					],
+					"body": {
+						"mode": "raw",
+						"raw": "{\n  \"fecha_inicio\": \"2025-01-01\",\n  \"fecha_fin\": \"2026-02-20\",\n  \"usu_cod\": \"admin\"\n}",
+						"options": {
+							"raw": {
+								"language": "json"
+							}
+						}
+					},
+					"url": {
+						"raw": "{{base_url}}/api/carga-costos/reprocesar-costos",
+						"host": [
+							"{{base_url}}"
+						],
+						"path": [
+							"api",
+							"carga-costos",
+							"reprocesar-costos"
+						]
+					}
+				},
+				"status": "OK",
+				"code": 200,
+				"_postman_previewlanguage": "json",
+				"header": [],
+				"cookie": [],
+				"body": "{\n  \"success\": true,\n  \"message\": \"Reprocesamiento completado. 1250 líneas actualizadas.\",\n  \"data\": {\n    \"periodo\": {\n      \"fecha_inicio\": \"2025-01-01\",\n      \"fecha_fin\": \"2026-02-20\"\n    },\n    \"fac_nro_filtro\": null,\n    \"total_lineas\": 1350,\n    \"actualizadas\": 1250,\n    \"sin_costo_en_bd\": 100,\n    \"errores_count\": 0,\n    \"documentos_afectados\": 87,\n    \"tiempo_segundos\": 4.2\n  }\n}"
+			},
+			{
+				"name": "Éxito - Con fac_nro específico",
+				"originalRequest": {
+					"method": "POST",
+					"header": [
+						{
+							"key": "x-access-token",
+							"value": "{{jwt_token}}",
+							"type": "text"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"type": "text"
+						}
+					],
+					"body": {
+						"mode": "raw",
+						"raw": "{\n  \"fecha_inicio\": \"2026-01-01\",\n  \"fecha_fin\": \"2026-02-20\",\n  \"fac_nro\": \"VTA00123\",\n  \"usu_cod\": \"admin\"\n}",
+						"options": {
+							"raw": {
+								"language": "json"
+							}
+						}
+					},
+					"url": {
+						"raw": "{{base_url}}/api/carga-costos/reprocesar-costos",
+						"host": [
+							"{{base_url}}"
+						],
+						"path": [
+							"api",
+							"carga-costos",
+							"reprocesar-costos"
+						]
+					}
+				},
+				"status": "OK",
+				"code": 200,
+				"_postman_previewlanguage": "json",
+				"header": [],
+				"cookie": [],
+				"body": "{\n  \"success\": true,\n  \"message\": \"Reprocesamiento completado. 12 líneas actualizadas.\",\n  \"data\": {\n    \"periodo\": {\n      \"fecha_inicio\": \"2026-01-01\",\n      \"fecha_fin\": \"2026-02-20\"\n    },\n    \"fac_nro_filtro\": \"VTA00123\",\n    \"total_lineas\": 12,\n    \"actualizadas\": 12,\n    \"sin_costo_en_bd\": 0,\n    \"errores_count\": 0,\n    \"documentos_afectados\": 1,\n    \"tiempo_segundos\": 0.8\n  }\n}"
+			},
+			{
+				"name": "Error 400 - Fechas faltantes",
+				"originalRequest": {
+					"method": "POST",
+					"header": [
+						{
+							"key": "x-access-token",
+							"value": "{{jwt_token}}",
+							"type": "text"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"type": "text"
+						}
+					],
+					"body": {
+						"mode": "raw",
+						"raw": "{\n  \"usu_cod\": \"admin\"\n}",
+						"options": {
+							"raw": {
+								"language": "json"
+							}
+						}
+					},
+					"url": {
+						"raw": "{{base_url}}/api/carga-costos/reprocesar-costos",
+						"host": [
+							"{{base_url}}"
+						],
+						"path": [
+							"api",
+							"carga-costos",
+							"reprocesar-costos"
+						]
+					}
+				},
+				"status": "Bad Request",
+				"code": 400,
+				"_postman_previewlanguage": "json",
+				"header": [],
+				"cookie": [],
+				"body": "{\n  \"success\": false,\n  \"message\": \"Los parámetros fecha_inicio y fecha_fin son obligatorios (formato YYYY-MM-DD)\"\n}"
+			}
+		]
 	}
 	],
 	"event": [
