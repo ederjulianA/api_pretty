@@ -354,33 +354,46 @@ WITH ArticulosBase AS (
         ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
         ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
         -- Costo promedio ponderado
-        ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio,
+        -- Bundles: suma de (cantidad_componente × costo_componente) desde articulosArmado
+        -- Productos simples: art_bod_cos_cat directo de articulosdetalle
+        CASE
+            WHEN ISNULL(a.art_bundle, 'N') = 'S'
+            THEN ISNULL(bundle_costo.costo_total, 0)
+            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
+        END AS costo_promedio,
         -- Rentabilidad (% sobre precio de venta al detal)
         CASE
-            WHEN ad1.art_bod_pre > 0 AND ad1.art_bod_cos_cat IS NOT NULL
-            THEN CAST(((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 AS DECIMAL(5,2))
+            WHEN ad1.art_bod_pre > 0 THEN
+                CAST((
+                    (ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END)
+                    / ad1.art_bod_pre
+                ) * 100 AS DECIMAL(5,2))
             ELSE 0
         END AS rentabilidad_detal,
         -- Margen de ganancia (% sobre costo al detal)
         CASE
-            WHEN ad1.art_bod_cos_cat > 0 AND ad1.art_bod_pre IS NOT NULL
-            THEN CAST(((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_cos_cat) * 100 AS DECIMAL(5,2))
+            WHEN CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END > 0
+             AND ad1.art_bod_pre IS NOT NULL
+            THEN CAST((
+                (ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END)
+                / CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END
+            ) * 100 AS DECIMAL(5,2))
             ELSE 0
         END AS margen_ganancia_detal,
         -- Utilidad bruta al detal
         CASE
-            WHEN ad1.art_bod_pre IS NOT NULL AND ad1.art_bod_cos_cat IS NOT NULL
-            THEN CAST(ad1.art_bod_pre - ad1.art_bod_cos_cat AS DECIMAL(17,2))
+            WHEN ad1.art_bod_pre IS NOT NULL
+            THEN CAST(ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END AS DECIMAL(17,2))
             ELSE 0
         END AS utilidad_bruta_detal,
         -- Clasificación de rentabilidad
         CASE
-            WHEN ad1.art_bod_pre > 0 AND ad1.art_bod_cos_cat IS NOT NULL THEN
+            WHEN ad1.art_bod_pre > 0 THEN
                 CASE
-                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 40 THEN 'ALTA'
-                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 20 THEN 'MEDIA'
-                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 10 THEN 'BAJA'
-                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 0 THEN 'MINIMA'
+                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 40 THEN 'ALTA'
+                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 20 THEN 'MEDIA'
+                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 10 THEN 'BAJA'
+                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 0  THEN 'MINIMA'
                     ELSE 'PERDIDA'
                 END
             ELSE 'N/A'
@@ -425,11 +438,23 @@ WITH ArticulosBase AS (
         INNER JOIN dbo.inventario_grupo ig
             ON isg.inv_gru_cod = ig.inv_gru_cod
         LEFT JOIN dbo.articulosdetalle ad1
-            ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
+            ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
         LEFT JOIN dbo.articulosdetalle ad2
-            ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+            ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
         LEFT JOIN dbo.vwExistencias e
             ON a.art_sec = e.art_sec
+        -- Costo real para bundles: suma de (cantidad_componente × costo_componente)
+        LEFT JOIN (
+            SELECT
+                aa.art_sec,
+                SUM(aa.ConKarUni * ISNULL(adc.art_bod_cos_cat, 0)) AS costo_total
+            FROM dbo.articulosArmado aa
+            LEFT JOIN dbo.articulosdetalle adc
+                ON adc.art_sec = aa.ComArtSec
+               AND adc.bod_sec = '1'
+               AND adc.lis_pre_cod = 1
+            GROUP BY aa.art_sec
+        ) bundle_costo ON bundle_costo.art_sec = a.art_sec
         -- Subquery para obtener la promoción más prioritaria por artículo
         LEFT JOIN (
             SELECT 
@@ -840,38 +865,65 @@ const getArticulo = async (art_sec) => {
         -- Precios originales
         ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
         ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
-        -- Costo promedio ponderado
-        ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio,
-        ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio_ponderado,
-        ISNULL(ad1.art_bod_cos_cat, 0) AS costo_promedio_actual,
-        ISNULL(ad1.art_bod_cos_cat, 0) AS kar_cos_pro,
-        ISNULL(ad1.art_bod_cos_cat, 0) AS art_bod_cos_cat,
+        -- Costo promedio ponderado (bundle-aware)
+        CASE
+            WHEN ISNULL(a.art_bundle, 'N') = 'S'
+            THEN ISNULL(bundle_costo.costo_total, 0)
+            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
+        END AS costo_promedio,
+        CASE
+            WHEN ISNULL(a.art_bundle, 'N') = 'S'
+            THEN ISNULL(bundle_costo.costo_total, 0)
+            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
+        END AS costo_promedio_ponderado,
+        CASE
+            WHEN ISNULL(a.art_bundle, 'N') = 'S'
+            THEN ISNULL(bundle_costo.costo_total, 0)
+            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
+        END AS costo_promedio_actual,
+        CASE
+            WHEN ISNULL(a.art_bundle, 'N') = 'S'
+            THEN ISNULL(bundle_costo.costo_total, 0)
+            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
+        END AS kar_cos_pro,
+        CASE
+            WHEN ISNULL(a.art_bundle, 'N') = 'S'
+            THEN ISNULL(bundle_costo.costo_total, 0)
+            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
+        END AS art_bod_cos_cat,
         -- Rentabilidad (% sobre precio de venta al detal)
         CASE
-            WHEN ad1.art_bod_pre > 0 AND ad1.art_bod_cos_cat IS NOT NULL
-            THEN CAST(((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 AS DECIMAL(5,2))
+            WHEN ad1.art_bod_pre > 0 THEN
+                CAST((
+                    (ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END)
+                    / ad1.art_bod_pre
+                ) * 100 AS DECIMAL(5,2))
             ELSE 0
         END AS rentabilidad_detal,
         -- Margen de ganancia (% sobre costo al detal)
         CASE
-            WHEN ad1.art_bod_cos_cat > 0 AND ad1.art_bod_pre IS NOT NULL
-            THEN CAST(((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_cos_cat) * 100 AS DECIMAL(5,2))
+            WHEN CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END > 0
+             AND ad1.art_bod_pre IS NOT NULL
+            THEN CAST((
+                (ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END)
+                / CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END
+            ) * 100 AS DECIMAL(5,2))
             ELSE 0
         END AS margen_ganancia_detal,
         -- Utilidad bruta al detal
         CASE
-            WHEN ad1.art_bod_pre IS NOT NULL AND ad1.art_bod_cos_cat IS NOT NULL
-            THEN CAST(ad1.art_bod_pre - ad1.art_bod_cos_cat AS DECIMAL(17,2))
+            WHEN ad1.art_bod_pre IS NOT NULL
+            THEN CAST(ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END AS DECIMAL(17,2))
             ELSE 0
         END AS utilidad_bruta_detal,
         -- Clasificación de rentabilidad
         CASE
-            WHEN ad1.art_bod_pre > 0 AND ad1.art_bod_cos_cat IS NOT NULL THEN
+            WHEN ad1.art_bod_pre > 0 THEN
                 CASE
-                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 40 THEN 'ALTA'
-                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 20 THEN 'MEDIA'
-                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 10 THEN 'BAJA'
-                    WHEN ((ad1.art_bod_pre - ad1.art_bod_cos_cat) / ad1.art_bod_pre) * 100 >= 0 THEN 'MINIMA'
+                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 40 THEN 'ALTA'
+                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 20 THEN 'MEDIA'
+                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 10 THEN 'BAJA'
+                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 0  THEN 'MINIMA'
                     ELSE 'PERDIDA'
                 END
             ELSE 'N/A'
@@ -919,9 +971,21 @@ const getArticulo = async (art_sec) => {
         ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
         LEFT JOIN dbo.articulosdetalle ad2
         ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
+        -- Costo real para bundles: suma de (cantidad_componente × costo_componente)
+        LEFT JOIN (
+            SELECT
+                aa.art_sec,
+                SUM(aa.ConKarUni * ISNULL(adc.art_bod_cos_cat, 0)) AS costo_total
+            FROM dbo.articulosArmado aa
+            LEFT JOIN dbo.articulosdetalle adc
+                ON adc.art_sec = aa.ComArtSec
+               AND adc.bod_sec = '1'
+               AND adc.lis_pre_cod = 1
+            GROUP BY aa.art_sec
+        ) bundle_costo ON bundle_costo.art_sec = a.art_sec
         -- Subquery para obtener la promoción más prioritaria por artículo
         LEFT JOIN (
-            SELECT 
+            SELECT
                 pd.art_sec,
                 pd.pro_det_precio_oferta,
                 pd.pro_det_descuento_porcentaje,
@@ -931,8 +995,8 @@ const getArticulo = async (art_sec) => {
                 p.pro_codigo,
                 p.pro_descripcion,
                 ROW_NUMBER() OVER (
-                    PARTITION BY pd.art_sec 
-                    ORDER BY 
+                    PARTITION BY pd.art_sec
+                    ORDER BY
                         -- Prioridad 1: Precio de oferta (más alto primero)
                         ISNULL(pd.pro_det_precio_oferta, 0) DESC,
                         -- Prioridad 2: Descuento porcentual (más alto primero)
@@ -942,12 +1006,12 @@ const getArticulo = async (art_sec) => {
                 ) as rn
             FROM dbo.promociones_detalle pd
             INNER JOIN dbo.promociones p
-                ON pd.pro_sec = p.pro_sec 
+                ON pd.pro_sec = p.pro_sec
                 AND p.pro_activa = 'S'
                 AND GETDATE() BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
             WHERE pd.pro_det_estado = 'A'
         ) oferta_prioritaria
-            ON a.art_sec = oferta_prioritaria.art_sec 
+            ON a.art_sec = oferta_prioritaria.art_sec
             AND oferta_prioritaria.rn = 1
         WHERE a.art_sec = @art_sec
     `;
