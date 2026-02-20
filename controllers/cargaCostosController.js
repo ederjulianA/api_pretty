@@ -1126,6 +1126,264 @@ const actualizarCostosMasivo = async (req, res) => {
   }
 };
 
+/**
+ * Reprocesar costos en facturakardes para un rango de fechas
+ * POST /api/carga-costos/reprocesar-costos
+ *
+ * Actualiza kar_cos en facturakardes con el costo actual de articulosdetalle
+ * para documentos VTA activos en el rango de fechas indicado.
+ * Solo afecta líneas kar_nat = '-' (salidas).
+ *
+ * Parámetros:
+ *   fecha_inicio  VARCHAR  Obligatorio. Formato YYYY-MM-DD
+ *   fecha_fin     VARCHAR  Obligatorio. Formato YYYY-MM-DD
+ *   fac_nro       VARCHAR  Opcional. Si se envía, solo procesa ese documento
+ *   usu_cod       VARCHAR  Opcional. Para log de auditoría
+ *
+ * Optimización:
+ *   - Fase 1: 1 query masiva para obtener todas las líneas del período
+ *   - Fase 2: queries en lotes de 200 art_secs para obtener costos actuales
+ *   - Fase 3: cálculo en JS
+ *   - Fase 4: UPDATE en batches de 100 filas por transacción
+ */
+const reprocesarCostosDocumentos = async (req, res) => {
+  try {
+    const { fecha_inicio, fecha_fin, fac_nro } = req.body;
+    const usuario = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+
+    // --- Validaciones ---
+    if (!fecha_inicio || !fecha_fin) {
+      return res.status(400).json({
+        success: false,
+        message: 'Los parámetros fecha_inicio y fecha_fin son obligatorios (formato YYYY-MM-DD)'
+      });
+    }
+
+    const dtInicio = new Date(fecha_inicio);
+    const dtFin    = new Date(fecha_fin);
+
+    if (isNaN(dtInicio.getTime()) || isNaN(dtFin.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Formato de fecha inválido. Use YYYY-MM-DD (ej: 2026-01-01)'
+      });
+    }
+
+    if (dtInicio > dtFin) {
+      return res.status(400).json({
+        success: false,
+        message: 'fecha_inicio no puede ser mayor que fecha_fin'
+      });
+    }
+
+    const pool = await poolPromise;
+    const tiempoInicio = Date.now();
+
+    console.log(`[reprocesarCostosDocumentos] Inicio | periodo=${fecha_inicio}/${fecha_fin} | fac_nro=${fac_nro || 'todos'} | usuario=${usuario}`);
+
+    // --- Fase 1: Obtener todas las líneas del período ---
+    const lineasReq = pool.request()
+      .input('fecha_inicio', sql.Date, fecha_inicio)
+      .input('fecha_fin',    sql.Date, fecha_fin);
+
+    let whereDocumento = '';
+    if (fac_nro) {
+      lineasReq.input('fac_nro', sql.VarChar(30), fac_nro);
+      whereDocumento = 'AND f.fac_nro = @fac_nro';
+    }
+
+    const lineasResult = await lineasReq.query(`
+      SELECT
+        fk.fac_sec,
+        fk.kar_sec,
+        fk.art_sec,
+        fk.kar_uni,
+        ISNULL(fk.kar_cos, 0)        AS kar_cos_actual,
+        ISNULL(fk.kar_bundle_padre, '') AS kar_bundle_padre,
+        f.fac_nro
+      FROM dbo.facturakardes fk
+      INNER JOIN dbo.factura f ON f.fac_sec = fk.fac_sec
+      WHERE f.fac_fec      >= @fecha_inicio
+        AND f.fac_fec      <= @fecha_fin
+        AND f.fac_tip_cod   = 'VTA'
+        AND f.fac_est_fac   = 'A'
+        AND fk.kar_nat      = '-'
+        ${whereDocumento}
+      ORDER BY f.fac_sec, fk.kar_sec
+    `);
+
+    const lineas = lineasResult.recordset;
+    const elapsed1 = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
+
+    if (lineas.length === 0) {
+      console.log(`[reprocesarCostosDocumentos] Sin líneas para el período | ${elapsed1}s`);
+      return res.json({
+        success: true,
+        message: 'No se encontraron líneas de venta en el período indicado.',
+        data: {
+          periodo:           { fecha_inicio, fecha_fin },
+          fac_nro_filtro:    fac_nro || null,
+          total_lineas:      0,
+          actualizadas:      0,
+          sin_costo_en_bd:   0,
+          errores_count:     0,
+          documentos_afectados: 0,
+          tiempo_segundos:   parseFloat(elapsed1)
+        }
+      });
+    }
+
+    // art_secs únicos para buscar costos
+    const artSecsUnicos = [...new Set(lineas.map(l => l.art_sec))];
+    console.log(`[reprocesarCostosDocumentos] Líneas encontradas: ${lineas.length} | art_secs únicos: ${artSecsUnicos.length} | ${elapsed1}s`);
+
+    // --- Fase 2: Obtener costos actuales en lotes de 200 ---
+    const LOTE_ART = 200;
+    const costosMap = new Map(); // art_sec -> costo
+
+    for (let i = 0; i < artSecsUnicos.length; i += LOTE_ART) {
+      const lote = artSecsUnicos.slice(i, i + LOTE_ART);
+      const costoReq = pool.request();
+      lote.forEach((sec, idx) => costoReq.input(`a${idx}`, sql.VarChar(30), sec));
+      const placeholders = lote.map((_, idx) => `@a${idx}`).join(',');
+
+      const costoResult = await costoReq.query(`
+        SELECT art_sec, art_bod_cos_cat
+        FROM dbo.articulosdetalle
+        WHERE art_sec IN (${placeholders})
+          AND bod_sec     = '1'
+          AND lis_pre_cod = 1
+      `);
+
+      costoResult.recordset.forEach(r => costosMap.set(r.art_sec, r.art_bod_cos_cat || 0));
+    }
+
+    const elapsed2 = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
+    console.log(`[reprocesarCostosDocumentos] Costos obtenidos: ${costosMap.size} artículos | ${elapsed2}s`);
+
+    // --- Fase 3: Calcular en JS qué actualizar (bundle-aware) ---
+    // Reglas:
+    //   Componente de bundle (kar_bundle_padre != '')  → costo = 0
+    //   Bundle padre (aparece como bundle_padre de otros en el mismo doc) → suma costos componentes / kar_uni padre
+    //   Producto simple                                → costo desde articulosdetalle
+    const aActualizar   = [];
+    let sin_costo_en_bd = 0;
+    const docsAfectados = new Set();
+
+    // Pre-calcular: set de claves `${fac_sec}_${art_sec}` que son bundle padres
+    // Una línea es bundle padre si existe otra línea con kar_bundle_padre = su art_sec en el mismo documento
+    const bundlePadresKey = new Set();
+    const compsByBundleKey = new Map(); // `${fac_sec}_${bundle_padre_art_sec}` → [{kar_uni, art_sec}]
+    for (const linea of lineas) {
+      if (linea.kar_bundle_padre !== '') {
+        bundlePadresKey.add(`${linea.fac_sec}_${linea.kar_bundle_padre}`);
+        const key = `${linea.fac_sec}_${linea.kar_bundle_padre}`;
+        if (!compsByBundleKey.has(key)) compsByBundleKey.set(key, []);
+        compsByBundleKey.get(key).push({ kar_uni: linea.kar_uni, art_sec: linea.art_sec });
+      }
+    }
+
+    for (const linea of lineas) {
+      let costo_nuevo;
+
+      if (linea.kar_bundle_padre !== '') {
+        // Es componente de bundle: su costo está absorbido por el padre
+        costo_nuevo = 0;
+      } else if (bundlePadresKey.has(`${linea.fac_sec}_${linea.art_sec}`)) {
+        // Es bundle padre: costo unitario = suma de costos de componentes / kar_uni del padre
+        const key = `${linea.fac_sec}_${linea.art_sec}`;
+        const comps = compsByBundleKey.get(key) || [];
+        const totalCostoComps = comps.reduce((sum, c) => {
+          return sum + (Number(c.kar_uni) * (costosMap.get(c.art_sec) || 0));
+        }, 0);
+        const karUniPadre = Number(linea.kar_uni) || 1;
+        costo_nuevo = karUniPadre > 0 ? totalCostoComps / karUniPadre : 0;
+      } else {
+        // Producto simple
+        costo_nuevo = costosMap.get(linea.art_sec) || 0;
+      }
+
+      if (costo_nuevo === 0) sin_costo_en_bd++;
+      aActualizar.push({
+        fac_sec:     linea.fac_sec,
+        kar_sec:     linea.kar_sec,
+        costo_nuevo,
+        fac_nro_ref: linea.fac_nro
+      });
+      docsAfectados.add(String(linea.fac_sec));
+    }
+
+    // --- Fase 4: UPDATE en batches de 100 ---
+    const BATCH_SIZE = 100;
+    let actualizadas = aActualizar.length;
+    const errores    = [];
+
+    for (let bIdx = 0; bIdx * BATCH_SIZE < aActualizar.length; bIdx++) {
+      const batch   = aActualizar.slice(bIdx * BATCH_SIZE, (bIdx + 1) * BATCH_SIZE);
+      const elapsed = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
+      const totalBatches = Math.ceil(aActualizar.length / BATCH_SIZE);
+      console.log(`[reprocesarCostosDocumentos] Batch ${bIdx + 1}/${totalBatches} (${batch.length} líneas) | ${elapsed}s`);
+
+      const transaction = new sql.Transaction(pool);
+      await transaction.begin();
+
+      try {
+        const updateRows = batch.map((_, i) => `(@fs${i}, @ks${i}, @c${i})`).join(',\n          ');
+        const updateReq  = transaction.request();
+
+        batch.forEach((r, i) => {
+          updateReq.input(`fs${i}`, sql.Decimal(18, 0), r.fac_sec);
+          updateReq.input(`ks${i}`, sql.Int,            r.kar_sec);
+          updateReq.input(`c${i}`,  sql.Decimal(18, 4), r.costo_nuevo);
+        });
+
+        await updateReq.query(`
+          UPDATE fk
+          SET fk.kar_cos = v.costo
+          FROM dbo.facturakardes fk
+          INNER JOIN (VALUES ${updateRows}) AS v(fac_sec, kar_sec, costo)
+            ON fk.fac_sec = v.fac_sec AND fk.kar_sec = v.kar_sec
+        `);
+
+        await transaction.commit();
+
+      } catch (errBatch) {
+        try { await transaction.rollback(); } catch (_) { /* conexión ya cerrada */ }
+        console.error(`[reprocesarCostosDocumentos] ERROR batch ${bIdx + 1}: ${errBatch.message}`);
+        errores.push(`Batch ${bIdx + 1}: ${errBatch.message}`);
+        actualizadas -= batch.length;
+      }
+    }
+
+    const totalSegundos = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
+    console.log(`[reprocesarCostosDocumentos] Finalizado | actualizadas=${actualizadas} | sin_costo=${sin_costo_en_bd} | errores=${errores.length} | tiempo=${totalSegundos}s`);
+
+    return res.json({
+      success: true,
+      message: `Reprocesamiento completado. ${actualizadas} líneas actualizadas.`,
+      data: {
+        periodo:              { fecha_inicio, fecha_fin },
+        fac_nro_filtro:       fac_nro || null,
+        total_lineas:         lineas.length,
+        actualizadas,
+        sin_costo_en_bd,
+        errores_count:        errores.length,
+        errores:              errores.length > 0 ? errores : undefined,
+        documentos_afectados: docsAfectados.size,
+        tiempo_segundos:      parseFloat(totalSegundos)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en reprocesarCostosDocumentos:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al reprocesar costos de documentos',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   exportarPlantillaCostos,
   importarCostosDesdeExcel,
@@ -1136,5 +1394,6 @@ module.exports = {
   registrarCostoIndividual,
   aprobarCostoIndividual,
   aprobarCostosMasivo,
-  actualizarCostosMasivo
+  actualizarCostosMasivo,
+  reprocesarCostosDocumentos
 };

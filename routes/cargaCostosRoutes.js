@@ -15,7 +15,9 @@ const {
   aplicarCostosValidados,
   registrarCostoIndividual,
   aprobarCostoIndividual,
-  aprobarCostosMasivo
+  aprobarCostosMasivo,
+  actualizarCostosMasivo,
+  reprocesarCostosDocumentos
 } = require('../controllers/cargaCostosController');
 
 const router = express.Router();
@@ -29,5 +31,7 @@ router.post('/aplicar', auth, aplicarCostosValidados);
 router.post('/registrar-individual', auth, registrarCostoIndividual);
 router.put('/aprobar/:art_cod', auth, aprobarCostoIndividual);
 router.put('/actualizar-estado', auth, aprobarCostosMasivo);
+router.post('/actualizar-costos-masivo', auth, actualizarCostosMasivo);
+router.post('/reprocesar-costos', auth, reprocesarCostosDocumentos);
 
 module.exports = router;
