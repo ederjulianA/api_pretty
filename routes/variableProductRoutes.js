@@ -6,7 +6,8 @@ const {
   createVariable,
   createVariation,
   getVariations,
-  syncAttributes
+  syncAttributes,
+  convertToVariable
 } = require('../controllers/variableProductController');
 
 const router = express.Router();
@@ -22,5 +23,8 @@ router.get('/:parent_art_sec/variations', verifyToken, getVariations);
 
 // PUT /api/articulos/variable/:parent_art_sec/sync-attributes - Sincronizar atributos con WooCommerce
 router.put('/:parent_art_sec/sync-attributes', verifyToken, syncAttributes);
+
+// POST /api/articulos/variable/:art_sec/convert-to-variable - Convertir artículo simple a variable
+router.post('/:art_sec/convert-to-variable', verifyToken, convertToVariable);
 
 module.exports = router;

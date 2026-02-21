@@ -2,7 +2,8 @@
 const {
   createVariableProduct,
   createProductVariation,
-  syncVariableProductAttributes
+  syncVariableProductAttributes,
+  convertArticuloToVariable
 } = require('../models/articulosModel');
 const { getProductVariations } = require('../utils/variationUtils');
 
@@ -190,9 +191,58 @@ const syncAttributes = async (req, res) => {
   }
 };
 
+/**
+ * Convierte un artículo simple a producto variable
+ * POST /api/articulos/variable/:art_sec/convert-to-variable
+ */
+const convertToVariable = async (req, res) => {
+  try {
+    const { art_sec } = req.params;
+
+    if (!art_sec) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere art_sec'
+      });
+    }
+
+    // Parsear attributes si viene como string
+    let attributes;
+    try {
+      attributes = typeof req.body.attributes === 'string'
+        ? JSON.parse(req.body.attributes)
+        : req.body.attributes;
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'El campo attributes debe ser un JSON válido'
+      });
+    }
+
+    if (!attributes || !Array.isArray(attributes) || attributes.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere al menos un atributo (attributes: [{name, options: [...]}])'
+      });
+    }
+
+    const result = await convertArticuloToVariable(art_sec, attributes);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error en convertToVariable:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al convertir artículo a variable',
+      error: error.message || error.error
+    });
+  }
+};
+
 module.exports = {
   createVariable,
   createVariation,
   getVariations,
-  syncAttributes
+  syncAttributes,
+  convertToVariable
 };

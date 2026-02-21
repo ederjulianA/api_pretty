@@ -1998,4 +1998,119 @@ const syncVariableProductAttributes = async (parent_art_sec) => {
   }
 };
 
-module.exports = { getArticulos, validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod, getNextArticuloCodigo, createVariableProduct, createProductVariation, syncVariableProductAttributes };
+/**
+ * Convierte un artículo simple existente a producto variable
+ * Sin perder datos existentes (precios, stock, imágenes, etc.)
+ */
+const convertArticuloToVariable = async (art_sec, attributes) => {
+  try {
+    const pool = await poolPromise;
+
+    // 1. Verificar que el artículo existe y es simple
+    const artResult = await pool.request()
+      .input('art_sec', sql.VarChar(30), art_sec)
+      .query(`
+        SELECT art_sec, art_cod, art_nom, art_woo_id, art_woo_type, art_variable,
+               art_url_img_servi
+        FROM dbo.articulos
+        WHERE art_sec = @art_sec
+      `);
+
+    if (artResult.recordset.length === 0) {
+      throw new Error(`Artículo con art_sec ${art_sec} no encontrado`);
+    }
+
+    const article = artResult.recordset[0];
+
+    if (article.art_woo_type === 'variable' && article.art_variable === 'S') {
+      throw new Error('El artículo ya es de tipo variable');
+    }
+
+    if (article.art_woo_type === 'variation') {
+      throw new Error('No se puede convertir una variación a producto variable');
+    }
+
+    // 2. Validar attributes
+    if (!attributes || !Array.isArray(attributes) || attributes.length === 0) {
+      throw new Error('Se requiere al menos un atributo para convertir a variable');
+    }
+
+    const validAttributes = attributes.filter(attr =>
+      attr.name && attr.options && Array.isArray(attr.options) && attr.options.length > 0
+    );
+
+    if (validAttributes.length === 0) {
+      throw new Error('Los atributos deben tener name y options (array no vacío)');
+    }
+
+    // 3. Actualizar en BD: marcar como variable
+    await pool.request()
+      .input('art_sec', sql.VarChar(30), art_sec)
+      .query(`
+        UPDATE dbo.articulos
+        SET art_variable = 'S',
+            art_woo_type = 'variable'
+        WHERE art_sec = @art_sec
+      `);
+
+    console.log(`[CONVERT-TO-VARIABLE] Artículo ${article.art_cod} (${art_sec}) convertido a variable en BD`);
+
+    // 4. Sincronizar con WooCommerce (no fatal si falla)
+    let wooSync = { success: false, message: 'No sincronizado' };
+
+    if (article.art_woo_id) {
+      try {
+        const wooAttributes = validAttributes.map(attr => ({
+          name: attr.name,
+          visible: true,
+          variation: true,
+          options: attr.options
+        }));
+
+        await wcApi.put(`products/${article.art_woo_id}`, {
+          type: 'variable',
+          attributes: wooAttributes,
+          manage_stock: false,
+          stock_quantity: null
+        });
+
+        wooSync = { success: true, message: 'Producto actualizado a variable en WooCommerce' };
+        console.log(`[CONVERT-TO-VARIABLE] WooCommerce actualizado para producto ${article.art_woo_id}`);
+      } catch (wooError) {
+        wooSync = {
+          success: false,
+          message: 'Error al sincronizar con WooCommerce (no fatal)',
+          error: wooError.message,
+          response: wooError.response?.data
+        };
+        console.error(`[CONVERT-TO-VARIABLE] Error WooCommerce (no fatal):`, wooError.message);
+      }
+    } else {
+      wooSync = { success: false, message: 'Artículo no tiene art_woo_id, no se sincronizó' };
+    }
+
+    return {
+      success: true,
+      message: 'Artículo convertido a variable exitosamente',
+      data: {
+        art_sec,
+        art_cod: article.art_cod,
+        art_nom: article.art_nom,
+        art_woo_id: article.art_woo_id,
+        art_woo_type: 'variable',
+        art_variable: 'S',
+        attributes: validAttributes
+      },
+      wooSync
+    };
+
+  } catch (error) {
+    throw {
+      success: false,
+      message: error.message || 'Error al convertir artículo a variable',
+      error: error.message
+    };
+  }
+};
+
+module.exports = { getArticulos, validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod, getNextArticuloCodigo, createVariableProduct, createProductVariation, syncVariableProductAttributes, convertArticuloToVariable };
