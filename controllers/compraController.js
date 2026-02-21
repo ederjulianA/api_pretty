@@ -105,7 +105,12 @@ const crearCompra = async (req, res) => {
     // Sincronizar stock con WooCommerce (modo silencioso para no bloquear la compra)
     let wooSyncResult = null;
     try {
+      console.log('[COMPRA-SYNC] Iniciando sincronización de stock después de crear compra', {
+        fac_nro: resultado.fac_nro,
+        total_items: resultado.total_items
+      });
       wooSyncResult = await syncDocumentStockToWoo(resultado.fac_nro, { silent: true });
+      console.log('[COMPRA-SYNC] Resultado de sincronización:', wooSyncResult);
     } catch (wooError) {
       console.warn('Error sincronizando stock con WooCommerce:', wooError.message);
       // No bloqueamos la respuesta por error de WooCommerce
@@ -1025,11 +1030,48 @@ const modificarCompra = async (req, res) => {
       datosActualizacion.detalles = req.body.detalles;
     }
 
+    // Validar detalles_nuevos si se proporcionan
+    if (req.body.detalles_nuevos !== undefined) {
+      if (!Array.isArray(req.body.detalles_nuevos)) {
+        return res.status(400).json({
+          success: false,
+          message: 'detalles_nuevos debe ser un array'
+        });
+      }
+
+      for (const detalle of req.body.detalles_nuevos) {
+        if (!detalle.art_sec) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cada detalle nuevo debe tener art_sec'
+          });
+        }
+
+        const cantidad = parseFloat(detalle.cantidad);
+        if (isNaN(cantidad) || cantidad <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: `cantidad debe ser un número mayor a 0 (art_sec ${detalle.art_sec})`
+          });
+        }
+
+        const costo = parseFloat(detalle.costo_unitario);
+        if (isNaN(costo) || costo < 0) {
+          return res.status(400).json({
+            success: false,
+            message: `costo_unitario debe ser un número mayor o igual a 0 (art_sec ${detalle.art_sec})`
+          });
+        }
+      }
+
+      datosActualizacion.detalles_nuevos = req.body.detalles_nuevos;
+    }
+
     // Verificar que al menos un campo se proporcionó
     if (Object.keys(datosActualizacion).length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Debe proporcionar al menos un campo para actualizar (fac_fec, nit_sec, fac_obs, fac_est_fac, detalles)'
+        message: 'Debe proporcionar al menos un campo para actualizar (fac_fec, nit_sec, fac_obs, fac_est_fac, detalles, detalles_nuevos)'
       });
     }
 
@@ -1039,15 +1081,25 @@ const modificarCompra = async (req, res) => {
     // Llamar al modelo
     const resultado = await actualizarCompra(fac_nro, datosActualizacion);
 
-    // Sincronizar stock con WooCommerce si se actualizaron detalles (modo silencioso)
+    // Sincronizar stock con WooCommerce si se actualizaron o agregaron detalles (modo silencioso)
     let wooSyncResult = null;
-    if (resultado.detalles_actualizados && resultado.detalles_actualizados.length > 0) {
+    const tieneDetallesCambiados = (resultado.detalles_actualizados && resultado.detalles_actualizados.length > 0) ||
+      (resultado.detalles_nuevos_insertados && resultado.detalles_nuevos_insertados.length > 0);
+    if (tieneDetallesCambiados) {
       try {
+        console.log('[COMPRA-SYNC] Iniciando sincronización de stock después de actualizar compra', {
+          fac_nro,
+          detalles_actualizados: resultado.detalles_actualizados?.length || 0,
+          detalles_nuevos: resultado.detalles_nuevos_insertados?.length || 0
+        });
         wooSyncResult = await syncDocumentStockToWoo(fac_nro, { silent: true });
+        console.log('[COMPRA-SYNC] Resultado de sincronización:', wooSyncResult);
       } catch (wooError) {
         console.warn('Error sincronizando stock con WooCommerce:', wooError.message);
         // No bloqueamos la respuesta por error de WooCommerce
       }
+    } else {
+      console.log('[COMPRA-SYNC] No hay detalles cambiados, omitiendo sincronización con WooCommerce');
     }
 
     res.status(200).json({
@@ -1065,6 +1117,7 @@ const modificarCompra = async (req, res) => {
         error.message.includes('Proveedor') ||
         error.message.includes('Artículo') ||
         error.message.includes('Detalle') ||
+        error.message.includes('ya existe en') ||
         error.message.includes('Estado inválido')) {
       return res.status(400).json({
         success: false,

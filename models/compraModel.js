@@ -1499,6 +1499,141 @@ const actualizarCompra = async (fac_nro, datosActualizacion) => {
       }
     }
 
+    // 3B. INSERTAR DETALLES NUEVOS (si se proporcionaron)
+    const detallesNuevosInsertados = [];
+
+    if (datosActualizacion.detalles_nuevos && datosActualizacion.detalles_nuevos.length > 0) {
+      // Obtener el max kar_sec actual para esta compra
+      const resultMaxKarSec = await transaction.request()
+        .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+        .query(`
+          SELECT ISNULL(MAX(kar_sec), 0) AS max_kar_sec
+          FROM dbo.facturakardes
+          WHERE fac_sec = @fac_sec
+        `);
+
+      let siguienteKarSec = resultMaxKarSec.recordset[0].max_kar_sec + 1;
+
+      for (const detalleNuevo of datosActualizacion.detalles_nuevos) {
+        const { art_sec, cantidad, costo_unitario } = detalleNuevo;
+        const cantidadFloat = parseFloat(cantidad);
+        const costoFloat = parseFloat(costo_unitario);
+        const kar_sec = siguienteKarSec;
+
+        // Validar que el artículo no esté ya en esta compra
+        const resultExiste = await transaction.request()
+          .input('fac_sec_check', sql.Decimal(12, 0), fac_sec)
+          .input('art_sec_check', sql.VarChar(30), art_sec)
+          .query(`
+            SELECT kar_sec FROM dbo.facturakardes
+            WHERE fac_sec = @fac_sec_check AND art_sec = @art_sec_check
+          `);
+
+        if (resultExiste.recordset.length > 0) {
+          throw new Error(`Artículo ${art_sec} ya existe en compra ${fac_nro} (kar_sec ${resultExiste.recordset[0].kar_sec}). Use detalles para actualizarlo.`);
+        }
+
+        // Calcular nuevo costo promedio
+        const calculoCosto = await calcularCostoPromedio(
+          art_sec,
+          cantidadFloat,
+          costoFloat,
+          transaction
+        );
+
+        // Insertar en facturakardes
+        await transaction.request()
+          .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+          .input('kar_sec', sql.Int, kar_sec)
+          .input('art_sec', sql.VarChar(30), art_sec)
+          .input('kar_uni', sql.Decimal(17, 2), cantidadFloat)
+          .input('kar_pre', sql.Decimal(17, 2), costoFloat)
+          .input('kar_pre_pub', sql.Decimal(17, 2), costoFloat)
+          .input('kar_total', sql.Decimal(17, 2), cantidadFloat * costoFloat)
+          .input('kar_nat', sql.Char(1), '+')
+          .input('kar_bod_sec', sql.VarChar(16), '1')
+          .query(`
+            INSERT INTO dbo.facturakardes (
+              fac_sec, kar_sec, art_sec,
+              kar_uni, kar_pre, kar_pre_pub, kar_total,
+              kar_nat, kar_bod_sec
+            ) VALUES (
+              @fac_sec, @kar_sec, @art_sec,
+              @kar_uni, @kar_pre, @kar_pre_pub, @kar_total,
+              @kar_nat, @kar_bod_sec
+            )
+          `);
+
+        // Actualizar costo promedio en articulosdetalle
+        await transaction.request()
+          .input('art_sec', sql.VarChar(30), art_sec)
+          .input('nuevo_costo', sql.Decimal(17, 2), calculoCosto.costo_nuevo)
+          .query(`
+            UPDATE dbo.articulosdetalle
+            SET art_bod_cos_cat = @nuevo_costo
+            WHERE art_sec = @art_sec AND bod_sec = '1' AND lis_pre_cod = 1
+          `);
+
+        // Registrar en historial de costos
+        await transaction.request()
+          .input('art_sec', sql.VarChar(30), art_sec)
+          .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+          .input('cantidad_antes', sql.Decimal(17, 2), calculoCosto.existencia_anterior)
+          .input('costo_antes', sql.Decimal(17, 2), calculoCosto.costo_anterior)
+          .input('valor_antes', sql.Decimal(17, 2), calculoCosto.valor_actual)
+          .input('cantidad_mov', sql.Decimal(17, 2), cantidadFloat)
+          .input('costo_mov', sql.Decimal(17, 2), costoFloat)
+          .input('valor_mov', sql.Decimal(17, 2), cantidadFloat * costoFloat)
+          .input('cantidad_despues', sql.Decimal(17, 2), calculoCosto.existencia_nueva)
+          .input('costo_despues', sql.Decimal(17, 2), calculoCosto.costo_nuevo)
+          .input('valor_despues', sql.Decimal(17, 2), calculoCosto.costo_nuevo * calculoCosto.existencia_nueva)
+          .input('usu_cod', sql.VarChar(100), datosActualizacion.usu_cod)
+          .input('observaciones', sql.VarChar(500),
+            `Compra ${fac_nro} (edición): ${cantidadFloat} unids a $${costoFloat}`
+          )
+          .query(`
+            INSERT INTO dbo.historial_costos (
+              hc_art_sec, hc_fac_sec, hc_fecha, hc_tipo_mov,
+              hc_cantidad_antes, hc_costo_antes, hc_valor_antes,
+              hc_cantidad_mov, hc_costo_mov, hc_valor_mov,
+              hc_cantidad_despues, hc_costo_despues, hc_valor_despues,
+              hc_usu_cod, hc_observaciones
+            ) VALUES (
+              @art_sec, @fac_sec, GETDATE(), 'COMPRA',
+              @cantidad_antes, @costo_antes, @valor_antes,
+              @cantidad_mov, @costo_mov, @valor_mov,
+              @cantidad_despues, @costo_despues, @valor_despues,
+              @usu_cod, @observaciones
+            )
+          `);
+
+        detallesNuevosInsertados.push({
+          kar_sec,
+          art_sec,
+          cantidad: cantidadFloat,
+          costo_unitario: costoFloat,
+          total: cantidadFloat * costoFloat,
+          costo_promedio_anterior: calculoCosto.costo_anterior,
+          costo_promedio_nuevo: calculoCosto.costo_nuevo
+        });
+
+        siguienteKarSec++;
+      }
+
+      // Actualizar total de la factura
+      await transaction.request()
+        .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+        .query(`
+          UPDATE dbo.factura
+          SET fac_total_woo = (
+            SELECT ISNULL(SUM(kar_total), 0)
+            FROM dbo.facturakardes
+            WHERE fac_sec = @fac_sec
+          )
+          WHERE fac_sec = @fac_sec
+        `);
+    }
+
     // 4. ACTUALIZAR ENCABEZADO (si se proporcionaron campos)
     const camposActualizables = [];
     const request = transaction.request();
@@ -1556,7 +1691,7 @@ const actualizarCompra = async (fac_nro, datosActualizacion) => {
     }
 
     // Validar que se actualizó algo
-    if (camposActualizables.length === 0 && detallesActualizados.length === 0) {
+    if (camposActualizables.length === 0 && detallesActualizados.length === 0 && detallesNuevosInsertados.length === 0) {
       throw new Error('No se proporcionaron campos o detalles para actualizar');
     }
 
@@ -1571,7 +1706,8 @@ const actualizarCompra = async (fac_nro, datosActualizacion) => {
       campos_actualizados: camposActualizables.filter(c =>
         !c.includes('fac_fch_mod') && !c.includes('fac_usu_cod_mod')
       ),
-      detalles_actualizados: detallesActualizados
+      detalles_actualizados: detallesActualizados,
+      detalles_nuevos_insertados: detallesNuevosInsertados
     };
 
   } catch (error) {
