@@ -12,20 +12,25 @@ class WooCommercePhotoService {
         });
     }
 
-    async uploadPhoto(productId, imageUrl) {
+    /**
+     * Sube una foto a WooCommerce
+     * @param {string} apiPath - Path de la API (ej: "products/123" o "products/100/variations/456")
+     * @param {string} imageUrl - URL de la imagen a subir
+     */
+    async uploadPhoto(apiPath, imageUrl) {
         try {
             console.log('Intentando subir foto a WooCommerce:', {
-                productId,
+                apiPath,
                 imageUrl
             });
 
-            // Verificar que el producto existe
-            const productResponse = await this.wcApi.get(`products/${productId}`);
+            // Obtener el producto/variación actual
+            const productResponse = await this.wcApi.get(apiPath);
             if (!productResponse || !productResponse.data) {
-                throw new Error(`Producto no encontrado en WooCommerce (ID: ${productId})`);
+                throw new Error(`No encontrado en WooCommerce (path: ${apiPath})`);
             }
 
-            console.log('Producto encontrado en WooCommerce:', productResponse.data.id);
+            console.log('Encontrado en WooCommerce:', productResponse.data.id);
 
             // Verificar que la URL de la imagen es accesible
             try {
@@ -39,83 +44,109 @@ class WooCommercePhotoService {
 
             console.log('URL de imagen verificada, procediendo a subir...');
 
-            // Obtener las imágenes actuales del producto
-            const currentImages = productResponse.data.images || [];
-            
-            // Agregar la nueva imagen al final
-            const updatedImages = [
-                ...currentImages,
-                {
-                    src: imageUrl,
-                    position: currentImages.length
+            // Variaciones solo soportan 1 imagen (image singular), productos soportan múltiples
+            const isVariation = apiPath.includes('/variations/');
+
+            if (isVariation) {
+                // Variaciones: usar campo "image" (singular)
+                const response = await this.wcApi.put(apiPath, {
+                    image: { src: imageUrl }
+                });
+
+                if (!response || !response.data) {
+                    throw new Error('Respuesta inválida de WooCommerce');
                 }
-            ];
 
-            // Actualizar el producto con la nueva lista de imágenes
-            const response = await this.wcApi.put(`products/${productId}`, {
-                images: updatedImages
-            });
+                const newImage = response.data.image;
+                console.log('Foto subida exitosamente a variación WooCommerce:', newImage);
+                return newImage;
+            } else {
+                // Productos simples/variables: usar campo "images" (plural)
+                const currentImages = productResponse.data.images || [];
 
-            if (!response || !response.data) {
-                throw new Error('Respuesta inválida de WooCommerce');
+                const updatedImages = [
+                    ...currentImages,
+                    {
+                        src: imageUrl,
+                        position: currentImages.length
+                    }
+                ];
+
+                const response = await this.wcApi.put(apiPath, {
+                    images: updatedImages
+                });
+
+                if (!response || !response.data) {
+                    throw new Error('Respuesta inválida de WooCommerce');
+                }
+
+                const newImage = response.data.images[response.data.images.length - 1];
+                console.log('Foto subida exitosamente a WooCommerce:', newImage);
+                return newImage;
             }
-
-            // Obtener el ID de la nueva imagen (la última en la lista)
-            const newImage = response.data.images[response.data.images.length - 1];
-            console.log('Foto subida exitosamente a WooCommerce:', newImage);
-
-            return newImage;
         } catch (error) {
             console.error('Error detallado al subir foto a WooCommerce:', {
                 error: error.message,
                 response: error.response?.data,
                 status: error.response?.status,
-                productId,
+                apiPath,
                 imageUrl
             });
             throw new Error(`Error uploading photo to WooCommerce: ${error.message}`);
         }
     }
 
-    async deletePhoto(productId, imageId) {
+    /**
+     * Elimina una foto de WooCommerce
+     * @param {string} apiPath - Path de la API (ej: "products/123" o "products/100/variations/456")
+     * @param {string} imageId - ID de la imagen en WooCommerce
+     */
+    async deletePhoto(apiPath, imageId) {
         try {
             console.log('Intentando eliminar foto de WooCommerce:', {
-                productId,
+                apiPath,
                 imageId
             });
 
-            // Obtener el producto actual con sus imágenes
-            const productResponse = await this.wcApi.get(`products/${productId}`);
-            if (!productResponse || !productResponse.data) {
-                throw new Error(`Producto no encontrado en WooCommerce (ID: ${productId})`);
-            }
+            const isVariation = apiPath.includes('/variations/');
 
-            const currentImages = productResponse.data.images || [];
-            console.log('Imágenes actuales del producto:', currentImages);
+            if (isVariation) {
+                // Variaciones: limpiar la imagen (solo tienen 1)
+                const updateResponse = await this.wcApi.put(apiPath, {
+                    image: null
+                });
 
-            // Filtrar las imágenes para excluir la que queremos eliminar
-            const updatedImages = [];
-            let position = 0;
-
-            for (const image of currentImages) {
-                if (image.id.toString() !== imageId.toString()) {
-                    updatedImages.push({
-                        id: image.id,
-                        position: position
-                    });
-                    position++;
+                if (!updateResponse || !updateResponse.data) {
+                    throw new Error('Error al actualizar la variación en WooCommerce');
                 }
-            }
+            } else {
+                // Productos: filtrar la imagen del array
+                const productResponse = await this.wcApi.get(apiPath);
+                if (!productResponse || !productResponse.data) {
+                    throw new Error(`No encontrado en WooCommerce (path: ${apiPath})`);
+                }
 
-            console.log('Imágenes actualizadas (sin la eliminada):', updatedImages);
+                const currentImages = productResponse.data.images || [];
+                const updatedImages = [];
+                let position = 0;
 
-            // Actualizar el producto con la lista de imágenes actualizada
-            const updateResponse = await this.wcApi.put(`products/${productId}`, {
-                images: updatedImages
-            });
+                for (const image of currentImages) {
+                    if (image.id.toString() !== imageId.toString()) {
+                        updatedImages.push({
+                            id: image.id,
+                            position: position
+                        });
+                        position++;
+                    }
+                }
 
-            if (!updateResponse || !updateResponse.data) {
-                throw new Error('Error al actualizar el producto en WooCommerce');
+                const updateResponse = await this.wcApi.put(apiPath, {
+                    images: updatedImages
+                });
+
+                if (!updateResponse || !updateResponse.data) {
+                    throw new Error('Error al actualizar el producto en WooCommerce');
+                }
             }
 
             console.log('Foto eliminada exitosamente de WooCommerce');
@@ -125,34 +156,43 @@ class WooCommercePhotoService {
                 error: error.message,
                 response: error.response?.data,
                 status: error.response?.status,
-                productId,
+                apiPath,
                 imageId
             });
             throw new Error(`Error deleting photo from WooCommerce: ${error.message}`);
         }
     }
 
-    async setMainPhoto(productId, imageId) {
+    /**
+     * Establece una foto como principal
+     * @param {string} apiPath - Path de la API
+     * @param {string} imageId - ID de la imagen
+     */
+    async setMainPhoto(apiPath, imageId) {
         try {
-            console.log('Intentando establecer foto principal en WooCommerce:', { productId, imageId });
+            console.log('Intentando establecer foto principal en WooCommerce:', { apiPath, imageId });
 
-            // Primero obtener el producto actual
-            const productResponse = await this.wcApi.get(`products/${productId}`);
+            const isVariation = apiPath.includes('/variations/');
+
+            if (isVariation) {
+                // Variaciones solo tienen 1 imagen, no aplica reordenar
+                console.log('Variación: solo tiene 1 imagen, no requiere reordenar');
+                return;
+            }
+
+            // Productos: reordenar imágenes
+            const productResponse = await this.wcApi.get(apiPath);
             if (!productResponse || !productResponse.data) {
                 throw new Error('No se pudo obtener el producto de WooCommerce');
             }
 
-            // Obtener las imágenes actuales
             const currentImages = productResponse.data.images || [];
-            console.log('Imágenes actuales del producto:', currentImages);
 
-            // Encontrar la imagen que queremos establecer como principal
             const mainImage = currentImages.find(img => img.id.toString() === imageId.toString());
             if (!mainImage) {
                 throw new Error(`No se encontró la imagen con ID ${imageId} en el producto`);
             }
 
-            // Crear nuevo array de imágenes con la imagen principal primero
             const updatedImages = [
                 { id: mainImage.id, position: 0 },
                 ...currentImages
@@ -163,10 +203,7 @@ class WooCommercePhotoService {
                     }))
             ];
 
-            console.log('Imágenes actualizadas:', updatedImages);
-
-            // Actualizar el producto con el nuevo orden de imágenes
-            const updateResponse = await this.wcApi.put(`products/${productId}`, {
+            const updateResponse = await this.wcApi.put(apiPath, {
                 images: updatedImages
             });
 
@@ -179,7 +216,7 @@ class WooCommercePhotoService {
         } catch (error) {
             console.error('Error al establecer foto principal en WooCommerce:', {
                 error: error.message,
-                productId,
+                apiPath,
                 imageId,
                 response: error.response?.data
             });
@@ -187,23 +224,31 @@ class WooCommercePhotoService {
         }
     }
 
-    async reorderPhotos(productId, imageOrder) {
+    /**
+     * Reordena fotos en WooCommerce
+     * @param {string} apiPath - Path de la API
+     * @param {Array} imageOrder - Array de IDs de imágenes en el orden deseado
+     */
+    async reorderPhotos(apiPath, imageOrder) {
         try {
             console.log('Intentando reordenar fotos en WooCommerce:', {
-                productId,
+                apiPath,
                 imageOrder
             });
 
-            // Obtener el producto actual
-            const productResponse = await this.wcApi.get(`products/${productId}`);
-            if (!productResponse || !productResponse.data) {
-                throw new Error(`Producto no encontrado en WooCommerce (ID: ${productId})`);
+            const isVariation = apiPath.includes('/variations/');
+            if (isVariation) {
+                console.log('Variación: solo tiene 1 imagen, no requiere reordenar');
+                return true;
             }
 
-            // Crear un mapa de las imágenes actuales
+            const productResponse = await this.wcApi.get(apiPath);
+            if (!productResponse || !productResponse.data) {
+                throw new Error(`No encontrado en WooCommerce (path: ${apiPath})`);
+            }
+
             const imageMap = new Map(productResponse.data.images.map(img => [img.id, img]));
 
-            // Reordenar las imágenes según el orden proporcionado
             const updatedImages = imageOrder.map((imageId, index) => {
                 const image = imageMap.get(imageId);
                 if (!image) {
@@ -215,8 +260,7 @@ class WooCommercePhotoService {
                 };
             });
 
-            // Actualizar el producto con el nuevo orden de imágenes
-            await this.wcApi.put(`products/${productId}`, {
+            await this.wcApi.put(apiPath, {
                 images: updatedImages
             });
 
@@ -227,7 +271,7 @@ class WooCommercePhotoService {
                 error: error.message,
                 response: error.response?.data,
                 status: error.response?.status,
-                productId,
+                apiPath,
                 imageOrder
             });
             throw new Error(`Error reordering photos in WooCommerce: ${error.message}`);

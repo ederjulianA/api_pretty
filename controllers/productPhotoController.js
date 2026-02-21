@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import ProductPhoto from '../models/ProductPhoto.js';
 import WooCommercePhotoService from '../services/WooCommercePhotoService.js';
 import cloudinary from '../config/cloudinary.js';
-import { getArticleWooId } from '../jobs/updateWooOrderStatusAndStock.js';
+import { getArticleWooInfo } from '../jobs/updateWooOrderStatusAndStock.js';
 
 class ProductPhotoController {
     constructor() {
@@ -112,17 +112,24 @@ class ProductPhotoController {
             // If photo is synced with WooCommerce, delete it there too
             if (photo.woo_photo_id) {
                 console.log('Foto sincronizada con WooCommerce, procediendo a eliminar...');
-                const artWooId = await getArticleWooId(productId);
-                if (artWooId) {
-                    console.log('ID de WooCommerce encontrado:', artWooId);
-                    // Asegurarnos de que wooService esté disponible
-                    if (!this.wooService) {
-                        console.log('Inicializando WooCommerce service');
-                        this.wooService = new WooCommercePhotoService();
+                const wooInfo = await getArticleWooInfo(productId);
+                if (wooInfo) {
+                    let apiPath;
+                    if (wooInfo.art_woo_type === 'variation' && wooInfo.art_woo_variation_id && wooInfo.parent_woo_id) {
+                        apiPath = `products/${wooInfo.parent_woo_id}/variations/${wooInfo.art_woo_variation_id}`;
+                    } else if (wooInfo.art_woo_id) {
+                        apiPath = `products/${wooInfo.art_woo_id}`;
                     }
-                    await this.wooService.deletePhoto(artWooId, photo.woo_photo_id);
-                } else {
-                    console.log('No se encontró ID de WooCommerce para el producto');
+
+                    if (apiPath) {
+                        console.log('API path de WooCommerce:', apiPath);
+                        if (!this.wooService) {
+                            this.wooService = new WooCommercePhotoService();
+                        }
+                        await this.wooService.deletePhoto(apiPath, photo.woo_photo_id);
+                    } else {
+                        console.log('No se encontró ID de WooCommerce para el producto');
+                    }
                 }
             }
 
@@ -155,33 +162,39 @@ class ProductPhotoController {
             const { productId, photoId } = req.params;
             console.log('Intentando establecer foto principal:', { productId, photoId });
 
-            // Verificar si el servicio de WooCommerce está inicializado
             if (!this.wooService) {
-                console.log('Inicializando WooCommerce service');
                 this.wooService = new WooCommercePhotoService();
             }
 
-            // Obtener el ID de WooCommerce del producto
-            const artWooId = await getArticleWooId(productId);
-            console.log('ID de WooCommerce encontrado:', artWooId);
+            // Obtener info completa de WooCommerce
+            const wooInfo = await getArticleWooInfo(productId);
 
-            if (artWooId) {
-                // Obtener la foto que se establecerá como principal
+            if (!wooInfo) {
+                return res.status(404).json({ success: false, message: 'Producto no encontrado' });
+            }
+
+            let apiPath;
+            if (wooInfo.art_woo_type === 'variation' && wooInfo.art_woo_variation_id && wooInfo.parent_woo_id) {
+                apiPath = `products/${wooInfo.parent_woo_id}/variations/${wooInfo.art_woo_variation_id}`;
+            } else if (wooInfo.art_woo_id) {
+                apiPath = `products/${wooInfo.art_woo_id}`;
+            }
+
+            if (apiPath) {
+                console.log('API path de WooCommerce:', apiPath);
+
                 const photo = await ProductPhoto.findById(photoId);
                 if (!photo) {
                     return res.status(404).json({ success: false, message: 'Foto no encontrada' });
                 }
 
-                // Verificar si la foto tiene woo_photo_id
+                // Si la foto no está en WooCommerce, primero subirla
                 if (!photo.woo_photo_id) {
-                    console.log('La foto no tiene woo_photo_id, necesita ser subida a WooCommerce primero');
-
-                    // Si la foto no está en WooCommerce, primero subirla
+                    console.log('La foto no tiene woo_photo_id, subiendo a WooCommerce primero');
                     try {
-                        const uploadedPhoto = await this.wooService.uploadPhoto(artWooId, photo.url);
+                        const uploadedPhoto = await this.wooService.uploadPhoto(apiPath, photo.url);
 
                         if (uploadedPhoto && uploadedPhoto.id) {
-                            // Actualizar el woo_photo_id en la base de datos
                             photo.woo_photo_id = uploadedPhoto.id.toString();
                             await photo.update();
                             console.log('Foto subida a WooCommerce con ID:', uploadedPhoto.id);
@@ -197,11 +210,9 @@ class ProductPhotoController {
                     }
                 }
 
-                // Ahora establecer como principal en WooCommerce
-                await this.wooService.setMainPhoto(artWooId, photo.woo_photo_id);
+                await this.wooService.setMainPhoto(apiPath, photo.woo_photo_id);
                 console.log('Foto principal actualizada en WooCommerce');
 
-                // Actualizar en la base de datos
                 await ProductPhoto.setMainPhoto(productId, photoId);
                 console.log('Foto principal actualizada en la base de datos');
 
@@ -212,16 +223,16 @@ class ProductPhotoController {
             } else {
                 console.log('No se encontró ID de WooCommerce para el producto');
                 return res.status(404).json({
-                    success: false, 
-                    message: 'Producto no encontrado en WooCommerce' 
+                    success: false,
+                    message: 'Producto no encontrado en WooCommerce'
                 });
             }
         } catch (error) {
             console.error('Error al establecer foto principal:', error);
-            return res.status(500).json({ 
-                success: false, 
+            return res.status(500).json({
+                success: false,
                 message: 'Error al establecer foto principal',
-                error: error.message 
+                error: error.message
             });
         }
     }
@@ -235,15 +246,41 @@ class ProductPhotoController {
             const photos = await ProductPhoto.findByProductId(productId);
             console.log('Fotos encontradas:', photos.length);
 
-            // Obtener ID de WooCommerce
-            const artWooId = await getArticleWooId(productId);
-            console.log('ID de WooCommerce:', artWooId);
+            // Obtener info completa de WooCommerce (soporta variaciones)
+            const wooInfo = await getArticleWooInfo(productId);
+            console.log('Info WooCommerce:', wooInfo);
 
-            if (!artWooId) {
+            if (!wooInfo) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Product not found in WooCommerce'
+                    message: 'Producto no encontrado'
                 });
+            }
+
+            // Determinar el ID y path de API según tipo
+            let artWooId;
+            let apiBasePath;
+
+            if (wooInfo.art_woo_type === 'variation') {
+                if (!wooInfo.art_woo_variation_id || !wooInfo.parent_woo_id) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Variación sin IDs de WooCommerce (art_woo_variation_id o parent_woo_id)'
+                    });
+                }
+                artWooId = wooInfo.art_woo_variation_id;
+                apiBasePath = `products/${wooInfo.parent_woo_id}/variations/${wooInfo.art_woo_variation_id}`;
+                console.log(`Variación detectada - usando API path: ${apiBasePath}`);
+            } else {
+                artWooId = wooInfo.art_woo_id;
+                if (!artWooId) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Producto no tiene art_woo_id en WooCommerce'
+                    });
+                }
+                apiBasePath = `products/${artWooId}`;
+                console.log(`Producto simple/variable - usando API path: ${apiBasePath}`);
             }
 
             const results = {
@@ -267,27 +304,15 @@ class ProductPhotoController {
 
                     if (photo.estado === 'temp') {
                         console.log('Subiendo foto a WooCommerce...');
-                        const wooPhoto = await this.wooService.uploadPhoto(artWooId, photo.url);
+                        const wooPhoto = await this.wooService.uploadPhoto(apiBasePath, photo.url);
                         console.log('Respuesta de WooCommerce:', wooPhoto);
 
                         if (!wooPhoto || !wooPhoto.id) {
                             throw new Error('No se recibió un ID válido de WooCommerce');
                         }
 
-                        // Actualizar la foto en la base de datos
-                        console.log('Actualizando foto en base de datos...');
-                        console.log('WooCommerce Photo ID (antes de asignar):', {
-                            original: wooPhoto.id,
-                            type: typeof wooPhoto.id
-                        });
-
                         // Asegurarnos de que el ID sea un string válido
                         const wooPhotoId = String(wooPhoto.id).trim();
-                        console.log('WooCommerce Photo ID (después de convertir):', {
-                            value: wooPhotoId,
-                            type: typeof wooPhotoId,
-                            length: wooPhotoId.length
-                        });
 
                         if (!wooPhotoId) {
                             throw new Error('ID de WooCommerce inválido después de la conversión');
@@ -295,15 +320,8 @@ class ProductPhotoController {
 
                         // Actualizar con la URL de WooCommerce
                         photo.woo_photo_id = wooPhotoId;
-                        photo.url = wooPhoto.src; // Actualizar la URL con la de WooCommerce
+                        photo.url = wooPhoto.src;
                         photo.estado = 'woo';
-
-                        console.log('Intentando actualizar foto con datos:', {
-                            id: photo.id,
-                            woo_photo_id: photo.woo_photo_id,
-                            url: photo.url,
-                            estado: photo.estado
-                        });
 
                         await photo.update();
 
@@ -369,13 +387,21 @@ class ProductPhotoController {
             await ProductPhoto.reorderPhotos(productId, photoOrder);
 
             // If photos are synced with WooCommerce, update there too
-            const artWooId = await getArticleWooId(productId);
-            if (artWooId) {
-                // Asegurarnos de que wooService esté disponible
-                if (!this.wooService) {
-                    this.wooService = new WooCommercePhotoService();
+            const wooInfo = await getArticleWooInfo(productId);
+            if (wooInfo) {
+                let apiPath;
+                if (wooInfo.art_woo_type === 'variation' && wooInfo.art_woo_variation_id && wooInfo.parent_woo_id) {
+                    apiPath = `products/${wooInfo.parent_woo_id}/variations/${wooInfo.art_woo_variation_id}`;
+                } else if (wooInfo.art_woo_id) {
+                    apiPath = `products/${wooInfo.art_woo_id}`;
                 }
-                await this.wooService.reorderPhotos(artWooId, photoOrder);
+
+                if (apiPath) {
+                    if (!this.wooService) {
+                        this.wooService = new WooCommercePhotoService();
+                    }
+                    await this.wooService.reorderPhotos(apiPath, photoOrder);
+                }
             }
 
             res.json({
