@@ -176,6 +176,12 @@ const syncDocumentStockToWoo = async (fac_nro, options = {}) => {
           art_cod: item.art_cod
         });
       }
+      // Productos variable (padres) NO gestionan stock propio - WooCommerce lo calcula de las variaciones
+      else if (item.art_woo_type === 'variable') {
+        log(logLevels.INFO, `Producto variable ${item.art_cod} - stock gestionado por variaciones, omitiendo padre`);
+        skippedCount++;
+        continue;
+      }
       // Manejo de productos simples
       else {
         if (!item.art_woo_id) {
@@ -410,6 +416,18 @@ const syncArticleStockToWoo = async (art_sec, options = {}) => {
         art_woo_variation_id: article.art_woo_variation_id,
         art_parent_woo_id: article.art_parent_woo_id,
         stock: newStock
+      };
+    }
+
+    // Productos variable (padres) NO gestionan stock propio
+    if (article.art_woo_type === 'variable') {
+      log(logLevels.INFO, `Producto variable ${article.art_cod} - stock gestionado por variaciones`);
+      return {
+        success: true,
+        synced: false,
+        reason: 'Producto variable - stock gestionado por variaciones',
+        art_sec,
+        art_cod: article.art_cod
       };
     }
 
