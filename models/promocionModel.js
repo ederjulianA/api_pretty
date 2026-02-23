@@ -1,7 +1,17 @@
 import { sql, poolPromise } from '../db.js';
-import { validarPrecioOferta, validarDescuentoPorcentual } from '../utils/precioUtils.js';
-import { obtenerExistenciaArticulo, obtenerExistenciaArticuloPorSec } from '../utils/ArticuloUtils.js';
+import { validarPrecioOferta, validarDescuentoPorcentual, obtenerPreciosConOferta } from '../utils/precioUtils.js';
+import { obtenerExistenciaArticuloPorSec } from '../utils/ArticuloUtils.js';
 import { updateWooProductPrices } from '../jobs/updateWooProductPrices.js';
+import wcPkg from '@woocommerce/woocommerce-rest-api';
+const WooCommerceRestApi = wcPkg.default || wcPkg;
+
+const wcApi = new WooCommerceRestApi({
+  url: process.env.WC_URL,
+  consumerKey: process.env.WC_CONSUMER_KEY,
+  consumerSecret: process.env.WC_CONSUMER_SECRET,
+  version: 'wc/v3',
+  timeout: 15000
+});
 
 // Crear promoción (encabezado y detalle)
 const crearPromocion = async (promocionData) => {
@@ -752,20 +762,28 @@ const sincronizarPreciosPromocion = async (proSec, opciones = {}) => {
       throw new Error('La promoción debe estar activa para sincronizar precios');
     }
     
-    // Obtener artículos de la promoción que tengan art_woo_id
+    // Obtener artículos de la promoción que tengan art_woo_id o sean variaciones con art_woo_variation_id
     const articulosResult = await pool.request()
       .input('pro_sec', sql.Decimal(18, 0), proSec)
       .query(`
         SELECT DISTINCT
+          a.art_sec,
           a.art_cod,
           a.art_nom,
           a.art_woo_id,
+          ISNULL(a.art_woo_type, 'simple') AS art_woo_type,
+          a.art_woo_variation_id,
+          a.art_sec_padre,
+          padre.art_woo_id AS parent_woo_id,
           pd.pro_det_estado
         FROM dbo.promociones_detalle pd
         INNER JOIN dbo.articulos a ON pd.art_sec = a.art_sec
+        LEFT JOIN dbo.articulos padre ON padre.art_sec = a.art_sec_padre
         WHERE pd.pro_sec = @pro_sec
-          AND a.art_woo_id IS NOT NULL
-          AND a.art_woo_id > 0
+          AND (
+            (a.art_woo_id IS NOT NULL AND a.art_woo_id > 0)
+            OR (a.art_woo_variation_id IS NOT NULL AND a.art_woo_variation_id > 0)
+          )
         ORDER BY a.art_cod
       `);
     
@@ -782,35 +800,108 @@ const sincronizarPreciosPromocion = async (proSec, opciones = {}) => {
       };
     }
     
-    // Extraer códigos de artículos y crear mapa de estados
-    const art_cods = articulosResult.recordset.map(art => art.art_cod);
+    // Separar productos simples/variables de variaciones
+    const productosSimples = [];
+    const variaciones = [];
     const estadosArticulos = {};
+
     articulosResult.recordset.forEach(art => {
       estadosArticulos[art.art_cod] = art.pro_det_estado;
+
+      if (art.art_woo_type === 'variation' && art.art_woo_variation_id && art.parent_woo_id) {
+        variaciones.push(art);
+      } else if (art.art_woo_type !== 'variable' && art.art_woo_id) {
+        // Solo productos simples - los variable (padres) NO manejan precios directamente
+        productosSimples.push(art);
+      }
     });
-    
-    // Sincronizar precios con WooCommerce
-    const opcionesSincronizacion = {
-      estadosArticulos: estadosArticulos
-    };
-    
-    // Agregar fechas de promoción si están disponibles en las opciones
+
+    // Determinar fechas de promoción
+    let fechasPromocion;
     if (opciones.fechasPromocion && opciones.fechasPromocion.fecha_inicio && opciones.fechasPromocion.fecha_fin) {
-      opcionesSincronizacion.fechasPromocion = opciones.fechasPromocion;
+      fechasPromocion = opciones.fechasPromocion;
     } else {
-      // Usar fechas de la promoción desde la base de datos
-      opcionesSincronizacion.fechasPromocion = {
+      fechasPromocion = {
         fecha_inicio: promocion.pro_fecha_inicio,
         fecha_fin: promocion.pro_fecha_fin
       };
     }
-    
-    const resultadoSincronizacion = await updateWooProductPrices(art_cods, opcionesSincronizacion);
-    
+
+    let totalProcesados = 0;
+    let totalExitosos = 0;
+    let totalErrores = 0;
+    let totalOmitidos = 0;
+    let mensajes = [];
+    let logId = null;
+
+    // 1. Sincronizar productos simples via batch (updateWooProductPrices)
+    if (productosSimples.length > 0) {
+      const art_cods = productosSimples.map(art => art.art_cod);
+      const opcionesSincronizacion = {
+        estadosArticulos,
+        fechasPromocion
+      };
+
+      const resultadoSincronizacion = await updateWooProductPrices(art_cods, opcionesSincronizacion);
+
+      totalProcesados += resultadoSincronizacion.summary.totalItems;
+      totalExitosos += resultadoSincronizacion.summary.successCount;
+      totalErrores += resultadoSincronizacion.summary.errorCount;
+      totalOmitidos += resultadoSincronizacion.summary.skippedCount;
+      mensajes = mensajes.concat(resultadoSincronizacion.messages.slice(0, 10));
+      logId = resultadoSincronizacion.summary.logId;
+    }
+
+    // 2. Sincronizar variaciones individualmente
+    if (variaciones.length > 0) {
+      for (const variation of variaciones) {
+        totalProcesados++;
+        try {
+          const articuloActivoEnPromocion = estadosArticulos[variation.art_cod] === 'A';
+          const apiPath = `products/${variation.parent_woo_id}/variations/${variation.art_woo_variation_id}`;
+
+          // Obtener precios con oferta del artículo
+          const preciosData = await obtenerPreciosConOferta(variation.art_sec);
+
+          const wooData = {
+            regular_price: preciosData.precio_detal_original.toString(),
+            meta_data: [{ key: "_precio_mayorista", value: preciosData.precio_mayor_original.toString() }]
+          };
+
+          if (preciosData.tiene_oferta && articuloActivoEnPromocion) {
+            if (preciosData.oferta_info?.precio_oferta > 0) {
+              wooData.sale_price = preciosData.oferta_info.precio_oferta.toString();
+            } else if (preciosData.oferta_info?.descuento_porcentaje > 0) {
+              const salePrice = preciosData.precio_detal_original * (1 - (preciosData.oferta_info.descuento_porcentaje / 100));
+              wooData.sale_price = salePrice.toString();
+            }
+            if (fechasPromocion.fecha_inicio && fechasPromocion.fecha_fin) {
+              const fechaInicio = new Date(fechasPromocion.fecha_inicio);
+              const fechaFin = new Date(fechasPromocion.fecha_fin);
+              wooData.date_on_sale_from = fechaInicio.toISOString().slice(0, 19);
+              wooData.date_on_sale_to = fechaFin.toISOString().slice(0, 19).replace(/T\d{2}:\d{2}:\d{2}/, 'T23:59:59');
+            }
+          } else {
+            wooData.sale_price = '';
+            wooData.date_on_sale_from = '';
+            wooData.date_on_sale_to = '';
+          }
+
+          await wcApi.put(apiPath, wooData);
+          totalExitosos++;
+          mensajes.push(`Variación ${variation.art_cod} (${variation.art_woo_variation_id}) actualizada exitosamente`);
+        } catch (varError) {
+          totalErrores++;
+          mensajes.push(`Error actualizando variación ${variation.art_cod}: ${varError.message}`);
+          console.error(`[PROMO-SYNC] Error variación ${variation.art_cod}:`, varError.message);
+        }
+      }
+    }
+
     // Preparar respuesta
     const respuesta = {
-      success: resultadoSincronizacion.summary.errorCount === 0,
-      message: resultadoSincronizacion.summary.errorCount === 0 
+      success: totalErrores === 0,
+      message: totalErrores === 0
         ? 'Precios sincronizados exitosamente con WooCommerce'
         : 'Sincronización completada con algunos errores',
       data: {
@@ -820,24 +911,24 @@ const sincronizarPreciosPromocion = async (proSec, opciones = {}) => {
         estado_promocion: promocion.estado_temporal,
         fecha_inicio: promocion.pro_fecha_inicio,
         fecha_fin: promocion.pro_fecha_fin,
-        articulos_procesados: resultadoSincronizacion.summary.totalItems,
-        articulos_exitosos: resultadoSincronizacion.summary.successCount,
-        articulos_con_error: resultadoSincronizacion.summary.errorCount,
-        articulos_omitidos: resultadoSincronizacion.summary.skippedCount,
-        duracion: resultadoSincronizacion.summary.duration,
-        log_id: resultadoSincronizacion.summary.logId,
-        detalles_sincronizacion: resultadoSincronizacion.summary,
-        mensajes: resultadoSincronizacion.messages.slice(0, 10) // Solo los primeros 10 mensajes
+        articulos_procesados: totalProcesados,
+        articulos_exitosos: totalExitosos,
+        articulos_con_error: totalErrores,
+        articulos_omitidos: totalOmitidos,
+        productos_simples: productosSimples.length,
+        variaciones: variaciones.length,
+        duracion: null,
+        log_id: logId,
+        mensajes: mensajes.slice(0, 20)
       }
     };
-    
-    // Si hay errores, agregar información adicional
-    if (resultadoSincronizacion.summary.errorCount > 0) {
+
+    if (totalErrores > 0) {
       respuesta.warnings = [
         'Algunos artículos no pudieron ser sincronizados',
-        'Revisa los logs para más detalles',
-        `Log ID: ${resultadoSincronizacion.summary.logId}`
+        'Revisa los logs para más detalles'
       ];
+      if (logId) respuesta.warnings.push(`Log ID: ${logId}`);
     }
     
     return respuesta;
@@ -898,28 +989,34 @@ const obtenerArticulosParaSincronizacion = async (proSec, opciones = {}) => {
     
     const result = await pool.request()
       .input('pro_sec', sql.Decimal(18, 0), proSec)
-      .input('solo_activos', sql.Char(1), opciones.solo_activos !== false ? 'S' : 'N')
       .query(`
-        SELECT 
+        SELECT
           a.art_sec,
           a.art_cod,
           a.art_nom,
           a.art_woo_id,
+          ISNULL(a.art_woo_type, 'simple') AS art_woo_type,
+          a.art_woo_variation_id,
           pd.pro_det_estado,
           pd.pro_det_precio_oferta,
           pd.pro_det_descuento_porcentaje,
-          CASE 
-            WHEN a.art_woo_id IS NULL OR a.art_woo_id = 0 THEN 'SIN_WOO_ID'
+          CASE
+            WHEN ISNULL(a.art_woo_type, 'simple') = 'variation'
+              AND a.art_woo_variation_id IS NOT NULL AND a.art_woo_variation_id > 0 THEN 'LISTO'
+            WHEN (a.art_woo_id IS NULL OR a.art_woo_id = 0)
+              AND ISNULL(a.art_woo_type, 'simple') != 'variation' THEN 'SIN_WOO_ID'
             WHEN pd.pro_det_estado = 'I' THEN 'INACTIVO'
+            WHEN ISNULL(a.art_woo_type, 'simple') = 'variable' THEN 'VARIABLE_PADRE'
             ELSE 'LISTO'
           END as estado_sincronizacion
         FROM dbo.promociones_detalle pd
         INNER JOIN dbo.articulos a ON pd.art_sec = a.art_sec
         WHERE pd.pro_sec = @pro_sec
           ${opciones.solo_activos !== false ? "AND pd.pro_det_estado = 'A'" : ""}
-        ORDER BY 
-          CASE 
-            WHEN a.art_woo_id IS NULL OR a.art_woo_id = 0 THEN 1
+        ORDER BY
+          CASE
+            WHEN (a.art_woo_id IS NULL OR a.art_woo_id = 0)
+              AND ISNULL(a.art_woo_type, 'simple') != 'variation' THEN 1
             WHEN pd.pro_det_estado = 'I' THEN 2
             ELSE 3
           END,
