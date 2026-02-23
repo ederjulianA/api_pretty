@@ -408,22 +408,6 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
       }
     }
 
-    // Forzar actualización de cache de WooCommerce
-    try {
-      // Hacer llamadas individuales a los productos actualizados para forzar la actualización del cache
-      const productIds = productUpdates.map(p => p.id).slice(0, 5); // Solo los primeros 5 para no sobrecargar
-      
-      for (const productId of productIds) {
-        try {
-          await wcApi.get(`products/${productId}`);
-        } catch (productError) {
-          // Silenciar errores de cache
-        }
-      }
-    } catch (cacheError) {
-      // Silenciar errores de cache
-    }
-
     const endTime = new Date();
     const duration = (endTime - startTime) / 1000;
 
