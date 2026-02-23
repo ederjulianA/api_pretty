@@ -306,15 +306,15 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
                 ELSE 'N' 
             END AS tiene_oferta
           FROM dbo.articulos a
-          LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
-          LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+          LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+          LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
           LEFT JOIN dbo.promociones_detalle pd ON a.art_sec = pd.art_sec AND pd.pro_det_estado = 'A'
-          LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec 
-              AND p.pro_activa = 'S' 
+          LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec
+              AND p.pro_activa = 'S'
               AND @fac_fec BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
           WHERE a.art_sec = @art_sec
         `;
-        
+
         const precioResult = await precioRequest
           .input('art_sec', sql.VarChar(30), detail.art_sec)
           .input('fac_fec', sql.Date, fac_fec || new Date())
@@ -355,8 +355,32 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
         kar_total = kar_total * (1 - (descuento / 100))
       }
 
-      // Obtener costo histórico del mapa
-      const kar_cos = costosMap.get(String(detail.art_sec)) || 0;
+      // Obtener costo histórico — lógica bundle-aware (misma lógica que createCompleteOrder):
+      //   Componente de bundle (kar_bundle_padre != null) → costo = 0 (capturado en el padre)
+      //   Bundle padre (tiene componentes en detallesExpandidos)  → costo = suma de costos de componentes / kar_uni padre
+      //   Producto simple                                         → costo desde articulosdetalle
+      let kar_cos;
+      if (detail.kar_bundle_padre !== null && detail.kar_bundle_padre !== undefined) {
+        // Es componente: su costo queda en 0, el padre absorbe el costo total
+        kar_cos = 0;
+      } else {
+        const compsBundlePadre = detallesExpandidos.filter(d =>
+          d.kar_bundle_padre !== null &&
+          d.kar_bundle_padre !== undefined &&
+          String(d.kar_bundle_padre) === String(detail.art_sec)
+        );
+        if (compsBundlePadre.length > 0) {
+          // Es bundle padre: costo unitario = suma de (unidades × costo_unitario_componente) / unidades del bundle
+          const totalCostoComponentes = compsBundlePadre.reduce((sum, comp) => {
+            return sum + (Number(comp.kar_uni) * (costosMap.get(String(comp.art_sec)) || 0));
+          }, 0);
+          const karUniBundlePadre = Number(detail.kar_uni) || 1;
+          kar_cos = karUniBundlePadre > 0 ? totalCostoComponentes / karUniBundlePadre : 0;
+        } else {
+          // Producto simple: costo desde articulosdetalle
+          kar_cos = costosMap.get(String(detail.art_sec)) || 0;
+        }
+      }
 
       await insertDetailRequest
         .input('fac_sec', sql.Decimal(18, 0), fac_sec)
@@ -844,15 +868,15 @@ const createCompleteOrder = async ({
                 ELSE 'N' 
             END AS tiene_oferta
           FROM dbo.articulos a
-          LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1
-          LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2
+          LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
+          LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
           LEFT JOIN dbo.promociones_detalle pd ON a.art_sec = pd.art_sec AND pd.pro_det_estado = 'A'
-          LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec 
-              AND p.pro_activa = 'S' 
+          LEFT JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec
+              AND p.pro_activa = 'S'
               AND @fac_fec BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
           WHERE a.art_sec = @art_sec
         `;
-        
+
         const precioResult = await precioRequest
           .input('art_sec', sql.VarChar(30), detalle.art_sec)
           .input('fac_fec', sql.Date, fac_fec || new Date())
