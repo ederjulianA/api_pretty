@@ -167,16 +167,19 @@ export const obtenerPreciosMultiples = async (art_sec_list) => {
     if (!art_sec_list || art_sec_list.length === 0) {
         return {};
     }
-    
+
     const pool = await poolPromise;
-    
+
     try {
-        // Crear lista de parámetros para la consulta
-        const params = art_sec_list.map((art_sec, index) => `@art_sec_${index}`).join(',');
-        const artSecList = art_sec_list.map((art_sec, index) => `'${art_sec}'`).join(',');
-        
-        const result = await pool.request().query(`
-            SELECT 
+        // Usar parámetros para evitar SQL injection
+        const request = pool.request();
+        const params = art_sec_list.map((art_sec, index) => {
+            request.input(`art_sec_${index}`, sql.VarChar(30), art_sec);
+            return `@art_sec_${index}`;
+        }).join(',');
+
+        const result = await request.query(`
+            SELECT
                 a.art_sec,
                 a.art_cod,
                 a.art_nom,
@@ -185,7 +188,7 @@ export const obtenerPreciosMultiples = async (art_sec_list) => {
             FROM dbo.articulos a
             LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
             LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
-            WHERE a.art_sec IN (${artSecList})
+            WHERE a.art_sec IN (${params})
         `);
 
         // Convertir resultado a objeto indexado por art_sec
@@ -329,14 +332,17 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
     const fecha = fecha_consulta || new Date();
     
     try {
-        // Crear lista de artículos para la consulta
-        const artSecList = art_sec_list.map((art_sec, index) => `'${art_sec}'`).join(',');
-        
-        const result = await pool.request()
-            .input('fecha_consulta', sql.DateTime, fecha)
-            .query(`
+        // Usar parámetros para evitar SQL injection
+        const request = pool.request();
+        request.input('fecha_consulta', sql.DateTime, fecha);
+        const params = art_sec_list.map((art_sec, index) => {
+            request.input(`art_sec_${index}`, sql.VarChar(30), art_sec);
+            return `@art_sec_${index}`;
+        }).join(',');
+
+        const result = await request.query(`
                 WITH PromocionesActivas AS (
-                    SELECT 
+                    SELECT
                         pd.art_sec,
                         pd.pro_sec,
                         pd.pro_det_precio_oferta,
@@ -349,12 +355,12 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
                         ROW_NUMBER() OVER (PARTITION BY pd.art_sec ORDER BY p.pro_fecha_inicio DESC, p.pro_sec DESC) as rn
                     FROM dbo.promociones_detalle pd
                     INNER JOIN dbo.promociones p ON pd.pro_sec = p.pro_sec
-                    WHERE pd.art_sec IN (${artSecList})
+                    WHERE pd.art_sec IN (${params})
                         AND pd.pro_det_estado = 'A'
                         AND p.pro_activa = 'S'
                         AND @fecha_consulta BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
                 )
-                SELECT 
+                SELECT
                     a.art_sec,
                     a.art_cod,
                     a.art_nom,
@@ -362,19 +368,19 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
                     ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
                     ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
                     -- Precios con oferta aplicada
-                    CASE 
-                        WHEN pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0 
-                        THEN pa.pro_det_precio_oferta 
-                        WHEN pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0 
+                    CASE
+                        WHEN pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0
+                        THEN pa.pro_det_precio_oferta
+                        WHEN pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0
                         THEN ISNULL(ad1.art_bod_pre, 0) * (1 - (pa.pro_det_descuento_porcentaje / 100))
-                        ELSE ISNULL(ad1.art_bod_pre, 0) 
+                        ELSE ISNULL(ad1.art_bod_pre, 0)
                     END AS precio_detal,
-                    CASE 
-                        WHEN pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0 
-                        THEN pa.pro_det_precio_oferta 
-                        WHEN pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0 
+                    CASE
+                        WHEN pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0
+                        THEN pa.pro_det_precio_oferta
+                        WHEN pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0
                         THEN ISNULL(ad2.art_bod_pre, 0) * (1 - (pa.pro_det_descuento_porcentaje / 100))
-                        ELSE ISNULL(ad2.art_bod_pre, 0) 
+                        ELSE ISNULL(ad2.art_bod_pre, 0)
                     END AS precio_mayor,
                     -- Información de oferta
                     pa.pro_det_precio_oferta AS precio_oferta,
@@ -384,17 +390,17 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
                     pa.pro_codigo AS codigo_promocion,
                     pa.pro_descripcion AS descripcion_promocion,
                     pa.pro_activa,
-                    CASE 
-                        WHEN (pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0) 
+                    CASE
+                        WHEN (pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0)
                              OR (pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0)
-                        THEN 'S' 
-                        ELSE 'N' 
+                        THEN 'S'
+                        ELSE 'N'
                     END AS tiene_oferta
                 FROM dbo.articulos a
                 LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
                 LEFT JOIN dbo.articulosdetalle ad2 ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
                 LEFT JOIN PromocionesActivas pa ON a.art_sec = pa.art_sec AND pa.rn = 1
-                WHERE a.art_sec IN (${artSecList})
+                WHERE a.art_sec IN (${params})
             `);
 
         // Convertir resultado a objeto indexado por art_sec
