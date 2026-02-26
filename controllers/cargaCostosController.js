@@ -7,6 +7,7 @@
 
 const { poolPromise, sql } = require('../db');
 const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 
 /**
  * Exportar productos activos a Excel para carga de costos
@@ -45,6 +46,7 @@ const exportarPlantillaCostos = async (req, res) => {
             AND f.fac_tip_cod = 'VTA'
             AND f.fac_est_fac = 'A'
         ), 0) AS total_unidades_vendidas,
+        (SELECT ad.art_bod_pre FROM dbo.articulosdetalle ad WHERE ad.art_sec = a.art_sec AND ad.bod_sec = '1' AND ad.lis_pre_cod = 3) AS precio_lista_distribuidor,
         NULL AS costo_inicial,
         NULL AS metodo,
         NULL AS observaciones
@@ -59,47 +61,79 @@ const exportarPlantillaCostos = async (req, res) => {
       ORDER BY ig.inv_gru_nom, isg.inv_sub_gru_nom, a.art_nom
     `);
 
-    // Crear workbook
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(result.recordset);
+    // Crear workbook con ExcelJS para aplicar estilos (header + columnas editables)
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Productos', { views: [{ state: 'frozen', ySplit: 1 }] });
 
-    ws['!cols'] = [
-      { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 35 },
-      { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 18 },
-      { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 15 }, { wch: 18 }, { wch: 30 }
-    ];
+    const columnKeys = ['categoria', 'subcategoria', 'art_cod', 'art_nom', 'existencia', 'precio_venta_detal', 'precio_venta_mayor', 'costo_promedio_actual', 'rentabilidad_detal_pct', 'rentabilidad_mayor_pct', 'total_unidades_vendidas', 'precio_lista_distribuidor', 'costo_inicial', 'metodo', 'observaciones'];
+    const columnWidths = [15, 15, 12, 35, 12, 15, 15, 18, 18, 18, 20, 22, 15, 18, 30];
+    const lastDataCol = 15;
+    const firstEditableCol = 12; // L = precio_lista_distribuidor (1-based: 12)
 
-    XLSX.utils.book_append_sheet(wb, ws, 'Productos');
+    const borderThin = {
+      top: { style: 'thin', color: { argb: 'FFB4B4B4' } },
+      left: { style: 'thin', color: { argb: 'FFB4B4B4' } },
+      bottom: { style: 'thin', color: { argb: 'FFB4B4B4' } },
+      right: { style: 'thin', color: { argb: 'FFB4B4B4' } }
+    };
+
+    worksheet.columns = columnKeys.map((key, i) => ({ header: key, key, width: columnWidths[i] }));
+
+    // Header row (row 1)
+    const headerRow = worksheet.getRow(1);
+    headerRow.values = columnKeys;
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E5090' } };
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      cell.alignment = { vertical: 'middle', wrapText: true };
+      cell.border = borderThin;
+    });
+    headerRow.height = 22;
+
+    // Data rows: A-K fondo gris (solo lectura), L-O fondo amarillo suave (editable), todas con borde
+    const rows = result.recordset;
+    rows.forEach((row) => {
+      const dataRow = worksheet.addRow(columnKeys.map(k => row[k] ?? null));
+      dataRow.eachCell((cell, colNumber) => {
+        cell.border = borderThin;
+        if (colNumber >= firstEditableCol && colNumber <= lastDataCol) {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+        } else {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+        }
+      });
+    });
 
     // Hoja de instrucciones
+    const wsInstr = workbook.addWorksheet('INSTRUCCIONES');
+    wsInstr.getColumn(1).width = 70;
     const instrucciones = [
-      { Instruccion: '═══════════════════════════════════════════════════════════' },
-      { Instruccion: 'INSTRUCCIONES: Carga Inicial de Costos' },
-      { Instruccion: '═══════════════════════════════════════════════════════════' },
-      { Instruccion: '' },
-      { Instruccion: '1. COLUMNAS A-K: NO EDITAR (datos del sistema)' },
-      { Instruccion: '   COLUMNA H (costo_promedio_actual): Costo vigente en el sistema (referencia)' },
-      { Instruccion: '   COLUMNA I (rentabilidad_detal_pct): Margen % sobre precio detal con costo actual' },
-      { Instruccion: '   COLUMNA J (rentabilidad_mayor_pct): Margen % sobre precio mayor con costo actual' },
-      { Instruccion: '   COLUMNA K (total_unidades_vendidas): Total unidades vendidas (ventas activas)' },
-      { Instruccion: '2. COLUMNA L (costo_inicial): OBLIGATORIA - Ingrese el nuevo costo a aplicar' },
-      { Instruccion: '3. COLUMNA M (metodo): ULTIMA_COMPRA, REVERSO_XX%, ESTIMADO, MANUAL' },
-      { Instruccion: '4. COLUMNA N (observaciones): OPCIONAL' },
-      { Instruccion: '' },
-      { Instruccion: 'TRABAJO POR CATEGORÍAS: Use filtros, puede importar múltiples veces' }
+      '═══════════════════════════════════════════════════════════',
+      'INSTRUCCIONES: Carga Inicial de Costos + Lista Distribuidor',
+      '═══════════════════════════════════════════════════════════',
+      '',
+      '1. COLUMNAS A-K (fondo gris): NO EDITAR (datos del sistema)',
+      '   H (costo_promedio_actual), I-J (rentabilidad), K (total_unidades_vendidas)',
+      '2. COLUMNAS L-O (fondo amarillo): EDITABLES',
+      '   L = precio_lista_distribuidor, M = costo_inicial, N = metodo, O = observaciones',
+      '',
+      'Puede actualizar solo costos, solo lista distribuidor, o ambos. Importe múltiples veces si lo necesita.'
     ];
+    instrucciones.forEach((texto, i) => {
+      const row = wsInstr.getRow(i + 1);
+      row.getCell(1).value = texto;
+      if (i === 1) row.getCell(1).font = { bold: true };
+    });
 
-    const wsInstr = XLSX.utils.json_to_sheet(instrucciones);
-    wsInstr['!cols'] = [{ wch: 70 }];
-    XLSX.utils.book_append_sheet(wb, wsInstr, 'INSTRUCCIONES');
-
-    const excelBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    const fecha = new Date().toISOString().split('T')[0];
-    const fileName = `carga_costos_inicial_${fecha}.xlsx`;
+    const now = new Date();
+    const fecha = now.toISOString().split('T')[0];
+    const hora = now.toTimeString().slice(0, 8).replace(/:/g, '-');
+    const fileName = `carga_costos_inicial_${fecha}_${hora}.xlsx`;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
+    const excelBuffer = await workbook.xlsx.writeBuffer();
     return res.send(excelBuffer);
 
   } catch (error) {
@@ -147,20 +181,32 @@ const importarCostosDesdeExcel = async (req, res) => {
     let actualizados = 0;
     let nuevos = 0;
     let ignorados = 0;
+    let lista_distribuidor_actualizados = 0;
     const errores = [];
 
     try {
       for (const fila of datos) {
-        if (!fila.art_cod || fila.costo_inicial === null || fila.costo_inicial === undefined || fila.costo_inicial === '') {
+        if (!fila.art_cod) {
           ignorados++;
           continue;
         }
 
-        const costo = parseFloat(fila.costo_inicial);
-        if (isNaN(costo)) {
-          errores.push(`Producto ${fila.art_cod}: Costo inválido`);
+        const tieneCosto = fila.costo_inicial !== null && fila.costo_inicial !== undefined && String(fila.costo_inicial).trim() !== '';
+        const precioDistribStr = fila.precio_lista_distribuidor;
+        const tienePrecioDistrib = precioDistribStr !== null && precioDistribStr !== undefined && String(precioDistribStr).trim() !== '';
+
+        if (!tieneCosto && !tienePrecioDistrib) {
           ignorados++;
           continue;
+        }
+
+        if (tieneCosto) {
+          const costo = parseFloat(fila.costo_inicial);
+          if (isNaN(costo)) {
+            errores.push(`Producto ${fila.art_cod}: Costo inválido`);
+            ignorados++;
+            continue;
+          }
         }
 
         const artResult = await transaction.request()
@@ -175,85 +221,131 @@ const importarCostosDesdeExcel = async (req, res) => {
 
         const art_sec = artResult.recordset[0].art_sec;
 
-        const datosResult = await transaction.request()
-          .input('art_sec', sql.VarChar(30), art_sec)
-          .query(`
-            SELECT a.art_cod, a.art_nom, ISNULL(ve.existencia, 0) AS existencia,
-                   ad_detal.art_bod_pre AS precio_venta_detal,
-                   ad_mayor.art_bod_pre AS precio_venta_mayor
-            FROM dbo.articulos a
-            LEFT JOIN dbo.vwExistencias ve ON ve.art_sec = a.art_sec
-            LEFT JOIN dbo.articulosdetalle ad_detal ON ad_detal.art_sec = a.art_sec
-              AND ad_detal.bod_sec = '1' AND ad_detal.lis_pre_cod = 1
-            LEFT JOIN dbo.articulosdetalle ad_mayor ON ad_mayor.art_sec = a.art_sec
-              AND ad_mayor.bod_sec = '1' AND ad_mayor.lis_pre_cod = 2
-            WHERE a.art_sec = @art_sec
-          `);
-
-        const datosProducto = datosResult.recordset[0];
-
-        const existeResult = await transaction.request()
-          .input('art_sec', sql.VarChar(30), art_sec)
-          .query('SELECT cic_id FROM dbo.carga_inicial_costos WHERE cic_art_sec = @art_sec');
-
-        if (existeResult.recordset.length > 0) {
-          await transaction.request()
+        if (tieneCosto) {
+          const costo = parseFloat(fila.costo_inicial);
+          const datosResult = await transaction.request()
             .input('art_sec', sql.VarChar(30), art_sec)
-            .input('art_cod', sql.VarChar(30), datosProducto.art_cod)
-            .input('art_nom', sql.VarChar(100), datosProducto.art_nom)
-            .input('existencia', sql.Decimal(17, 2), datosProducto.existencia)
-            .input('precio_detal', sql.Decimal(17, 2), datosProducto.precio_venta_detal)
-            .input('precio_mayor', sql.Decimal(17, 2), datosProducto.precio_venta_mayor)
-            .input('costo', sql.Decimal(17, 2), costo)
-            .input('metodo', sql.VarChar(50), fila.metodo || 'MANUAL')
-            .input('obs', sql.VarChar(500), fila.observaciones || '')
-            .input('usuario', sql.VarChar(100), usuarioCarga)
             .query(`
-              UPDATE dbo.carga_inicial_costos
-              SET cic_art_cod = @art_cod, cic_art_nom = @art_nom,
-                  cic_existencia = @existencia, cic_precio_venta_detal = @precio_detal,
-                  cic_precio_venta_mayor = @precio_mayor, cic_costo_propuesto = @costo,
-                  cic_metodo_calculo = @metodo, cic_observaciones = @obs,
-                  cic_estado = 'PENDIENTE', cic_fecha_carga = GETDATE(),
-                  cic_usuario_carga = @usuario
-              WHERE cic_art_sec = @art_sec
+              SELECT a.art_cod, a.art_nom, ISNULL(ve.existencia, 0) AS existencia,
+                     ad_detal.art_bod_pre AS precio_venta_detal,
+                     ad_mayor.art_bod_pre AS precio_venta_mayor
+              FROM dbo.articulos a
+              LEFT JOIN dbo.vwExistencias ve ON ve.art_sec = a.art_sec
+              LEFT JOIN dbo.articulosdetalle ad_detal ON ad_detal.art_sec = a.art_sec
+                AND ad_detal.bod_sec = '1' AND ad_detal.lis_pre_cod = 1
+              LEFT JOIN dbo.articulosdetalle ad_mayor ON ad_mayor.art_sec = a.art_sec
+                AND ad_mayor.bod_sec = '1' AND ad_mayor.lis_pre_cod = 2
+              WHERE a.art_sec = @art_sec
             `);
-          actualizados++;
-        } else {
-          await transaction.request()
+
+          const datosProducto = datosResult.recordset[0];
+
+          const existeResult = await transaction.request()
             .input('art_sec', sql.VarChar(30), art_sec)
-            .input('art_cod', sql.VarChar(30), datosProducto.art_cod)
-            .input('art_nom', sql.VarChar(100), datosProducto.art_nom)
-            .input('existencia', sql.Decimal(17, 2), datosProducto.existencia)
-            .input('precio_detal', sql.Decimal(17, 2), datosProducto.precio_venta_detal)
-            .input('precio_mayor', sql.Decimal(17, 2), datosProducto.precio_venta_mayor)
-            .input('costo', sql.Decimal(17, 2), costo)
-            .input('metodo', sql.VarChar(50), fila.metodo || 'MANUAL')
-            .input('obs', sql.VarChar(500), fila.observaciones || '')
-            .input('usuario', sql.VarChar(100), usuarioCarga)
-            .query(`
-              INSERT INTO dbo.carga_inicial_costos (
-                cic_art_sec, cic_art_cod, cic_art_nom, cic_existencia,
-                cic_precio_venta_detal, cic_precio_venta_mayor,
-                cic_costo_propuesto, cic_metodo_calculo, cic_observaciones, cic_usuario_carga
-              ) VALUES (
-                @art_sec, @art_cod, @art_nom, @existencia,
-                @precio_detal, @precio_mayor, @costo, @metodo, @obs, @usuario
-              )
-            `);
-          nuevos++;
+            .query('SELECT cic_id FROM dbo.carga_inicial_costos WHERE cic_art_sec = @art_sec');
+
+          if (existeResult.recordset.length > 0) {
+            await transaction.request()
+              .input('art_sec', sql.VarChar(30), art_sec)
+              .input('art_cod', sql.VarChar(30), datosProducto.art_cod)
+              .input('art_nom', sql.VarChar(100), datosProducto.art_nom)
+              .input('existencia', sql.Decimal(17, 2), datosProducto.existencia)
+              .input('precio_detal', sql.Decimal(17, 2), datosProducto.precio_venta_detal)
+              .input('precio_mayor', sql.Decimal(17, 2), datosProducto.precio_venta_mayor)
+              .input('costo', sql.Decimal(17, 2), costo)
+              .input('metodo', sql.VarChar(50), fila.metodo || 'MANUAL')
+              .input('obs', sql.VarChar(500), fila.observaciones || '')
+              .input('usuario', sql.VarChar(100), usuarioCarga)
+              .query(`
+                UPDATE dbo.carga_inicial_costos
+                SET cic_art_cod = @art_cod, cic_art_nom = @art_nom,
+                    cic_existencia = @existencia, cic_precio_venta_detal = @precio_detal,
+                    cic_precio_venta_mayor = @precio_mayor, cic_costo_propuesto = @costo,
+                    cic_metodo_calculo = @metodo, cic_observaciones = @obs,
+                    cic_estado = 'PENDIENTE', cic_fecha_carga = GETDATE(),
+                    cic_usuario_carga = @usuario
+                WHERE cic_art_sec = @art_sec
+              `);
+            actualizados++;
+          } else {
+            await transaction.request()
+              .input('art_sec', sql.VarChar(30), art_sec)
+              .input('art_cod', sql.VarChar(30), datosProducto.art_cod)
+              .input('art_nom', sql.VarChar(100), datosProducto.art_nom)
+              .input('existencia', sql.Decimal(17, 2), datosProducto.existencia)
+              .input('precio_detal', sql.Decimal(17, 2), datosProducto.precio_venta_detal)
+              .input('precio_mayor', sql.Decimal(17, 2), datosProducto.precio_venta_mayor)
+              .input('costo', sql.Decimal(17, 2), costo)
+              .input('metodo', sql.VarChar(50), fila.metodo || 'MANUAL')
+              .input('obs', sql.VarChar(500), fila.observaciones || '')
+              .input('usuario', sql.VarChar(100), usuarioCarga)
+              .query(`
+                INSERT INTO dbo.carga_inicial_costos (
+                  cic_art_sec, cic_art_cod, cic_art_nom, cic_existencia,
+                  cic_precio_venta_detal, cic_precio_venta_mayor,
+                  cic_costo_propuesto, cic_metodo_calculo, cic_observaciones, cic_usuario_carga
+                ) VALUES (
+                  @art_sec, @art_cod, @art_nom, @existencia,
+                  @precio_detal, @precio_mayor, @costo, @metodo, @obs, @usuario
+                )
+              `);
+            nuevos++;
+          }
+        }
+
+        if (tienePrecioDistrib) {
+          const precioDistrib = parseFloat(precioDistribStr);
+          if (isNaN(precioDistrib) || precioDistrib < 0) {
+            errores.push(`Producto ${fila.art_cod}: Precio lista distribuidor inválido`);
+          } else {
+            const existeDistrib = await transaction.request()
+              .input('art_sec', sql.VarChar(30), art_sec)
+              .query(`
+                SELECT 1 FROM dbo.articulosdetalle
+                WHERE art_sec = @art_sec AND bod_sec = '1' AND lis_pre_cod = 3
+              `);
+            if (existeDistrib.recordset.length > 0) {
+              await transaction.request()
+                .input('art_sec', sql.VarChar(30), art_sec)
+                .input('precio', sql.Decimal(17, 2), precioDistrib)
+                .query(`
+                  UPDATE dbo.articulosdetalle
+                  SET art_bod_pre = @precio
+                  WHERE art_sec = @art_sec AND bod_sec = '1' AND lis_pre_cod = 3
+                `);
+            } else {
+              await transaction.request()
+                .input('art_sec', sql.VarChar(30), art_sec)
+                .input('precio', sql.Decimal(17, 2), precioDistrib)
+                .query(`
+                  INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
+                  VALUES (@art_sec, '1', 3, @precio)
+                `);
+            }
+            lista_distribuidor_actualizados++;
+          }
         }
 
         procesados++;
       }
 
       await transaction.commit();
-      await pool.request().execute('sp_ValidarCargaInicialCostos');
+      if (nuevos + actualizados > 0) {
+        await pool.request().execute('sp_ValidarCargaInicialCostos');
+      }
 
       return res.json({
         success: true,
         message: 'Importación completada exitosamente',
-        data: { total_filas: datos.length, procesados, nuevos, actualizados, ignorados, errores: errores.length > 0 ? errores : undefined }
+        data: {
+          total_filas: datos.length,
+          procesados,
+          nuevos,
+          actualizados,
+          ignorados,
+          lista_distribuidor_actualizados,
+          errores: errores.length > 0 ? errores : undefined
+        }
       });
 
     } catch (error) {

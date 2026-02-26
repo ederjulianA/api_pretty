@@ -117,18 +117,18 @@ Actualiza solo los artículos especificados.
 
 ---
 
-### `exportarPlantillaCostos` — v2.0
+### `exportarPlantillaCostos` — v2.1
 
 **Cambios v2.0:**
 - `INNER JOIN vwExistencias` → `LEFT JOIN` (incluye artículos sin existencia)
 - Eliminado filtro `WHERE ve.existencia > 0`
-- 4 nuevas columnas de solo lectura (informativas):
-  - `H: costo_promedio_actual` — costo actual en `art_bod_cos_cat`
-  - `I: rentabilidad_detal_pct` — `(precio_detal - costo) / precio_detal * 100`
-  - `J: rentabilidad_mayor_pct` — `(precio_mayor - costo) / precio_mayor * 100`
-  - `K: total_unidades_vendidas` — SUM de `kar_uni` donde `kar_nat='-'`, `fac_tip_cod='VTA'`, `fac_est_fac='A'`
-- `costo_inicial` movido a columna **L** (era columna H)
-- Total: 14 columnas (antes 10)
+- 4 columnas de solo lectura (informativas): H–K (costo_promedio_actual, rentabilidad_detal_pct, rentabilidad_mayor_pct, total_unidades_vendidas)
+- `costo_inicial` en columna **M** (antes L en v2.0)
+
+**Cambios v2.1 (2026-02-26):**
+- Nueva columna **L: precio_lista_distribuidor** (editable). Valor actual desde `articulosdetalle` con `lis_pre_cod = 3` (lista Distribuidor). Vacía si el artículo no tiene precio distribuidor.
+- `costo_inicial` pasa a columna **M**, `metodo` a **N**, `observaciones` a **O**.
+- Total: **15 columnas**. El mismo Excel sirve para actualizar costos y/o lista de precios para distribuidores.
 
 ---
 

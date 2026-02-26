@@ -28,7 +28,8 @@ Implementación completa de un **Sistema de Compras con Cálculo Automático de 
 **Implementación:**
 - Cálculo automático desde precio mayorista (fórmula de costo reverso)
 - Sistema de validación en dos pasos (tabla temporal)
-- Importación/exportación Excel para ajustes manuales
+- Importación/exportación Excel para ajustes manuales (15 columnas; incluye **Precio Lista Distribuidor** editable)
+- El mismo Excel permite actualizar costos y/o lista de precios para distribuidores (`articulosdetalle` lis_pre_cod=3)
 - Validación de márgenes y alertas automáticas
 
 **Archivos:**
@@ -224,8 +225,8 @@ Ejemplo:
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| GET | `/api/carga-costos/exportar` | Exportar plantilla Excel |
-| POST | `/api/carga-costos/importar` | Importar costos desde Excel |
+| GET | `/api/carga-costos/exportar` | Exportar plantilla Excel (15 cols; incl. precio lista distribuidor) |
+| POST | `/api/carga-costos/importar` | Importar costos y/o precio lista distribuidor desde Excel |
 | POST | `/api/carga-costos/calcular-automatico` | Calcular costos automáticamente |
 | GET | `/api/carga-costos/resumen` | Resumen de validación |
 | GET | `/api/carga-costos/alertas` | Productos con alertas |
@@ -386,6 +387,13 @@ Ver detalles en: [docs/ANALISIS_SISTEMA_COMPRAS_COSTO_PROMEDIO.md](docs/ANALISIS
 ---
 
 ## 📝 Changelog
+
+### v1.1 (2026-02-26)
+- ✅ Excel de carga de costos: nueva columna **L - Precio Lista Distribuidor** (editable)
+- ✅ Importación acepta solo costos, solo lista distribuidor, o ambos en el mismo Excel
+- ✅ Lista distribuidor se persiste en `articulosdetalle` con `lis_pre_cod = 3` (requiere registro en `listas_precio`)
+- ✅ Respuesta de importación incluye `lista_distribuidor_actualizados`
+- ✅ Documentación actualizada (API_ENDPOINTS_CARGA_COSTOS, README, IMPLEMENTACION_CALCULO_AUTOMATICO_COSTOS)
 
 ### v1.0 (2026-02-15)
 - ✅ Fase 0 completada: Carga inicial de costos

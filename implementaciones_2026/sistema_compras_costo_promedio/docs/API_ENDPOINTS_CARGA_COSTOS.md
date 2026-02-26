@@ -1,8 +1,8 @@
 # API Endpoints: Carga Inicial de Costos
 
 **Fecha:** 2026-02-09
-**Última actualización:** 2026-02-20
-**Versión:** 2.1
+**Última actualización:** 2026-02-26
+**Versión:** 2.2
 **Base URL:** `http://localhost:3000/api`
 
 ---
@@ -32,13 +32,13 @@ x-access-token: <tu_token_jwt>
 
 ### 1. Exportar Plantilla Excel
 
-**Descripción:** Genera y descarga un archivo Excel con **TODOS** los artículos (sin importar existencia) para cargar o revisar costos.
+**Descripción:** Genera y descarga un archivo Excel con **TODOS** los artículos (sin importar existencia) para cargar o revisar costos y/o **Precio Lista Distribuidor**.
 
 ```http
 GET /api/carga-costos/exportar
 ```
 
-**Estructura del Excel generado (14 columnas):**
+**Estructura del Excel generado (15 columnas):**
 
 | Col | Campo | Descripción | Editable |
 |-----|-------|-------------|----------|
@@ -53,17 +53,18 @@ GET /api/carga-costos/exportar
 | I | rentabilidad_detal_pct | Margen % sobre precio detal (solo si tiene costo) | ❌ |
 | J | rentabilidad_mayor_pct | Margen % sobre precio mayor (solo si tiene costo) | ❌ |
 | K | total_unidades_vendidas | Unidades vendidas en facturas tipo VTA activas | ❌ |
-| **L** | **costo_inicial** | **Costo a asignar** | **✅ SÍ** |
-| **M** | **metodo** | **Método de obtención** | **✅ SÍ** |
-| **N** | **observaciones** | **Notas adicionales** | **✅ SÍ** |
+| **L** | **precio_lista_distribuidor** | **Precio lista para distribuidores** (`articulosdetalle` lis_pre_cod=3) | **✅ SÍ** |
+| **M** | **costo_inicial** | **Costo a asignar (carga inicial)** | **✅ SÍ** |
+| **N** | **metodo** | **Método de obtención** | **✅ SÍ** |
+| **O** | **observaciones** | **Notas adicionales** | **✅ SÍ** |
 
-> **Importante:** Al importar, la posición de columna L es la que se lee como `costo_inicial`. No mover las columnas.
+> **Importante:** No mover las columnas. Al importar se leen: **L** = `precio_lista_distribuidor`, **M** = `costo_inicial`. Se puede completar solo L (lista distribuidor), solo M (costos), o ambos.
 
 ---
 
-### 2. Importar Costos desde Excel
+### 2. Importar Costos y/o Precio Lista Distribuidor desde Excel
 
-**Descripción:** Importa costos desde el Excel exportado. Soporta importación incremental (UPSERT).
+**Descripción:** Importa costos y/o precios lista distribuidor desde el Excel exportado. Soporta importación incremental (UPSERT). Una misma plantilla sirve para actualizar solo costos, solo lista distribuidor, o ambos.
 
 ```http
 POST /api/carga-costos/importar
@@ -74,11 +75,11 @@ POST /api/carga-costos/importar
 - `usu_cod`: Usuario (opcional)
 
 **Lógica:**
-- Lee columna C (art_cod) como identificador
-- Lee columna L (costo_inicial) como costo a cargar
-- Ignora filas sin `costo_inicial` o sin SKU
-- Si el artículo ya existe en `carga_inicial_costos` → ACTUALIZA
-- Si es nuevo → INSERTA
+- Lee columna **C** (`art_cod`) como identificador del artículo.
+- **Precio Lista Distribuidor (columna L):** si viene un número válido (≥ 0), se actualiza o inserta en `articulosdetalle` con `bod_sec = '1'` y `lis_pre_cod = 3` (lista Distribuidor). Requiere que exista el registro en `listas_precio` con `lis_pre_cod = 3`.
+- **Costo inicial (columna M):** si viene valor, se inserta/actualiza en `carga_inicial_costos` (igual que antes).
+- Se procesa la fila si tiene al menos uno de los dos (L o M) completado; si no tiene ninguno, se ignora.
+- Para costos: si el artículo ya existe en `carga_inicial_costos` → ACTUALIZA; si es nuevo → INSERTA.
 
 **Respuesta:**
 ```json
@@ -91,10 +92,15 @@ POST /api/carga-costos/importar
     "nuevos": 40,
     "actualizados": 30,
     "ignorados": 180,
+    "lista_distribuidor_actualizados": 65,
     "errores": []
   }
 }
 ```
+
+| Campo | Descripción |
+|-------|-------------|
+| `lista_distribuidor_actualizados` | Cantidad de artículos a los que se actualizó el precio lista distribuidor (columna L). |
 
 ---
 
@@ -312,13 +318,15 @@ POST /api/carga-costos/aplicar
 ### Flujo B — Carga Manual por Excel
 
 ```
-1. GET  /exportar              → descargar Excel con 14 columnas
-2.      Completar columna L (costo_inicial) en el Excel
-3. POST /importar              → subir Excel completado
-4. GET  /resumen               → verificar estados
-5. PUT  /actualizar-estado     → aprobar alertas si aplica
-6. POST /aplicar               → aplica a articulosdetalle
+1. GET  /exportar              → descargar Excel con 15 columnas (incluye precio_lista_distribuidor en L)
+2.      Completar columna L (precio_lista_distribuidor) y/o columna M (costo_inicial) en el Excel
+3. POST /importar              → subir Excel (actualiza lista distribuidor y/o costos en staging)
+4. GET  /resumen               → verificar estados (solo aplica si cargó costos)
+5. PUT  /actualizar-estado     → aprobar alertas si aplica (solo para costos)
+6. POST /aplicar               → aplica costos validados a articulosdetalle (solo costos; lista distribuidor ya se aplicó en paso 3)
 ```
+
+**Nota:** La columna **L (precio_lista_distribuidor)** se escribe directamente en `articulosdetalle` (lis_pre_cod = 3) al importar; no pasa por validación ni por el paso "Aplicar". Para que funcione, debe existir el registro en `listas_precio` con `lis_pre_cod = 3` (ej. nombre "Distribuidor").
 
 ### Reimportar / Recalcular desde cero
 
