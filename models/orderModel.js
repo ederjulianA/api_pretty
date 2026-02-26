@@ -349,10 +349,21 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       }
 
       // 5.2 Crear una nueva instancia de Request para cada insert
+      // Respetar detail.kar_total cuando viene del cliente (COT→VTA con cupón); si no, recalcular.
       const insertDetailRequest = new sql.Request(transaction);
-      let kar_total = Number(detail.kar_uni) * Number(detail.kar_pre_pub);
-      if (descuento > 0) {
-        kar_total = kar_total * (1 - (descuento / 100))
+      let kar_total;
+      let kar_des_uno = descuento;
+      if (detail.kar_total != null && Number(detail.kar_total) > 0) {
+        kar_total = Number(detail.kar_total);
+        const subtotalLinea = Number(detail.kar_uni) * Number(detail.kar_pre_pub);
+        if (subtotalLinea > 0) {
+          kar_des_uno = ((subtotalLinea - kar_total) / subtotalLinea) * 100;
+        }
+      } else {
+        kar_total = Number(detail.kar_uni) * Number(detail.kar_pre_pub);
+        if (descuento > 0) {
+          kar_total = kar_total * (1 - (descuento / 100));
+        }
       }
 
       // Obtener costo histórico — lógica bundle-aware (misma lógica que createCompleteOrder):
@@ -391,7 +402,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
         .input('kar_uni', sql.Decimal(17, 2), detail.kar_uni)
         .input('kar_pre_pub', sql.Decimal(17, 2), detail.kar_pre_pub)
         .input('kar_lis_pre_cod', sql.Int, detail.kar_lis_pre_cod)
-        .input('kar_des_uno', sql.Decimal(11, 5), descuento)
+        .input('kar_des_uno', sql.Decimal(11, 5), kar_des_uno)
         .input('kar_total', sql.Decimal(17, 2), kar_total)
         .input('kar_kar_sec_ori', sql.Int, detail.kar_kar_sec_ori)
         .input('kar_fac_sec_ori', sql.Decimal(18, 0), detail.kar_fac_sec_ori)
@@ -657,10 +668,12 @@ const getOrder = async (fac_nro) => {
 
     const details = detailResult.recordset;
 
-    // Calcular el total de la factura incluyendo el descuento general
+    // Total factura: kar_total ya incluye descuentos de cupón por línea.
+    // total_final = totalDetalles (no restar descuentoGeneral para evitar doble resta; cupón ya está en kar_total).
+    // fac_descuento_general = solo fee_lines, se expone como descuento_general informativo.
     const totalDetalles = details.reduce((sum, detail) => sum + parseFloat(detail.kar_total || 0), 0);
     const descuentoGeneral = parseFloat(header.fac_descuento_general || 0);
-    const totalFinal = totalDetalles - descuentoGeneral;
+    const totalFinal = totalDetalles;
 
     // Agregar información de totales al header
     header.total_detalles = totalDetalles;
@@ -910,6 +923,22 @@ const createCompleteOrder = async ({
         });
       }
 
+      // Respetar detalle.kar_total cuando viene del cliente (COT→VTA con cupón); si no, recalcular.
+      let kar_total;
+      let kar_des_uno_create = descuento;
+      if (detalle.kar_total != null && Number(detalle.kar_total) > 0) {
+        kar_total = Number(detalle.kar_total);
+        const subtotalLinea = Number(detalle.kar_uni) * Number(detalle.kar_pre_pub);
+        if (subtotalLinea > 0) {
+          kar_des_uno_create = ((subtotalLinea - kar_total) / subtotalLinea) * 100;
+        }
+      } else {
+        kar_total = Number(detalle.kar_uni) * Number(detalle.kar_pre_pub);
+        if (descuento > 0) {
+          kar_total = kar_total * (1 - (descuento / 100));
+        }
+      }
+
       // 5.3 Insertar el detalle usando un Request nuevo con los campos adicionales
       const insertRequest = new sql.Request(transaction);
       insertRequest.input('fac_sec', sql.Decimal(18, 0), NewFacSec);
@@ -921,11 +950,11 @@ const createCompleteOrder = async ({
       insertRequest.input('kar_nat', sql.VarChar(1), detalle.kar_nat || karNatDefault);
       insertRequest.input('kar_uni', sql.Decimal(17, 2), detalle.kar_uni);
       insertRequest.input('kar_pre_pub', sql.Decimal(17, 2), detalle.kar_pre_pub);
-      insertRequest.input('kar_des_uno', sql.Decimal(11, 5), descuento);
+      insertRequest.input('kar_des_uno', sql.Decimal(11, 5), kar_des_uno_create);
       insertRequest.input('lis_pre_cod', sql.Int, lis_pre_cod);
       insertRequest.input('kar_kar_sec_ori', sql.Int, detalle.kar_kar_sec_ori);
       insertRequest.input('kar_fac_sec_ori', sql.Int, detalle.kar_fac_sec_ori);
-      
+
       // Campos de precios y ofertas
       insertRequest.input('kar_pre_pub_detal', sql.Decimal(17, 2), precioInfo.precio_detal);
       insertRequest.input('kar_pre_pub_mayor', sql.Decimal(17, 2), precioInfo.precio_mayor);
@@ -935,11 +964,6 @@ const createCompleteOrder = async ({
       insertRequest.input('kar_codigo_promocion', sql.VarChar(20), precioInfo.codigo_promocion);
       insertRequest.input('kar_descripcion_promocion', sql.VarChar(200), precioInfo.descripcion_promocion);
       insertRequest.input('kar_bundle_padre', sql.VarChar(30), detalle.kar_bundle_padre ?? null);
-
-      let kar_total = Number(detalle.kar_uni) * Number(detalle.kar_pre_pub);
-      if (descuento > 0) {
-        kar_total = kar_total * (1 - (descuento / 100));
-      }
       insertRequest.input('kar_total', sql.Decimal(17, 2), kar_total);
 
       // Obtener costo histórico — lógica bundle-aware:

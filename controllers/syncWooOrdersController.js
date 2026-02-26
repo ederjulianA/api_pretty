@@ -603,6 +603,8 @@ const createOrder = async (orderData, nitSec, usuario) => {
             const total = parseFloat(item.total);
             const quantity = parseInt(item.quantity);
 
+            // WooCommerce: item.price = item.total/quantity (ya refleja cupón prorrateado).
+            // kar_total = quantity * item.price = item.total (cupón ya incluido). kar_sub_tot = subtotal sin cupón (trazabilidad).
             let karDesUno = 0;
             let karPrePub = item.price;
 
@@ -639,7 +641,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 .input('kar_pre', sql.Decimal(18, 2), item.price)
                 .input('kar_pre_pub', sql.Decimal(18, 2), karPrePub)
                 .input('kar_des_uno', sql.Decimal(18, 2), karDesUno)
-                .input('kar_sub_tot', sql.Decimal(18, 2), quantity * item.price)
+                .input('kar_sub_tot', sql.Decimal(18, 2), subtotal)
                 .input('kar_lis_pre_cod', sql.Int, 1)
                 .input('kar_total', sql.Decimal(18, 2), quantity * item.price)
                 .input('kar_pre_pub_detal', sql.Decimal(18, 2), precioDetalFinal)
@@ -867,6 +869,8 @@ const updateOrder = async (orderData, facSec, usuario) => {
             const total = parseFloat(item.total);
             const quantity = parseInt(item.quantity);
 
+            // WooCommerce: item.price = item.total/quantity (ya refleja cupón prorrateado).
+            // kar_total = quantity * item.price = item.total (cupón ya incluido). kar_sub_tot = subtotal sin cupón (trazabilidad).
             let karDesUno = 0;
             let karPrePub = item.price;
 
@@ -903,7 +907,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
                 .input('kar_pre', sql.Decimal(18, 2), item.price)
                 .input('kar_pre_pub', sql.Decimal(18, 2), karPrePub)
                 .input('kar_des_uno', sql.Decimal(18, 2), karDesUno)
-                .input('kar_sub_tot', sql.Decimal(18, 2), quantity * item.price)
+                .input('kar_sub_tot', sql.Decimal(18, 2), subtotal)
                 .input('kar_lis_pre_cod', sql.Int, 1)
                 .input('kar_total', sql.Decimal(18, 2), quantity * item.price)
                 .input('kar_pre_pub_detal', sql.Decimal(18, 2), precioDetalFinal)
@@ -1219,9 +1223,16 @@ export const syncWooOrders = async (req, res) => {
                     }
                     
                     // Construir observaciones con cupones y descuentos generales
+                    // fac_descuento_general = solo fee_lines (no cupones); el cupón ya está en kar_total por línea.
+                    const descuentoCupones = parseFloat(order.discount_total) || 0;
                     let observations = [];
                     if (order.coupon_lines && order.coupon_lines.length > 0) {
-                        observations.push(`Cupón de descuento (${order.coupon_lines[0].code.trim()})`);
+                        const codigoCupon = order.coupon_lines[0].code?.trim() || '(sin código)';
+                        if (descuentoCupones > 0) {
+                            observations.push(`Cupón (${codigoCupon}): -$${descuentoCupones.toFixed(2)}`);
+                        } else {
+                            observations.push(`Cupón de descuento (${codigoCupon})`);
+                        }
                     }
                     if (descuentoGeneral > 0) {
                         const descuentosFeeLines = feeLines
