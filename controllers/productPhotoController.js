@@ -294,16 +294,35 @@ class ProductPhotoController {
                 this.wooService = new WooCommercePhotoService();
             }
 
+            // Obtener imágenes actuales del producto en WooCommerce
+            let wooCurrentImages = [];
+            try {
+                const wooProduct = await this.wooService.wcApi.get(apiBasePath);
+                wooCurrentImages = wooProduct?.data?.images || [];
+                console.log('Imágenes actuales en WooCommerce:', wooCurrentImages.length);
+            } catch (wooErr) {
+                console.warn('No se pudieron obtener imágenes actuales de WooCommerce:', wooErr.message);
+            }
+
+            // Crear set de woo_photo_ids que realmente existen en WooCommerce
+            const wooImageIds = new Set(wooCurrentImages.map(img => String(img.id)));
+
             for (const photo of photos) {
                 try {
                     console.log('Procesando foto:', {
                         id: photo.id,
                         estado: photo.estado,
+                        woo_photo_id: photo.woo_photo_id,
                         url: photo.url
                     });
 
-                    if (photo.estado === 'temp') {
-                        console.log('Subiendo foto a WooCommerce...');
+                    // Sincronizar si: estado es 'temp', O si tiene estado 'woo' pero
+                    // su woo_photo_id no existe realmente en WooCommerce (desincronizada)
+                    const necesitaSync = photo.estado === 'temp' ||
+                        (photo.estado === 'woo' && (!photo.woo_photo_id || !wooImageIds.has(String(photo.woo_photo_id))));
+
+                    if (necesitaSync) {
+                        console.log(`Subiendo foto a WooCommerce (estado: ${photo.estado}, motivo: ${photo.estado === 'temp' ? 'nueva' : 'desincronizada'})...`);
                         const wooPhoto = await this.wooService.uploadPhoto(apiBasePath, photo.url);
                         console.log('Respuesta de WooCommerce:', wooPhoto);
 
@@ -311,24 +330,21 @@ class ProductPhotoController {
                             throw new Error('No se recibió un ID válido de WooCommerce');
                         }
 
-                        // Asegurarnos de que el ID sea un string válido
                         const wooPhotoId = String(wooPhoto.id).trim();
-
                         if (!wooPhotoId) {
                             throw new Error('ID de WooCommerce inválido después de la conversión');
                         }
 
-                        // Actualizar con la URL de WooCommerce
                         photo.woo_photo_id = wooPhotoId;
                         photo.url = wooPhoto.src;
                         photo.estado = 'woo';
 
                         await photo.update();
 
-                        console.log('Foto actualizada exitosamente');
+                        console.log('Foto sincronizada exitosamente');
                         results.success.push(photo.id);
                     } else {
-                        console.log('Foto ya sincronizada o en otro estado:', photo.estado);
+                        console.log('Foto ya sincronizada correctamente en WooCommerce:', photo.estado);
                     }
                 } catch (error) {
                     console.error(`Error procesando foto ${photo.id}:`, error);
@@ -338,7 +354,6 @@ class ProductPhotoController {
                         response: error.response?.data
                     });
 
-                    // Intentar actualizar el estado de la foto a error
                     try {
                         photo.estado = 'error';
                         await photo.update();

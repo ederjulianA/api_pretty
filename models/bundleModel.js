@@ -112,9 +112,17 @@ async function syncBundleToWooCommerce({ art_sec, art_nom, art_cod, precio_detal
         { key: '_bundle_componentes_count', value: String(componentes.length) },
         { key: '_bundle_componentes_json', value: JSON.stringify(componentes) }
       ],
-      categories,
-      images: imageUrls.map(url => ({ src: url }))
+      categories
     };
+
+    // Solo incluir images si hay URLs nuevas para enviar.
+    // Si imageUrls está vacío y es update, NO enviar images: [] porque
+    // WooCommerce lo interpreta como "eliminar todas las imágenes".
+    if (imageUrls.length > 0) {
+      wooData.images = imageUrls.map(url => ({ src: url }));
+    } else if (!isUpdate) {
+      wooData.images = [];
+    }
 
     // Solo incluir stock si es creación nueva (no actualización)
     // Al actualizar, NO modificar el stock existente en WooCommerce

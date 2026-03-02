@@ -2,6 +2,7 @@ import wcPkg from "@woocommerce/woocommerce-rest-api";
 import { poolPromise, sql } from '../db.js';
 import { generateFacNro, valorMayorista, generateConsecutivo } from '../utils/facturaUtils.js';
 import { obtenerCostosPromedioMultiples } from '../utils/costoUtils.js';
+import { ejecutarConAutoRecuperacion } from '../utils/secuenciaUtils.js';
 
 const WooCommerceRestApi = wcPkg.default || wcPkg;
 
@@ -1393,7 +1394,10 @@ export const syncWooOrders = async (req, res) => {
                         console.log(`[${new Date().toISOString()}] 🆕 Creando nuevo pedido...`);
                         addMessage(messages, `Creando Pedido ${orderData.number}`);
                         
-                        await createOrder(orderData, nitSec, usuario);
+                        await ejecutarConAutoRecuperacion(
+                            () => createOrder(orderData, nitSec, usuario),
+                            'syncWooOrders.createOrder'
+                        );
                         const createTime = Date.now() - processOrderStartTime;
                         console.log(`[${new Date().toISOString()}] ✅ Pedido creado en ${createTime}ms`);
                     }
