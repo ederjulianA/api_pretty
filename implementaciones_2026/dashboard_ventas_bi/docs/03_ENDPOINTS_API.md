@@ -429,11 +429,15 @@ GET /api/dashboard/ventas/ordenes-estado
 
 ### 9. Órdenes por Canal
 
-**Comparativa WooCommerce vs Local.**
+**Comparativa WooCommerce vs Local con cálculo de comisiones de venta.**
 
 ```
 GET /api/dashboard/ventas/ordenes-canal
 ```
+
+**Query Parameters:**
+- `periodo` (opcional)
+- `fecha_inicio` + `fecha_fin` (opcional)
 
 **Respuesta:**
 ```json
@@ -442,24 +446,70 @@ GET /api/dashboard/ventas/ordenes-canal
   "data": [
     {
       "canal": "WooCommerce",
-      "numero_ordenes": 189,
-      "ventas_totales": 12500000,
-      "ticket_promedio": 66137.57,
-      "utilidad_total": 4375000,
-      "rentabilidad_promedio": 35.00
+      "numero_ordenes": 34,
+      "ventas_totales": 6086110,
+      "ticket_promedio": 179003.24,
+      "utilidad_total": 950000,
+      "rentabilidad_promedio": 15.6,
+      "porcentaje_comision": 5.0,
+      "comision_venta": 304305.5
     },
     {
       "canal": "Local",
-      "numero_ordenes": 45,
-      "ventas_totales": 3000000,
-      "ticket_promedio": 66666.67,
-      "utilidad_total": 1050000,
-      "rentabilidad_promedio": 35.00
+      "numero_ordenes": 11,
+      "ventas_totales": 1874410,
+      "ticket_promedio": 170401.0,
+      "utilidad_total": 370000,
+      "rentabilidad_promedio": 19.9,
+      "porcentaje_comision": 2.5,
+      "comision_venta": 46860.25
     }
   ],
-  "periodo": {...}
+  "totales": {
+    "ventas_totales": 7960520,
+    "comision_total": 351165.75,
+    "numero_ordenes": 45,
+    "ventas_mas_comisiones": 8311685.75
+  },
+  "periodo": {
+    "fecha_inicio": "2026-01-18",
+    "fecha_fin": "2026-02-17"
+  }
 }
 ```
+
+**Campos por canal:**
+- `canal` - Nombre del canal (WooCommerce o Local)
+- `numero_ordenes` - Cantidad de órdenes
+- `ventas_totales` - Ingresos del canal
+- `ticket_promedio` - Valor promedio por orden
+- `utilidad_total` - Ganancia bruta total
+- `rentabilidad_promedio` - % de rentabilidad
+- `porcentaje_comision` - % de comisión del canal (WooCommerce: 5%, Local: 2.5%)
+- `comision_venta` - Monto total de comisiones calculadas
+
+**Totalización:**
+- `ventas_totales` - Suma de ventas de todos los canales
+- `comision_total` - Suma de todas las comisiones
+- `numero_ordenes` - Total de órdenes
+- `ventas_mas_comisiones` - Ventas + comisiones (total a reportar)
+
+**Ejemplo:**
+```bash
+# Órdenes por canal del mes actual
+curl -X GET "http://localhost:3000/api/dashboard/ventas/ordenes-canal?periodo=mes_actual" \
+  -H "x-access-token: tu_token_jwt"
+
+# Órdenes por canal de rango personalizado
+curl -X GET "http://localhost:3000/api/dashboard/ventas/ordenes-canal?fecha_inicio=2026-02-01&fecha_fin=2026-02-17" \
+  -H "x-access-token: tu_token_jwt"
+```
+
+**Notas sobre comisiones:**
+- **WooCommerce:** 5% de comisión por usar la plataforma
+- **Local:** 2.5% de comisión por operación local
+- Las comisiones se calculan sobre `ventas_totales`
+- El campo `ventas_mas_comisiones` es el total a reportar incluyendo comisiones
 
 ---
 

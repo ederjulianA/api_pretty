@@ -109,8 +109,10 @@ const parsearFechas = (req) => {
   }
 
   if (fecha_inicio && fecha_fin) {
-    const inicio = new Date(fecha_inicio);
-    const fin = new Date(fecha_fin);
+    // new Date('2026-02-01') parsea como UTC, causando desfase de zona horaria
+    // Agregar 'T00:00:00' fuerza el parseo como hora local
+    const inicio = new Date(fecha_inicio + 'T00:00:00');
+    const fin = new Date(fecha_fin + 'T23:59:59');
 
     if (isNaN(inicio.getTime()) || isNaN(fin.getTime())) {
       throw new Error('Formato de fecha inválido. Use formato YYYY-MM-DD');
@@ -119,9 +121,6 @@ const parsearFechas = (req) => {
     if (inicio > fin) {
       throw new Error('La fecha de inicio no puede ser mayor que la fecha fin');
     }
-
-    inicio.setHours(0, 0, 0, 0);
-    fin.setHours(23, 59, 59, 999);
 
     return { fechaInicio: inicio, fechaFin: fin };
   }
@@ -402,11 +401,12 @@ const getOrdenesPorCanal = async (req, res) => {
   try {
     const { fechaInicio, fechaFin } = parsearFechas(req);
 
-    const canales = await obtenerOrdenesPorCanal(fechaInicio, fechaFin);
+    const { canales, totales } = await obtenerOrdenesPorCanal(fechaInicio, fechaFin);
 
     res.status(200).json({
       success: true,
       data: canales,
+      totales,
       periodo: {
         fecha_inicio: fechaInicio.toISOString().split('T')[0],
         fecha_fin: fechaFin.toISOString().split('T')[0]

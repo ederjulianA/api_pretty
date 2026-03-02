@@ -408,7 +408,17 @@ const obtenerOrdenesPorCanal = async (fechaInicio, fechaFin) => {
             ELSE 0
           END AS ticket_promedio,
           SUM(utilidad_linea) AS utilidad_total,
-          AVG(rentabilidad_real) AS rentabilidad_promedio
+          AVG(rentabilidad_real) AS rentabilidad_promedio,
+          CASE
+            WHEN canal_venta = 'WooCommerce' THEN SUM(total_linea) * 0.05
+            WHEN canal_venta = 'Local' THEN SUM(total_linea) * 0.025
+            ELSE 0
+          END AS comision_venta,
+          CASE
+            WHEN canal_venta = 'WooCommerce' THEN 5.0
+            WHEN canal_venta = 'Local' THEN 2.5
+            ELSE 0
+          END AS porcentaje_comision
         FROM dbo.vw_ventas_dashboard
         WHERE fecha_venta >= @fecha_inicio
           AND fecha_venta <= @fecha_fin
@@ -416,14 +426,25 @@ const obtenerOrdenesPorCanal = async (fechaInicio, fechaFin) => {
         ORDER BY ventas_totales DESC
       `);
 
-    return result.recordset.map(c => ({
+    const canales = result.recordset.map(c => ({
       canal: c.canal_venta,
       numero_ordenes: parseInt(c.numero_ordenes),
       ventas_totales: parseFloat(c.ventas_totales),
       ticket_promedio: parseFloat(c.ticket_promedio),
       utilidad_total: parseFloat(c.utilidad_total),
-      rentabilidad_promedio: parseFloat(c.rentabilidad_promedio)
+      rentabilidad_promedio: parseFloat(c.rentabilidad_promedio),
+      porcentaje_comision: parseFloat(c.porcentaje_comision),
+      comision_venta: parseFloat(c.comision_venta)
     }));
+
+    const totales = {
+      ventas_totales: canales.reduce((sum, c) => sum + c.ventas_totales, 0),
+      comision_total: canales.reduce((sum, c) => sum + c.comision_venta, 0),
+      numero_ordenes: canales.reduce((sum, c) => sum + c.numero_ordenes, 0)
+    };
+    totales.ventas_mas_comisiones = totales.ventas_totales + totales.comision_total;
+
+    return { canales, totales };
 
   } catch (error) {
     console.error('Error en obtenerOrdenesPorCanal:', error);

@@ -1,8 +1,8 @@
 # Dashboard de Ventas con Business Intelligence
 
-**Fecha:** 2026-02-17
-**Versión:** 1.0
-**Estado:** 📋 Documentación Completa - Listo para Implementación
+**Fecha:** 2026-02-17 | **Actualizado:** 2026-03-01
+**Versión:** 1.2 (con Comisiones + Auditoría de Facturas)
+**Estado:** ✅ Implementado - Comisiones por Canal + Auditoría de Facturas
 
 ---
 
@@ -19,6 +19,10 @@ Implementación completa de un **Dashboard de Ventas con enfoque en Business Int
 - ✅ Períodos predefinidos (hoy, semana, mes, etc.)
 - ✅ Segmentación temporal (día, hora, semana)
 - ✅ Vista SQL optimizada para performance
+- ✅ **Cálculo de comisiones por canal** (WooCommerce 5%, Local 2.5%)
+- ✅ **Totalización de ventas + comisiones** para reportes financieros
+- ✅ **Módulo de Auditoría de Facturas** con listados paginados
+- ✅ **Trazabilidad completa** de cada factura (usuarios, fechas, estados)
 
 ---
 
@@ -320,6 +324,64 @@ Ver carpeta `/docs` para documentación completa:
 2. **[02_MODELO_DATOS.md](docs/02_MODELO_DATOS.md)** - Estructura de la vista y queries SQL
 3. **[03_ENDPOINTS_API.md](docs/03_ENDPOINTS_API.md)** - Especificación completa de API
 4. **[04_GUIA_FRONTEND.md](docs/04_GUIA_FRONTEND.md)** - Guía para integración frontend
+
+**Documentación de Cambios Recientes:**
+- **[CHANGELOG_COMISIONES.md](CHANGELOG_COMISIONES.md)** - Implementación de comisiones por canal (v1.1 - 2026-03-01)
+
+---
+
+## 🆕 Cambios Recientes (v1.2 - 2026-03-01)
+
+### 1. Comisiones por Canal (v1.1 ➜ v1.2)
+
+Se agregó funcionalidad de cálculo de comisiones al endpoint `/ordenes-canal`:
+
+- ✅ Cálculo automático: WooCommerce 5%, Local 2.5%
+- ✅ Totalización: `ventas_mas_comisiones`
+- **Ver:** [CHANGELOG_COMISIONES.md](CHANGELOG_COMISIONES.md)
+
+### 2. Módulo de Auditoría de Facturas (NUEVO)
+
+Nuevo módulo para análisis y compliance de facturas:
+
+**Endpoints:**
+- `GET /api/auditoria/facturas/listado` - Listado paginado de facturas
+- `GET /api/auditoria/facturas/detalle/:fac_sec` - Detalle completo de una factura
+- `GET /api/auditoria/facturas/por-estado` - Resumen por estado WooCommerce
+
+**Información incluida:**
+- Fecha Factura ✅
+- Nro Factura ✅
+- Nro Pedido WooCommerce ✅
+- Identificación Cliente (nit_ide) ✅
+- Nombre Cliente ✅
+- Total Factura ✅
+- Estado (interno y WooCommerce)
+- Usuario de creación/modificación
+- Historial de cambios
+
+**Ejemplo:**
+```json
+{
+  "data": [
+    {
+      "fecha_factura": "2026-02-15",
+      "numero_factura": "FAC-2026-001234",
+      "numero_pedido_woocommerce": "5678",
+      "identificacion_cliente": "CC1234567890",
+      "nombre_cliente": "María González",
+      "total_factura": 150000.00
+    }
+  ],
+  "paginacion": {
+    "pagina_actual": 1,
+    "total_paginas": 5,
+    "total_registros": 234
+  }
+}
+```
+
+**Para más detalles:** Ver [AUDITORIA_FACTURAS.md](AUDITORIA_FACTURAS.md)
 
 ---
 
