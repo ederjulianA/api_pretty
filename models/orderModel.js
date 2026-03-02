@@ -3,6 +3,7 @@
 import { sql, poolPromise } from "../db.js";
 import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
 import { obtenerCostosPromedioMultiples } from "../utils/costoUtils.js";
+import { ejecutarConAutoRecuperacion } from "../utils/secuenciaUtils.js";
 
 /**
  * Normaliza el estado de WooCommerce para consistencia en la base de datos
@@ -686,7 +687,7 @@ const getOrder = async (fac_nro) => {
   }
 };
 
-const createCompleteOrder = async ({
+const _createCompleteOrderInternal = async ({
   nit_sec,
   fac_usu_cod_cre,
   fac_tip_cod,
@@ -1157,6 +1158,14 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
     }
     throw error;
   }
+};
+
+// Wrapper con auto-recuperación de secuencia para createCompleteOrder
+const createCompleteOrder = async (params) => {
+  return ejecutarConAutoRecuperacion(
+    () => _createCompleteOrderInternal(params),
+    'createCompleteOrder'
+  );
 };
 
 export { createCompleteOrder, getOrder, getOrdenes, updateOrder, anularDocumento };

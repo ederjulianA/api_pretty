@@ -1,8 +1,9 @@
 import { sql, poolPromise } from "../db.js";
 import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
 import { obtenerCostosPromedioMultiples } from "../utils/costoUtils.js";
+import { ejecutarConAutoRecuperacion } from "../utils/secuenciaUtils.js";
 
-const createInventoryAdjustment = async ({
+const _createInventoryAdjustmentInternal = async ({
   nit_sec,
   fac_usu_cod_cre,
   detalles,
@@ -365,6 +366,14 @@ const getAdjustment = async (fac_nro) => {
   } catch (error) {
     throw error;
   }
+};
+
+// Wrapper con auto-recuperación de secuencia para createInventoryAdjustment
+const createInventoryAdjustment = async (params) => {
+  return ejecutarConAutoRecuperacion(
+    () => _createInventoryAdjustmentInternal(params),
+    'createInventoryAdjustment'
+  );
 };
 
 export { createInventoryAdjustment, updateInventoryAdjustment, getAdjustment }; 
