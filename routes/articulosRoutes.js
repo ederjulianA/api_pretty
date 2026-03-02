@@ -20,17 +20,17 @@ const {
 router.get('/', verifyToken, articulosController.getArticulos);
 
 // Ejemplo de URL: GET /api/articulos/validar?art_cod=ART001
-router.get('/validar', validateArticuloEndpoint);
+router.get('/validar', verifyToken, validateArticuloEndpoint);
 
 // Endpoint para obtener siguiente código disponible
 router.get('/next-codigo/generate', verifyToken, getNextArticuloCodigoEndpoint);
 
 // Endpoint POST para crear un nuevo artículo
-router.post('/', createArticuloEndpoint);
+router.post('/', verifyToken, createArticuloEndpoint);
 
 // Endpoints para obtener y actualizar artículos
-router.get('/:id_articulo', getArticuloEndpoint);
-router.put('/:id_articulo', updateArticuloEndpoint);
-router.get('/articulo/:art_cod', getArticuloByArtCodEndPoint);
+router.get('/articulo/:art_cod', verifyToken, getArticuloByArtCodEndPoint);
+router.get('/:id_articulo', verifyToken, getArticuloEndpoint);
+router.put('/:id_articulo', verifyToken, updateArticuloEndpoint);
 
 module.exports = router;

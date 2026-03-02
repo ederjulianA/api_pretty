@@ -1,6 +1,5 @@
 // controllers/articulosController.js
 const articulosModel = require('../models/articulosModel');
-const { validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod } = require('../models/articulosModel');
 
 const updateArticuloEndpoint = async (req, res) => {
   try {
@@ -24,7 +23,7 @@ const updateArticuloEndpoint = async (req, res) => {
 
     console.log(`[UPDATE_ARTICULO_ENDPOINT] Llamando a updateArticulo para artículo ${id_articulo}`);
     
-    const result = await updateArticulo({
+    const result = await articulosModel.updateArticulo({
       id_articulo,
       art_cod,
       art_nom,
@@ -92,7 +91,7 @@ const createArticuloEndpoint = async (req, res) => {
     const images = [image1, image2, image3, image4].filter(item => item !== undefined);
     console.log('Imágenes recibidas:', images.length);
 
-    const result = await createArticulo({
+    const result = await articulosModel.createArticulo({
       art_cod,
       art_nom,
       categoria,
@@ -125,7 +124,7 @@ const validateArticuloEndpoint = async (req, res) => {
       return res.status(400).json({ success: false, error: "Se debe proporcionar al menos art_cod o art_woo_id." });
     }
 
-    const exists = await validateArticulo({ art_cod, art_woo_id });
+    const exists = await articulosModel.validateArticulo({ art_cod, art_woo_id });
     return res.json({ success: true, exists });
   } catch (error) {
     console.error(`Error en validateArticuloEndpoint: ${error.message}`);
@@ -153,8 +152,8 @@ const getArticulos = async (req, res) => {
       PageSize: PageSize ? parseInt(PageSize, 10) : 10
     };
 
-    const articulos = await articulosModel.getArticulos(params);
-    res.json({ success: true, articulos });
+    const resultado = await articulosModel.getArticulos(params);
+    res.json({ success: true, articulos: resultado.data, pagination: resultado.pagination });
   } catch (error) {
     console.error(`Error en getArticulos: ${error.message}`);
     res.status(500).json({ success: false, error: error.message });
@@ -181,7 +180,14 @@ const getArticuloEndpoint = async (req, res) => {
     if (!id_articulo) {
       return res.status(400).json({ success: false, error: "El parámetro 'id_articulo' es requerido." });
     }
-    const articulo = await getArticulo(id_articulo);
+    const articulo = await articulosModel.getArticulo(id_articulo);
+    // Aliases de costo para retrocompatibilidad con frontend
+    if (articulo.costo_promedio !== undefined) {
+      articulo.costo_promedio_ponderado = articulo.costo_promedio;
+      articulo.costo_promedio_actual = articulo.costo_promedio;
+      articulo.kar_cos_pro = articulo.costo_promedio;
+      articulo.art_bod_cos_cat = articulo.costo_promedio;
+    }
     return res.json({ success: true, articulo });
   } catch (error) {
     console.error(`Error en getArticuloEndpoint: ${error.message}`);

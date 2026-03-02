@@ -373,8 +373,8 @@ Valor por Cliente = Ventas Totales / Clientes Únicos
 ### 18. Órdenes por Canal
 
 **Canales:**
-- **WooCommerce** - Ventas online
-- **Local** - Ventas presenciales/directas
+- **WooCommerce** - Ventas online (Comisión: 5%)
+- **Local** - Ventas presenciales/directas (Comisión: 2.5%)
 
 **Métricas por canal:**
 - Número de órdenes
@@ -382,11 +382,30 @@ Valor por Cliente = Ventas Totales / Clientes Únicos
 - Ticket promedio
 - Utilidad total
 - Rentabilidad promedio
+- Comisión de venta (% aplicado)
+- Monto de comisión (cálculo)
+
+**Fórmula de Comisión:**
+```
+Comisión WooCommerce = Ventas Totales × 5%
+Comisión Local = Ventas Totales × 2.5%
+```
+
+**Totalización:**
+```
+Ventas + Comisiones = Suma de ventas + Suma de comisiones de todos los canales
+```
 
 **Interpretación:**
 - Compara rendimiento de canales
-- Identifica canal más rentable
-- Optimiza estrategia omnicanal
+- Identifica canal más rentable (antes de comisiones)
+- Calcula impacto real de comisiones en cada canal
+- Optimiza estrategia omnicanal considerando costos por canal
+
+**Ejemplo:**
+- WooCommerce: $6,086,110 × 5% = $304,305.50 de comisión
+- Local: $1,874,410 × 2.5% = $46,860.25 de comisión
+- Total a reportar: $7,960,520 + $351,165.75 = $8,311,685.75
 
 ---
 
