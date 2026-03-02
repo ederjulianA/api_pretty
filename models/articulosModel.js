@@ -44,8 +44,8 @@ const validateArticulo = async ({ art_cod, art_woo_id }) => {
     }
 
     // Configuramos los parámetros. Si alguno no se proporciona, lo dejamos en null.
-    request.input('art_cod', sql.VarChar(50), art_cod || null);
-    request.input('art_woo_id', sql.VarChar(50), art_woo_id || null);
+    request.input('art_cod', sql.VarChar(30), art_cod || null);
+    request.input('art_woo_id', sql.Int, art_woo_id ? parseInt(art_woo_id, 10) : null);
 
     // Consulta: se busca cualquier registro donde se cumpla:
     // (@art_cod IS NOT NULL AND art_cod = @art_cod) OR (@art_woo_id IS NOT NULL AND art_woo_id = @art_woo_id)
@@ -98,13 +98,6 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
   });
 
   try {
-    const api = new WooCommerceRestApi({
-      url: process.env.WC_URL,
-      consumerKey: process.env.WC_CONSUMER_KEY,
-      consumerSecret: process.env.WC_CONSUMER_SECRET,
-      version: "wc/v3"
-    });
-
     // Validar actualiza_fecha
     if (actualiza_fecha !== 'S' && actualiza_fecha !== 'N') {
       throw new Error('actualiza_fecha debe ser "S" o "N"');
@@ -115,7 +108,7 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
     try {
       const pool = await poolPromise;
       const artSecResult = await pool.request()
-        .input('art_cod', sql.VarChar(50), art_cod)
+        .input('art_cod', sql.VarChar(30), art_cod)
         .query('SELECT art_sec FROM dbo.articulos WHERE art_cod = @art_cod');
       
       if (artSecResult.recordset.length > 0) {
@@ -174,8 +167,8 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
     if (categoria != null && subcategoria != null) {
       const pool = await poolPromise;
       const catRequest = pool.request();
-      catRequest.input('categoria', sql.VarChar(50), String(categoria));
-      catRequest.input('subcategoria', sql.VarChar(50), String(subcategoria));
+      catRequest.input('categoria', sql.VarChar(16), String(categoria));
+      catRequest.input('subcategoria', sql.SmallInt, parseInt(subcategoria, 10));
       const catQueryResult = await catRequest.query(`
         SELECT g.inv_gru_woo_id, s.inv_sub_gru_woo_id
         FROM dbo.inventario_subgrupo s
@@ -214,7 +207,7 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
       data: JSON.stringify(data, null, 2)
     });
 
-    const response = await api.put(`products/${art_woo_id}`, data);
+    const response = await wcApi.put(`products/${art_woo_id}`, data);
     
     console.log('Respuesta de WooCommerce:', {
       status: response.status,
@@ -353,79 +346,82 @@ WITH ArticulosBase AS (
         -- Precios originales
         ISNULL(ad1.art_bod_pre, 0) AS precio_detal_original,
         ISNULL(ad2.art_bod_pre, 0) AS precio_mayor_original,
-        -- Costo promedio ponderado
-        -- Bundles: suma de (cantidad_componente × costo_componente) desde articulosArmado
-        -- Productos simples: art_bod_cos_cat directo de articulosdetalle
+        -- Costo efectivo: bundles calculan suma de componentes, simples usan art_bod_cos_cat
         CASE
             WHEN ISNULL(a.art_bundle, 'N') = 'S'
             THEN ISNULL(bundle_costo.costo_total, 0)
             ELSE ISNULL(ad1.art_bod_cos_cat, 0)
         END AS costo_promedio,
-        -- Rentabilidad (% sobre precio de venta al detal)
+        -- Rentabilidad: bundles calculan manualmente, simples usan columna PERSISTED
         CASE
-            WHEN ad1.art_bod_pre > 0 THEN
-                CAST((
-                    (ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END)
-                    / ad1.art_bod_pre
-                ) * 100 AS DECIMAL(5,2))
-            ELSE 0
-        END AS rentabilidad_detal,
-        -- Margen de ganancia (% sobre costo al detal)
-        CASE
-            WHEN CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END > 0
-             AND ad1.art_bod_pre IS NOT NULL
-            THEN CAST((
-                (ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END)
-                / CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END
-            ) * 100 AS DECIMAL(5,2))
-            ELSE 0
-        END AS margen_ganancia_detal,
-        -- Utilidad bruta al detal
-        CASE
-            WHEN ad1.art_bod_pre IS NOT NULL
-            THEN CAST(ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END AS DECIMAL(17,2))
-            ELSE 0
-        END AS utilidad_bruta_detal,
-        -- Clasificación de rentabilidad
-        CASE
-            WHEN ad1.art_bod_pre > 0 THEN
-                CASE
-                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 40 THEN 'ALTA'
-                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 20 THEN 'MEDIA'
-                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 10 THEN 'BAJA'
-                    WHEN ((ad1.art_bod_pre - CASE WHEN ISNULL(a.art_bundle,'N')='S' THEN ISNULL(bundle_costo.costo_total,0) ELSE ISNULL(ad1.art_bod_cos_cat,0) END) / ad1.art_bod_pre) * 100 >= 0  THEN 'MINIMA'
-                    ELSE 'PERDIDA'
+            WHEN ISNULL(a.art_bundle, 'N') = 'S' THEN
+                CASE WHEN ad1.art_bod_pre > 0
+                    THEN CAST(((ad1.art_bod_pre - ISNULL(bundle_costo.costo_total, 0)) / ad1.art_bod_pre) * 100 AS DECIMAL(5,2))
+                    ELSE 0
                 END
-            ELSE 'N/A'
+            ELSE ISNULL(ad1.rentabilidad, 0)
+        END AS rentabilidad_detal,
+        -- Margen de ganancia: bundles calculan manualmente, simples usan columna PERSISTED
+        CASE
+            WHEN ISNULL(a.art_bundle, 'N') = 'S' THEN
+                CASE WHEN ISNULL(bundle_costo.costo_total, 0) > 0 AND ad1.art_bod_pre IS NOT NULL
+                    THEN CAST(((ad1.art_bod_pre - ISNULL(bundle_costo.costo_total, 0)) / ISNULL(bundle_costo.costo_total, 0)) * 100 AS DECIMAL(5,2))
+                    ELSE 0
+                END
+            ELSE ISNULL(ad1.margen_ganancia, 0)
+        END AS margen_ganancia_detal,
+        -- Utilidad bruta: bundles calculan manualmente, simples usan columna PERSISTED
+        CASE
+            WHEN ISNULL(a.art_bundle, 'N') = 'S' THEN
+                CASE WHEN ad1.art_bod_pre IS NOT NULL
+                    THEN CAST(ad1.art_bod_pre - ISNULL(bundle_costo.costo_total, 0) AS DECIMAL(17,2))
+                    ELSE 0
+                END
+            ELSE ISNULL(ad1.utilidad_bruta, 0)
+        END AS utilidad_bruta_detal,
+        -- Clasificacion de rentabilidad: bundles calculan manualmente, simples usan columna PERSISTED
+        CASE
+            WHEN ISNULL(a.art_bundle, 'N') = 'S' THEN
+                CASE WHEN ad1.art_bod_pre > 0 THEN
+                    CASE
+                        WHEN ((ad1.art_bod_pre - ISNULL(bundle_costo.costo_total, 0)) / ad1.art_bod_pre) * 100 >= 40 THEN 'ALTA'
+                        WHEN ((ad1.art_bod_pre - ISNULL(bundle_costo.costo_total, 0)) / ad1.art_bod_pre) * 100 >= 20 THEN 'MEDIA'
+                        WHEN ((ad1.art_bod_pre - ISNULL(bundle_costo.costo_total, 0)) / ad1.art_bod_pre) * 100 >= 10 THEN 'BAJA'
+                        WHEN ((ad1.art_bod_pre - ISNULL(bundle_costo.costo_total, 0)) / ad1.art_bod_pre) * 100 >= 0  THEN 'MINIMA'
+                        ELSE 'PERDIDA'
+                    END
+                ELSE 'N/A'
+                END
+            ELSE ad1.clasificacion_rentabilidad
         END AS clasificacion_rentabilidad,
-        -- Precios con oferta aplicada (usando la promoción más prioritaria)
-        CASE 
-            WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0 
-            THEN oferta_prioritaria.pro_det_precio_oferta 
-            WHEN oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0 
+        -- Precios con oferta aplicada (usando la promocion mas prioritaria)
+        CASE
+            WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0
+            THEN oferta_prioritaria.pro_det_precio_oferta
+            WHEN oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0
             THEN ISNULL(ad1.art_bod_pre, 0) * (1 - (oferta_prioritaria.pro_det_descuento_porcentaje / 100))
-            ELSE ISNULL(ad1.art_bod_pre, 0) 
+            ELSE ISNULL(ad1.art_bod_pre, 0)
         END AS precio_detal,
-        CASE 
-            WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0 
-            THEN oferta_prioritaria.pro_det_precio_oferta 
-            WHEN oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0 
+        CASE
+            WHEN oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0
+            THEN oferta_prioritaria.pro_det_precio_oferta
+            WHEN oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0
             THEN ISNULL(ad2.art_bod_pre, 0) * (1 - (oferta_prioritaria.pro_det_descuento_porcentaje / 100))
-            ELSE ISNULL(ad2.art_bod_pre, 0) 
+            ELSE ISNULL(ad2.art_bod_pre, 0)
         END AS precio_mayor,
-        -- Información de oferta (de la promoción más prioritaria)
+        -- Informacion de oferta (de la promocion mas prioritaria)
         oferta_prioritaria.pro_det_precio_oferta AS precio_oferta,
         oferta_prioritaria.pro_det_descuento_porcentaje AS descuento_porcentaje,
         oferta_prioritaria.pro_fecha_inicio,
         oferta_prioritaria.pro_fecha_fin,
         oferta_prioritaria.pro_codigo AS codigo_promocion,
         oferta_prioritaria.pro_descripcion AS descripcion_promocion,
-        CASE 
-            WHEN oferta_prioritaria.pro_sec IS NOT NULL 
-                 AND ((oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0) 
+        CASE
+            WHEN oferta_prioritaria.pro_sec IS NOT NULL
+                 AND ((oferta_prioritaria.pro_det_precio_oferta IS NOT NULL AND oferta_prioritaria.pro_det_precio_oferta > 0)
                       OR (oferta_prioritaria.pro_det_descuento_porcentaje IS NOT NULL AND oferta_prioritaria.pro_det_descuento_porcentaje > 0))
-            THEN 'S' 
-            ELSE 'N' 
+            THEN 'S'
+            ELSE 'N'
         END AS tiene_oferta,
         ISNULL(e.existencia, 0) AS existencia,
         a.art_woo_sync_status,
@@ -443,7 +439,7 @@ WITH ArticulosBase AS (
             ON a.art_sec = ad2.art_sec AND ad2.lis_pre_cod = 2 AND ad2.bod_sec = '1'
         LEFT JOIN dbo.vwExistencias e
             ON a.art_sec = e.art_sec
-        -- Costo real para bundles: suma de (cantidad_componente × costo_componente)
+        -- Costo real para bundles: suma de (cantidad_componente x costo_componente)
         LEFT JOIN (
             SELECT
                 aa.art_sec,
@@ -455,9 +451,9 @@ WITH ArticulosBase AS (
                AND adc.lis_pre_cod = 1
             GROUP BY aa.art_sec
         ) bundle_costo ON bundle_costo.art_sec = a.art_sec
-        -- Subquery para obtener la promoción más prioritaria por artículo
+        -- Subquery para obtener la promocion mas prioritaria por articulo
         LEFT JOIN (
-            SELECT 
+            SELECT
                 pd.art_sec,
                 pd.pro_det_precio_oferta,
                 pd.pro_det_descuento_porcentaje,
@@ -467,37 +463,33 @@ WITH ArticulosBase AS (
                 p.pro_codigo,
                 p.pro_descripcion,
                 ROW_NUMBER() OVER (
-                    PARTITION BY pd.art_sec 
-                    ORDER BY 
-                        -- Prioridad 1: Precio de oferta (más alto primero)
+                    PARTITION BY pd.art_sec
+                    ORDER BY
                         ISNULL(pd.pro_det_precio_oferta, 0) DESC,
-                        -- Prioridad 2: Descuento porcentual (más alto primero)
                         ISNULL(pd.pro_det_descuento_porcentaje, 0) DESC,
-                        -- Prioridad 3: Fecha de inicio (más reciente primero)
                         p.pro_fecha_inicio DESC
                 ) as rn
             FROM dbo.promociones_detalle pd
             INNER JOIN dbo.promociones p
-                ON pd.pro_sec = p.pro_sec 
+                ON pd.pro_sec = p.pro_sec
                 AND p.pro_activa = 'S'
                 AND GETDATE() BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
             WHERE pd.pro_det_estado = 'A'
         ) oferta_prioritaria
-            ON a.art_sec = oferta_prioritaria.art_sec 
+            ON a.art_sec = oferta_prioritaria.art_sec
             AND oferta_prioritaria.rn = 1
     WHERE 1 = 1
       AND (@codigo IS NULL OR a.art_cod LIKE @codigo+'%')
       AND (@nombre IS NULL OR a.art_nom LIKE '%' + @nombre + '%')
-      -- Aplicamos el filtro en la unión, pero también aquí para mayor claridad:
       AND (@inv_gru_cod IS NULL OR ig.inv_gru_cod = @inv_gru_cod)
       AND (@inv_sub_gru_cod IS NULL OR isg.inv_sub_gru_cod = @inv_sub_gru_cod)
       AND (
-             @tieneExistencia IS NULL 
+             @tieneExistencia IS NULL
              OR (@tieneExistencia = 1 AND ISNULL(e.existencia, 0) > 0)
              OR (@tieneExistencia = 0 AND ISNULL(e.existencia, 0) = 0)
           )
 )
-SELECT *
+SELECT *, COUNT(*) OVER() AS total_records
 FROM ArticulosBase
 ORDER BY CAST(art_sec AS INT) DESC
 OFFSET (@PageNumber - 1) * @PageSize ROWS
@@ -509,13 +501,27 @@ OPTION (RECOMPILE);
       .input('codigo', sql.VarChar(30), codigo)
       .input('nombre', sql.VarChar(100), nombre)
       .input('inv_gru_cod', sql.VarChar(16), inv_gru_cod)
-      .input('inv_sub_gru_cod', sql.VarChar(16), inv_sub_gru_cod)
+      .input('inv_sub_gru_cod', sql.SmallInt, inv_sub_gru_cod ? parseInt(inv_sub_gru_cod, 10) : null)
       .input('tieneExistencia', sql.Bit, typeof tieneExistencia !== 'undefined' ? tieneExistencia : null)
       .input('PageNumber', sql.Int, PageNumber)
       .input('PageSize', sql.Int, PageSize)
       .query(query);
 
-    return result.recordset;
+    const records = result.recordset;
+    const totalRecords = records.length > 0 ? records[0].total_records : 0;
+
+    // Remover total_records de cada registro (es metadata de paginacion)
+    const data = records.map(({ total_records, ...rest }) => rest);
+
+    return {
+      data,
+      pagination: {
+        page: PageNumber,
+        pageSize: PageSize,
+        totalRecords,
+        totalPages: Math.ceil(totalRecords / PageSize)
+      }
+    };
   } catch (error) {
     throw error;
   }
@@ -566,10 +572,10 @@ const createArticulo = async (articuloData) => {
     `;
 
     await request
-      .input('artSecInsert', sql.Decimal(18, 0), art_sec)
-      .input('art_cod', sql.VarChar(50), articuloData.art_cod)
-      .input('art_nom', sql.VarChar(250), articuloData.art_nom)
-      .input('subcategoria', sql.VarChar(50), String(articuloData.subcategoria ?? ''))
+      .input('artSecInsert', sql.VarChar(30), art_sec.toString())
+      .input('art_cod', sql.VarChar(30), articuloData.art_cod)
+      .input('art_nom', sql.VarChar(100), articuloData.art_nom)
+      .input('subcategoria', sql.SmallInt, parseInt(articuloData.subcategoria, 10))
       .query(insertQuery);
 
     // 3. Subir imágenes a Cloudinary si se proporcionaron
@@ -593,8 +599,8 @@ const createArticulo = async (articuloData) => {
             WHERE art_sec = @artSecImage
           `;
           await request
-            .input('imageUrl', sql.VarChar(500), imageUrls[0])
-            .input('artSecImage', sql.Decimal(18, 0), art_sec)
+            .input('imageUrl', sql.VarChar(1000), imageUrls[0])
+            .input('artSecImage', sql.VarChar(30), art_sec.toString())
             .query(updateImageQuery);
         }
       } catch (error) {
@@ -613,7 +619,7 @@ const createArticulo = async (articuloData) => {
       VALUES (@artSecDetal, '1', 1, @precio_detal)
     `;
     await request
-      .input('artSecDetal', sql.Decimal(18, 0), art_sec)
+      .input('artSecDetal', sql.VarChar(30), art_sec.toString())
       .input('precio_detal', sql.Decimal(17, 2), articuloData.precio_detal)
       .query(insertDetalle1Query);
 
@@ -623,7 +629,7 @@ const createArticulo = async (articuloData) => {
       VALUES (@artSecMayor, '1', 2, @precio_mayor)
     `;
     await request
-      .input('artSecMayor', sql.Decimal(18, 0), art_sec)
+      .input('artSecMayor', sql.VarChar(30), art_sec.toString())
       .input('precio_mayor', sql.Decimal(17, 2), articuloData.precio_mayor)
       .query(insertDetalle2Query);
 
@@ -634,8 +640,8 @@ const createArticulo = async (articuloData) => {
     try {
       // Obtener IDs de categorías de WooCommerce (categoria/subcategoria pueden venir como number)
       const catRequest = pool.request();
-      catRequest.input('categoria', sql.VarChar(50), String(articuloData.categoria ?? ''));
-      catRequest.input('subcategoria', sql.VarChar(50), String(articuloData.subcategoria ?? ''));
+      catRequest.input('categoria', sql.VarChar(16), String(articuloData.categoria ?? ''));
+      catRequest.input('subcategoria', sql.SmallInt, parseInt(articuloData.subcategoria, 10));
       const catQueryResult = await catRequest.query(`
         SELECT g.inv_gru_woo_id, s.inv_sub_gru_woo_id
         FROM dbo.inventario_subgrupo s
@@ -723,7 +729,7 @@ const createArticulo = async (articuloData) => {
       `;
       await pool.request()
         .input('art_woo_id', sql.Int, art_woo_id)
-        .input('artSecWoo', sql.Decimal(18, 0), art_sec)
+        .input('artSecWoo', sql.VarChar(30), art_sec.toString())
         .query(updateWooIdQuery);
 
       // Registrar las fotos en la tabla producto_fotos
@@ -825,7 +831,7 @@ const getArticuloByArtCod = async (art_cod) => {
       WHERE a.art_cod = @art_cod 
     `;
     const result = await pool.request()
-      .input('art_cod', sql.VarChar(50), art_cod)
+      .input('art_cod', sql.VarChar(30), art_cod)
       .query(query);
 
     if (result.recordset.length === 0) {
@@ -833,7 +839,7 @@ const getArticuloByArtCod = async (art_cod) => {
     }
 
     const articulo = result.recordset[0];
-    
+
     // Obtener precios usando precioUtils
     const { obtenerPreciosArticulo } = require('../utils/precioUtils');
     const precios = await obtenerPreciosArticulo(articulo.art_sec);
@@ -871,26 +877,6 @@ const getArticulo = async (art_sec) => {
             THEN ISNULL(bundle_costo.costo_total, 0)
             ELSE ISNULL(ad1.art_bod_cos_cat, 0)
         END AS costo_promedio,
-        CASE
-            WHEN ISNULL(a.art_bundle, 'N') = 'S'
-            THEN ISNULL(bundle_costo.costo_total, 0)
-            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
-        END AS costo_promedio_ponderado,
-        CASE
-            WHEN ISNULL(a.art_bundle, 'N') = 'S'
-            THEN ISNULL(bundle_costo.costo_total, 0)
-            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
-        END AS costo_promedio_actual,
-        CASE
-            WHEN ISNULL(a.art_bundle, 'N') = 'S'
-            THEN ISNULL(bundle_costo.costo_total, 0)
-            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
-        END AS kar_cos_pro,
-        CASE
-            WHEN ISNULL(a.art_bundle, 'N') = 'S'
-            THEN ISNULL(bundle_costo.costo_total, 0)
-            ELSE ISNULL(ad1.art_bod_cos_cat, 0)
-        END AS art_bod_cos_cat,
         -- Rentabilidad (% sobre precio de venta al detal)
         CASE
             WHEN ad1.art_bod_pre > 0 THEN
@@ -1016,7 +1002,7 @@ const getArticulo = async (art_sec) => {
         WHERE a.art_sec = @art_sec
     `;
     const result = await pool.request()
-      .input('art_sec', sql.Decimal(18, 0), art_sec)
+      .input('art_sec', sql.VarChar(30), art_sec.toString())
       .query(query);
 
     if (result.recordset.length === 0) {
@@ -1061,11 +1047,11 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       WHERE art_sec = @id_articulo
     `;
     await request
-      .input('art_cod', sql.VarChar(50), art_cod)
-      .input('art_nom', sql.VarChar(250), art_nom)
-      .input('subcategoria', sql.Int(4), subcategoria)
-      .input('art_woo_id', sql.Int(4), art_woo_id)
-      .input('id_articulo', sql.Decimal(18, 0), id_articulo)
+      .input('art_cod', sql.VarChar(30), art_cod)
+      .input('art_nom', sql.VarChar(100), art_nom)
+      .input('subcategoria', sql.SmallInt, parseInt(subcategoria, 10))
+      .input('art_woo_id', sql.Int, art_woo_id)
+      .input('id_articulo', sql.VarChar(30), id_articulo.toString())
       .query(updateArticuloQuery);
 
     // Actualizar el precio detall en articulosdetalle (lista 1)
@@ -1113,7 +1099,7 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
 
     // Verificar si es bundle antes de sincronizar con WooCommerce
     const checkBundle = await pool.request()
-      .input('id_articulo', sql.Decimal(18, 0), id_articulo)
+      .input('id_articulo', sql.VarChar(30), id_articulo.toString())
       .query('SELECT art_bundle, inv_sub_gru_cod FROM dbo.articulos WHERE art_sec = @id_articulo');
     
     const esBundle = checkBundle.recordset[0]?.art_bundle === 'S';
@@ -1162,7 +1148,7 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       
       // Actualizar estado de sincronización
       await pool.request()
-        .input('id_articulo', sql.Decimal(18, 0), id_articulo)
+        .input('id_articulo', sql.VarChar(30), id_articulo.toString())
         .input('sync_status', sql.VarChar(20), 'SUCCESS')
         .input('sync_message', sql.NVarChar(sql.MAX), JSON.stringify(wooResult))
         .query(`
@@ -1191,7 +1177,7 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       
       // Actualizar estado de sincronización con error
       await pool.request()
-        .input('id_articulo', sql.Decimal(18, 0), id_articulo)
+        .input('id_articulo', sql.VarChar(30), id_articulo.toString())
         .input('sync_status', sql.VarChar(20), 'ERROR')
         .input('sync_message', sql.NVarChar(sql.MAX), JSON.stringify({
           message: wooError.message,
@@ -1237,59 +1223,44 @@ const getNextArticuloCodigo = async () => {
   try {
     const pool = await poolPromise;
 
-    // 1. Buscar el mayor código de 4 dígitos (>= 1000)
-    const query4Digits = `
-      SELECT TOP 1 art_cod
-      FROM dbo.articulos
-      WHERE LEN(art_cod) = 4
-        AND art_cod LIKE '[0-9][0-9][0-9][0-9]'
-        AND art_cod NOT LIKE '%[^0-9]%'
-        AND CAST(art_cod AS INT) >= 1000
-      ORDER BY CAST(art_cod AS INT) DESC
-    `;
-    const result4 = await pool.request().query(query4Digits);
-
-    let nextCodigo;
-    if (result4.recordset.length === 0) {
-      // Si no hay códigos de 4 dígitos, empezar desde 5000
-      nextCodigo = '5000';
-    } else {
-      // Obtener el último código de 4 dígitos y sumar 1
-      const ultimoCodigo = result4.recordset[0].art_cod;
-      nextCodigo = (parseInt(ultimoCodigo) + 1).toString();
-    }
-
-    // Verificar que el código generado no exista
-    let codigoDisponible = false;
-    let intentos = 0;
-    let codigoFinal = nextCodigo;
-
-    while (!codigoDisponible && intentos < 1000) { // Límite de 1000 intentos para evitar bucles infinitos
-      const checkQuery = `
-        SELECT COUNT(*) as count
+    // Encontrar el siguiente codigo numerico de 4 digitos disponible en un solo query
+    // Busca el mayor codigo numerico de 4 digitos y luego verifica gaps
+    const query = `
+      WITH CodigosNumericos AS (
+        SELECT CAST(art_cod AS INT) AS codigo_num
         FROM dbo.articulos
-        WHERE art_cod = @codigo
-      `;
+        WHERE LEN(art_cod) = 4
+          AND art_cod LIKE '[0-9][0-9][0-9][0-9]'
+          AND art_cod NOT LIKE '%[^0-9]%'
+          AND CAST(art_cod AS INT) >= 1000
+      ),
+      MaxCodigo AS (
+        SELECT ISNULL(MAX(codigo_num), 4999) AS max_cod
+        FROM CodigosNumericos
+      )
+      SELECT TOP 1 CAST(candidate.n AS VARCHAR(30)) AS next_code
+      FROM (
+        SELECT m.max_cod + v.number AS n
+        FROM MaxCodigo m
+        CROSS JOIN (
+          SELECT 1 AS number UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
+          UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10
+        ) v
+      ) candidate
+      WHERE NOT EXISTS (
+        SELECT 1 FROM dbo.articulos WHERE art_cod = CAST(candidate.n AS VARCHAR(30))
+      )
+      ORDER BY candidate.n
+    `;
 
-      const checkResult = await pool.request()
-        .input('codigo', sql.VarChar(50), codigoFinal)
-        .query(checkQuery);
+    const result = await pool.request().query(query);
 
-      if (checkResult.recordset[0].count === 0) {
-        codigoDisponible = true;
-      } else {
-        // Si el código existe, intentar con el siguiente número
-        codigoFinal = (parseInt(codigoFinal) + 1).toString();
-        intentos++;
-      }
-    }
-
-    if (!codigoDisponible) {
+    if (result.recordset.length === 0) {
       throw new Error('No se pudo generar un código de artículo disponible');
     }
 
     return {
-      art_cod: codigoFinal,
+      art_cod: result.recordset[0].next_code,
       message: "Código de artículo disponible generado exitosamente"
     };
 
