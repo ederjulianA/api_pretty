@@ -186,38 +186,13 @@ Edita `templates/styles/variables.css`:
 --font-size-base: 11pt;  /* Aumentar de 10pt */
 ```
 
-## 📁 Estructura del Proyecto
+## 📚 Documentación Detallada
 
-```
-poc-catalogo-pdf/
-├── lib/
-│   ├── dbCatalog.js          # Consulta productos desde BD
-│   ├── imageOptimizer.js     # Optimización de imágenes
-│   └── pdfGenerator.js       # Generación PDF
-├── templates/
-│   ├── catalog.ejs           # Template principal
-│   └── styles/
-│       ├── variables.css     # Variables de diseño
-│       ├── main.css          # Estilos principales
-│       └── print.css         # Estilos de impresión
-├── config/
-│   └── catalog-config.json   # Configuración de secciones
-├── assets/
-│   └── logo.png              # Logo de la empresa
-├── cache/
-│   └── images/               # Imágenes procesadas
-├── output/
-│   ├── catalogo-poc.pdf      # PDF generado
-│   └── reporte-poc.json      # Reporte de métricas
-└── generate-catalog.js       # Script principal
-```
+Para profundizar en la implementación, consulta los siguientes documentos en la carpeta `docs/`:
 
-## 📝 Notas
-
-- Las imágenes se descargan y optimizan en tiempo de ejecución
-- El caché de imágenes se mantiene para evitar reprocesar
-- El PDF se genera con formato A4, listo para impresión
-- Los productos se organizan automáticamente por categoría
+1.  **[Arquitectura Técnica](file:///Users/eder/Developer/GitHub/api_pretty/poc-catalogo-pdf/docs/architecture.md):** Diagramas de flujo y descripción de componentes.
+2.  **[Guía de Infraestructura](file:///Users/eder/Developer/GitHub/api_pretty/poc-catalogo-pdf/docs/infrastructure_setup.md):** Pasos detallados para configurar Azure y Cloudflare.
+3.  **[Guía de Operaciones](file:///Users/eder/Developer/GitHub/api_pretty/poc-catalogo-pdf/docs/operations.md):** Cómo actualizar el catálogo y gestionar la caché.
 
 ## 🔄 Próximos Pasos (Post-PoC)
 
