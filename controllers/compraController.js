@@ -18,7 +18,7 @@ const {
   obtenerArticulosPorSubcategoria
 } = require('../models/compraModel');
 
-const { syncDocumentStockToWoo } = require('../utils/wooStockSync');
+const { syncDocumentStockToWoo, syncArticleStockToWoo } = require('../utils/wooStockSync');
 
 /**
  * POST /api/compras
@@ -1030,6 +1030,49 @@ const modificarCompra = async (req, res) => {
       datosActualizacion.detalles = req.body.detalles;
     }
 
+    // Validar detalles_eliminados si se proporcionan
+    if (req.body.detalles_eliminados !== undefined) {
+      if (!Array.isArray(req.body.detalles_eliminados)) {
+        return res.status(400).json({
+          success: false,
+          message: 'detalles_eliminados debe ser un array'
+        });
+      }
+
+      for (const kar_sec of req.body.detalles_eliminados) {
+        if (!kar_sec || isNaN(parseInt(kar_sec))) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cada elemento de detalles_eliminados debe ser un kar_sec válido (número entero)'
+          });
+        }
+      }
+
+      // Validar que no haya duplicados
+      const uniqueKarSecs = new Set(req.body.detalles_eliminados.map(k => parseInt(k)));
+      if (uniqueKarSecs.size !== req.body.detalles_eliminados.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'detalles_eliminados contiene kar_sec duplicados'
+        });
+      }
+
+      // Validar que no se intente eliminar y actualizar el mismo kar_sec
+      if (req.body.detalles) {
+        const karSecsActualizar = new Set(req.body.detalles.map(d => parseInt(d.kar_sec)));
+        for (const kar_sec of req.body.detalles_eliminados) {
+          if (karSecsActualizar.has(parseInt(kar_sec))) {
+            return res.status(400).json({
+              success: false,
+              message: `kar_sec ${kar_sec} no puede estar en detalles y detalles_eliminados al mismo tiempo`
+            });
+          }
+        }
+      }
+
+      datosActualizacion.detalles_eliminados = req.body.detalles_eliminados.map(k => parseInt(k));
+    }
+
     // Validar detalles_nuevos si se proporcionan
     if (req.body.detalles_nuevos !== undefined) {
       if (!Array.isArray(req.body.detalles_nuevos)) {
@@ -1084,15 +1127,40 @@ const modificarCompra = async (req, res) => {
     // Sincronizar stock con WooCommerce si se actualizaron o agregaron detalles (modo silencioso)
     let wooSyncResult = null;
     const tieneDetallesCambiados = (resultado.detalles_actualizados && resultado.detalles_actualizados.length > 0) ||
-      (resultado.detalles_nuevos_insertados && resultado.detalles_nuevos_insertados.length > 0);
+      (resultado.detalles_nuevos_insertados && resultado.detalles_nuevos_insertados.length > 0) ||
+      (resultado.detalles_eliminados && resultado.detalles_eliminados.length > 0);
     if (tieneDetallesCambiados) {
       try {
         console.log('[COMPRA-SYNC] Iniciando sincronización de stock después de actualizar compra', {
           fac_nro,
           detalles_actualizados: resultado.detalles_actualizados?.length || 0,
-          detalles_nuevos: resultado.detalles_nuevos_insertados?.length || 0
+          detalles_nuevos: resultado.detalles_nuevos_insertados?.length || 0,
+          detalles_eliminados: resultado.detalles_eliminados?.length || 0
         });
+
+        // syncDocumentStockToWoo cubre ítems que SIGUEN en facturakardes
         wooSyncResult = await syncDocumentStockToWoo(fac_nro, { silent: true });
+
+        // Para ítems ELIMINADOS: ya no están en facturakardes, así que
+        // syncDocumentStockToWoo no los encuentra. Usamos syncArticleStockToWoo
+        // por art_sec para sincronizar su stock actualizado (post-reversión).
+        if (resultado.detalles_eliminados && resultado.detalles_eliminados.length > 0) {
+          const syncEliminados = [];
+          for (const detEliminado of resultado.detalles_eliminados) {
+            try {
+              const syncResult = await syncArticleStockToWoo(detEliminado.art_sec, { silent: true });
+              syncEliminados.push({ art_sec: detEliminado.art_sec, ...syncResult });
+            } catch (syncErr) {
+              console.warn(`[COMPRA-SYNC] Error sincronizando artículo eliminado ${detEliminado.art_sec}:`, syncErr.message);
+              syncEliminados.push({ art_sec: detEliminado.art_sec, success: false, reason: syncErr.message });
+            }
+          }
+          wooSyncResult = {
+            ...wooSyncResult,
+            eliminados_sync: syncEliminados
+          };
+        }
+
         console.log('[COMPRA-SYNC] Resultado de sincronización:', wooSyncResult);
       } catch (wooError) {
         console.warn('Error sincronizando stock con WooCommerce:', wooError.message);
@@ -1118,7 +1186,10 @@ const modificarCompra = async (req, res) => {
         error.message.includes('Artículo') ||
         error.message.includes('Detalle') ||
         error.message.includes('ya existe en') ||
-        error.message.includes('Estado inválido')) {
+        error.message.includes('Estado inválido') ||
+        error.message.includes('no se puede eliminar') ||
+        error.message.includes('último detalle') ||
+        error.message.includes('Existencia insuficiente')) {
       return res.status(400).json({
         success: false,
         message: error.message
