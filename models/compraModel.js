@@ -1499,6 +1499,205 @@ const actualizarCompra = async (fac_nro, datosActualizacion) => {
       }
     }
 
+    // 3A. ELIMINAR DETALLES
+    // Soporta dos modos:
+    //   a) Explícito: el front envía detalles_eliminados con los kar_sec a borrar
+    //   b) Automático: si se envían detalles (actualizar), se detectan los kar_sec
+    //      que existen en BD pero NO vinieron en detalles → se marcan para eliminar
+    const detallesEliminados = [];
+
+    // Detección automática: si el front envió detalles pero no detalles_eliminados,
+    // inferir cuáles se eliminaron comparando con la BD
+    if (!datosActualizacion.detalles_eliminados && datosActualizacion.detalles && datosActualizacion.detalles.length > 0) {
+      const resultTodosDetalles = await transaction.request()
+        .input('fac_sec_all', sql.Decimal(12, 0), fac_sec)
+        .query(`
+          SELECT kar_sec
+          FROM dbo.facturakardes
+          WHERE fac_sec = @fac_sec_all
+        `);
+
+      const karSecsEnBD = resultTodosDetalles.recordset.map(r => r.kar_sec);
+      const karSecsEnviados = new Set(datosActualizacion.detalles.map(d => parseInt(d.kar_sec)));
+      const karSecsFaltantes = karSecsEnBD.filter(k => !karSecsEnviados.has(k));
+
+      if (karSecsFaltantes.length > 0) {
+        datosActualizacion.detalles_eliminados = karSecsFaltantes;
+      }
+    }
+
+    if (datosActualizacion.detalles_eliminados && datosActualizacion.detalles_eliminados.length > 0) {
+      // Validar que no se eliminen TODOS los detalles de la compra
+      const resultTotalDetalles = await transaction.request()
+        .input('fac_sec_count', sql.Decimal(12, 0), fac_sec)
+        .query(`
+          SELECT COUNT(*) AS total
+          FROM dbo.facturakardes
+          WHERE fac_sec = @fac_sec_count
+        `);
+
+      const totalDetallesActuales = resultTotalDetalles.recordset[0].total;
+      const totalNuevos = (datosActualizacion.detalles_nuevos && datosActualizacion.detalles_nuevos.length) || 0;
+      const detallesRestantes = totalDetallesActuales - datosActualizacion.detalles_eliminados.length + totalNuevos;
+
+      if (detallesRestantes <= 0) {
+        throw new Error('No se puede eliminar el último detalle de la compra. La compra debe tener al menos un artículo.');
+      }
+
+      for (const kar_sec of datosActualizacion.detalles_eliminados) {
+        // Obtener detalle a eliminar
+        const resultDetalle = await transaction.request()
+          .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+          .input('kar_sec', sql.Int, kar_sec)
+          .query(`
+            SELECT art_sec, kar_uni, kar_pre, kar_total
+            FROM dbo.facturakardes
+            WHERE fac_sec = @fac_sec AND kar_sec = @kar_sec
+          `);
+
+        if (resultDetalle.recordset.length === 0) {
+          throw new Error(`Detalle kar_sec ${kar_sec} no encontrado en compra ${fac_nro}, no se puede eliminar`);
+        }
+
+        const detalle = resultDetalle.recordset[0];
+        const art_sec = detalle.art_sec;
+        const cantidad_eliminar = parseFloat(detalle.kar_uni);
+        const costo_eliminar = parseFloat(detalle.kar_pre);
+
+        // Obtener estado actual del artículo (costo promedio y existencia)
+        const resultArticulo = await transaction.request()
+          .input('art_sec', sql.VarChar(30), art_sec)
+          .query(`
+            SELECT
+              ISNULL(ad.art_bod_cos_cat, 0) AS costo_actual,
+              ISNULL(ve.existencia, 0) AS existencia_actual
+            FROM dbo.articulos a
+            LEFT JOIN dbo.articulosdetalle ad
+              ON ad.art_sec = a.art_sec AND ad.bod_sec = '1' AND ad.lis_pre_cod = 1
+            LEFT JOIN dbo.vwExistencias ve ON ve.art_sec = a.art_sec
+            WHERE a.art_sec = @art_sec
+          `);
+
+        if (resultArticulo.recordset.length === 0) {
+          throw new Error(`Artículo ${art_sec} no encontrado`);
+        }
+
+        const { costo_actual, existencia_actual } = resultArticulo.recordset[0];
+        const costo_actual_float = parseFloat(costo_actual);
+        const existencia_actual_float = parseFloat(existencia_actual);
+
+        // Validar que eliminar este ítem no deje inventario negativo
+        const existencia_resultante = existencia_actual_float - cantidad_eliminar;
+        if (existencia_resultante < 0) {
+          // Obtener art_cod para mensaje más claro al usuario
+          const resultArtCod = await transaction.request()
+            .input('art_sec_cod', sql.VarChar(30), art_sec)
+            .query(`SELECT art_cod, art_nom FROM dbo.articulos WHERE art_sec = @art_sec_cod`);
+
+          const artInfo = resultArtCod.recordset[0] || {};
+          throw new Error(
+            `No se puede eliminar el artículo ${artInfo.art_cod || art_sec} (${artInfo.art_nom || ''}) de la compra: ` +
+            `la existencia actual es ${existencia_actual_float} y se restarían ${cantidad_eliminar} unidades, ` +
+            `dejando el inventario en ${existencia_resultante}. Existencia insuficiente.`
+          );
+        }
+
+        // REVERSAR el efecto de esta línea de compra en el costo promedio
+        // Valor actual total del inventario
+        const valor_actual_total = costo_actual_float * existencia_actual_float;
+        // Quitar el valor de esta compra
+        const valor_compra_eliminar = costo_eliminar * cantidad_eliminar;
+        const valor_sin_compra = valor_actual_total - valor_compra_eliminar;
+        const existencia_sin_compra = existencia_actual_float - cantidad_eliminar;
+
+        let costo_promedio_nuevo;
+        if (existencia_sin_compra <= 0) {
+          costo_promedio_nuevo = 0;
+        } else {
+          costo_promedio_nuevo = valor_sin_compra / existencia_sin_compra;
+        }
+
+        // Redondear a 2 decimales
+        costo_promedio_nuevo = Math.round(costo_promedio_nuevo * 100) / 100;
+
+        // Eliminar el registro de facturakardes
+        await transaction.request()
+          .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+          .input('kar_sec', sql.Int, kar_sec)
+          .query(`
+            DELETE FROM dbo.facturakardes
+            WHERE fac_sec = @fac_sec AND kar_sec = @kar_sec
+          `);
+
+        // Actualizar costo promedio en articulosdetalle
+        await transaction.request()
+          .input('art_sec', sql.VarChar(30), art_sec)
+          .input('nuevo_costo', sql.Decimal(17, 2), costo_promedio_nuevo)
+          .query(`
+            UPDATE dbo.articulosdetalle
+            SET art_bod_cos_cat = @nuevo_costo
+            WHERE art_sec = @art_sec AND bod_sec = '1' AND lis_pre_cod = 1
+          `);
+
+        // Registrar en historial de costos
+        await transaction.request()
+          .input('art_sec', sql.VarChar(30), art_sec)
+          .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+          .input('cantidad_antes', sql.Decimal(17, 2), existencia_actual_float)
+          .input('costo_antes', sql.Decimal(17, 2), costo_actual_float)
+          .input('valor_antes', sql.Decimal(17, 2), valor_actual_total)
+          .input('cantidad_mov', sql.Decimal(17, 2), -cantidad_eliminar)
+          .input('costo_mov', sql.Decimal(17, 2), costo_eliminar)
+          .input('valor_mov', sql.Decimal(17, 2), -valor_compra_eliminar)
+          .input('cantidad_despues', sql.Decimal(17, 2), existencia_sin_compra)
+          .input('costo_despues', sql.Decimal(17, 2), costo_promedio_nuevo)
+          .input('valor_despues', sql.Decimal(17, 2), valor_sin_compra)
+          .input('usu_cod', sql.VarChar(100), datosActualizacion.usu_cod)
+          .input('observaciones', sql.VarChar(500),
+            `ELIMINACIÓN ${fac_nro} kar_sec ${kar_sec}: ` +
+            `-${cantidad_eliminar} unids de art_sec ${art_sec} a $${costo_eliminar} c/u`
+          )
+          .query(`
+            INSERT INTO dbo.historial_costos (
+              hc_art_sec, hc_fac_sec, hc_fecha, hc_tipo_mov,
+              hc_cantidad_antes, hc_costo_antes, hc_valor_antes,
+              hc_cantidad_mov, hc_costo_mov, hc_valor_mov,
+              hc_cantidad_despues, hc_costo_despues, hc_valor_despues,
+              hc_usu_cod, hc_observaciones
+            ) VALUES (
+              @art_sec, @fac_sec, GETDATE(), 'AJUSTE_MANUAL',
+              @cantidad_antes, @costo_antes, @valor_antes,
+              @cantidad_mov, @costo_mov, @valor_mov,
+              @cantidad_despues, @costo_despues, @valor_despues,
+              @usu_cod, @observaciones
+            )
+          `);
+
+        detallesEliminados.push({
+          kar_sec,
+          art_sec,
+          cantidad_eliminada: cantidad_eliminar,
+          costo_eliminado: costo_eliminar,
+          total_eliminado: valor_compra_eliminar,
+          costo_promedio_anterior: costo_actual_float,
+          costo_promedio_nuevo
+        });
+      }
+
+      // Recalcular total de la factura después de eliminaciones
+      await transaction.request()
+        .input('fac_sec', sql.Decimal(12, 0), fac_sec)
+        .query(`
+          UPDATE dbo.factura
+          SET fac_total_woo = (
+            SELECT ISNULL(SUM(kar_total), 0)
+            FROM dbo.facturakardes
+            WHERE fac_sec = @fac_sec
+          )
+          WHERE fac_sec = @fac_sec
+        `);
+    }
+
     // 3B. INSERTAR DETALLES NUEVOS (si se proporcionaron)
     const detallesNuevosInsertados = [];
 
@@ -1691,7 +1890,7 @@ const actualizarCompra = async (fac_nro, datosActualizacion) => {
     }
 
     // Validar que se actualizó algo
-    if (camposActualizables.length === 0 && detallesActualizados.length === 0 && detallesNuevosInsertados.length === 0) {
+    if (camposActualizables.length === 0 && detallesActualizados.length === 0 && detallesNuevosInsertados.length === 0 && detallesEliminados.length === 0) {
       throw new Error('No se proporcionaron campos o detalles para actualizar');
     }
 
@@ -1707,6 +1906,7 @@ const actualizarCompra = async (fac_nro, datosActualizacion) => {
         !c.includes('fac_fch_mod') && !c.includes('fac_usu_cod_mod')
       ),
       detalles_actualizados: detallesActualizados,
+      detalles_eliminados: detallesEliminados,
       detalles_nuevos_insertados: detallesNuevosInsertados
     };
 
