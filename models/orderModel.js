@@ -118,7 +118,11 @@ const expandirBundles = async (pool, detalles, fac_tip_cod = null) => {
   for (const detalle of detalles) {
     const artSec = detalle.art_sec != null ? String(detalle.art_sec) : '';
     if (!artSec) continue;
-    if (componentesYaAnadidos.has(artSec)) continue;
+    // Solo omitir si la línea ya llega marcada como componente explícito de un bundle
+    // (kar_bundle_padre seteado). Si el usuario agregó el artículo manualmente como
+    // adicional, kar_bundle_padre será null/undefined y debe incluirse aunque su art_sec
+    // coincida con un componente de algún bundle del mismo pedido.
+    if (componentesYaAnadidos.has(artSec) && detalle.kar_bundle_padre) continue;
 
     const articuloCheck = await pool.request()
       .input('art_sec', sql.VarChar(30), artSec)

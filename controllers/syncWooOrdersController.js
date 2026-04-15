@@ -635,7 +635,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
             await transaction.request()
                 .input('fac_sec', sql.Int, facSec)
                 .input('kar_sec', sql.Int, karSecCounter++) // CORREGIDO: Usar contador secuencial
-                .input('art_sec', sql.Int, articleInfo)
+                .input('art_sec', sql.VarChar(30), String(articleInfo)) // art_sec es VARCHAR(30) en BD
                 .input('kar_bod_sec', sql.Int, 1)
                 .input('kar_uni', sql.Int, quantity)
                 .input('kar_nat', sql.VarChar(1), 'C')
@@ -676,7 +676,7 @@ const createOrder = async (orderData, nitSec, usuario) => {
 
         console.log('Commit de la transacción...');
         await transaction.commit();
-        
+
         // Actualizar la lista de precios después de crear el pedido
         console.log('Actualizando lista de precios...');
         await actualizarListaPrecios(facSec);
@@ -901,7 +901,7 @@ const updateOrder = async (orderData, facSec, usuario) => {
             await transaction.request()
                 .input('fac_sec', sql.Int, facSec)
                 .input('kar_sec', sql.Int, karSecCounter++) // CORREGIDO: Usar contador secuencial
-                .input('art_sec', sql.Int, articleInfo)
+                .input('art_sec', sql.VarChar(30), String(articleInfo)) // art_sec es VARCHAR(30) en BD
                 .input('kar_bod_sec', sql.Int, 1)
                 .input('kar_uni', sql.Int, quantity)
                 .input('kar_nat', sql.VarChar(1), 'C')
