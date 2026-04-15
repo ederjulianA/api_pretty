@@ -7,6 +7,8 @@ const imageOptimizer = require('./lib/imageOptimizer');
 const pdfGenerator = require('./lib/pdfGenerator');
 // Usar versión simplificada que NO carga WooCommerce (evita errores de dependencias)
 const dbCatalog = require('./lib/dbCatalogSimple');
+const { subirCatalogo } = require('./lib/azureUploader');
+const { purgarCache } = require('./lib/cloudflarePurge');
 
 // Obtener directorio base del script (poc-catalogo-pdf/)
 const baseDir = __dirname;
@@ -118,8 +120,39 @@ async function generarCatalogo() {
     }
     console.log('');
     console.log('='.repeat(60));
-    
-    // 7. Guardar reporte en JSON
+
+    // 7. Subir a Azure y purgar caché en Cloudflare
+    let resultadoNube = { exito: false, omitido: true };
+    let resultadoPurga = { exito: false, omitido: true };
+
+    console.log('☁️  Publicando en la nube...');
+    try {
+      console.log('   🚀 Subiendo a Azure Blob Storage...');
+      resultadoNube = await subirCatalogo(resultadoPDF.ruta);
+      if (resultadoNube.omitido) {
+        console.log('   ℹ️  Subida omitida (sin credenciales Azure).');
+      } else {
+        console.log(`   ✓ Subida exitosa → ${resultadoNube.url}`);
+
+        console.log('   🧹 Purgando caché en Cloudflare CDN...');
+        resultadoPurga = await purgarCache();
+        if (resultadoPurga.omitido) {
+          console.log('   ℹ️  Purga omitida (sin credenciales Cloudflare).');
+        } else {
+          console.log('   ✓ Caché purgada. (propagación global: ~30 segundos)');
+        }
+      }
+    } catch (errorNube) {
+      console.error(`   ❌ Error en publicación cloud: ${errorNube.message}`);
+      console.log('   ⚠️  El PDF local se conserva en:', resultadoPDF.ruta);
+    }
+    if (resultadoNube.exito) {
+      console.log('');
+      console.log(`🌐 Catálogo disponible en: ${resultadoNube.url}`);
+    }
+    console.log('');
+
+    // 8. Guardar reporte en JSON
     const reporte = {
       fecha: new Date().toISOString(),
       exito: pesoOK && imagenOK && tiempoOK,
@@ -145,6 +178,11 @@ async function generarCatalogo() {
         pesoPDF: { cumple: pesoOK, objetivo: 25, valor: resultadoPDF.tamanoMB },
         pesoImagen: { cumple: imagenOK, objetivo: 80, valor: parseFloat(promedioImagen.toFixed(2)) },
         tiempo: { cumple: tiempoOK, objetivo: 360, valor: parseFloat(tiempoTotal) }
+      },
+      nube: {
+        subidaAzure: resultadoNube.exito,
+        urlPublica: resultadoNube.url || null,
+        purgaCloudflare: resultadoPurga.exito,
       }
     };
     
