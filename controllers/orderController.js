@@ -42,6 +42,35 @@ const validarBundles = async (detalles) => {
 };
 
 
+const validarExistenciasVTA = async (detalles) => {
+  if (!detalles?.length) return;
+  const pool = await poolPromise;
+
+  const artSecs = [...new Set(detalles.map(d => d.art_sec).filter(Boolean))];
+  if (!artSecs.length) return;
+
+  const request = pool.request();
+  artSecs.forEach((sec, i) => request.input(`p${i}`, sql.VarChar(30), sec));
+
+  // Excluir bundles padre — su stock se valida por componentes en validarBundles()
+  const result = await request.query(`
+    SELECT a.art_sec, a.art_cod, a.art_nom, ISNULL(e.existencia, 0) AS existencia
+    FROM dbo.articulos a
+    LEFT JOIN dbo.vwExistencias e ON a.art_sec = e.art_sec
+    WHERE a.art_sec IN (${artSecs.map((_, i) => `@p${i}`).join(',')})
+      AND ISNULL(a.art_bundle, 'N') != 'S'
+      AND ISNULL(e.existencia, 0) <= 0
+  `);
+
+  if (result.recordset.length > 0) {
+    const lista = result.recordset.map(r => `${r.art_nom} (${r.art_cod})`).join(', ');
+    const err = new Error(`No se puede generar la factura. Los siguientes artículos no tienen existencia: ${lista}`);
+    err.statusCode = 400;
+    throw err;
+  }
+};
+
+
 const updateOrderEndpoint = async (req, res) => {
   try {
     const { fac_nro } = req.params;
@@ -54,12 +83,16 @@ const updateOrderEndpoint = async (req, res) => {
       });
     }
 
+    if (fac_tip_cod === 'VTA') {
+      await validarExistenciasVTA(detalles);
+    }
+
     // Se espera que cada ítem de details tenga: art_sec, kar_uni, precio_de_venta y kar_lis_pre_cod
     const result = await updateOrder({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_descuento_general, fac_est_woo });
     return res.json({ success: true, ...result });
   } catch (error) {
     console.error("Error al actualizar el pedido:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(error.statusCode || 500).json({ success: false, error: error.message });
   }
 };
 
@@ -72,7 +105,13 @@ const createCompleteOrder = async (req, res) => {
       return res.status(400).json({ error: "Debe enviar 'nit_sec' y un arreglo no vacío de 'detalles'." });
     }
 
-    await validarBundles(detalles);
+    if (fac_tip_cod !== 'COT') {
+      await validarBundles(detalles);
+    }
+
+    if (fac_tip_cod === 'VTA') {
+      await validarExistenciasVTA(detalles);
+    }
 
     const result = await orderModel.createCompleteOrder({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general });
     res.status(201).json({
@@ -83,7 +122,7 @@ const createCompleteOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("Error al crear la orden completa:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(error.statusCode || 500).json({ success: false, error: error.message });
   }
 };
 
