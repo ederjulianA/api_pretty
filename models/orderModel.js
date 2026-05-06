@@ -601,8 +601,9 @@ const getOrder = async (fac_nro) => {
         f.fac_est_fac,
         f.fac_descuento_general,
         f.fac_total_woo,
+        f.fac_obs,
         c.ciu_nom
-      FROM dbo.factura f  
+      FROM dbo.factura f
       LEFT JOIN dbo.nit n ON n.nit_sec = f.nit_sec
       LEFT JOIN dbo.Ciudad c ON c.ciu_cod = n.ciu_cod
       WHERE f.fac_nro = @fac_nro;
