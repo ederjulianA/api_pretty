@@ -103,9 +103,27 @@ const updateParametro = async (par_cod, par_value) => {
     }
 };
 
+const getDatosPagoCotizacion = async () => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('par_cod', sql.VarChar(50), 'datos_pago_cotizacion')
+            .query("SELECT par_value FROM dbo.parametros WHERE par_cod = @par_cod");
+
+        if (result.recordset.length === 0) {
+            throw new Error('Parámetro datos_pago_cotizacion no encontrado en BD');
+        }
+
+        return JSON.parse(result.recordset[0].par_value);
+    } catch (error) {
+        throw error;
+    }
+};
+
 module.exports = {
     getPedidoMinimo,
     getAllParametros,
     getParametroByCod,
-    updateParametro
+    updateParametro,
+    getDatosPagoCotizacion
 };

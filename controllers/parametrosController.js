@@ -1,4 +1,4 @@
-const {getPedidoMinimo, getAllParametros, getParametroByCod, updateParametro} = require('../models/parametrosModel');
+const {getPedidoMinimo, getAllParametros, getParametroByCod, updateParametro, getDatosPagoCotizacion} = require('../models/parametrosModel');
 
 const getPedidoMinimoEndPoint = async(req,res) => {
     try{
@@ -101,10 +101,21 @@ const updateParametroEndpoint = async (req, res) => {
     }
 };
 
-module.exports = { 
+const getDatosPagoCotizacionEndpoint = async (req, res) => {
+    try {
+        const data = await getDatosPagoCotizacion();
+        return res.json({ success: true, data });
+    } catch (error) {
+        console.error("Error al obtener datos de pago cotización: ", error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+module.exports = {
     getPedidoMinimoEndPoint,
     getAllParametrosEndpoint,
     getParametroByCodEndpoint,
-    updateParametroEndpoint
+    updateParametroEndpoint,
+    getDatosPagoCotizacionEndpoint
 };
 

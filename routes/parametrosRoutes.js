@@ -1,15 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middlewares/auth');
-const { 
+const {
     getPedidoMinimoEndPoint,
     getAllParametrosEndpoint,
     getParametroByCodEndpoint,
-    updateParametroEndpoint
+    updateParametroEndpoint,
+    getDatosPagoCotizacionEndpoint
 } = require('../controllers/parametrosController');
 
-// Ruta específica para pedido mínimo (debe ir antes de la ruta genérica)
+// Rutas específicas — deben ir ANTES de /:par_cod
 router.get('/pedido-minimo', verifyToken, getPedidoMinimoEndPoint);
+router.get('/datos-pago-cotizacion', verifyToken, getDatosPagoCotizacionEndpoint);
 
 // Rutas generales de parámetros
 router.get('/', verifyToken, getAllParametrosEndpoint);
