@@ -9,6 +9,7 @@ import updateWooStockRoutes from './routes/updateWooStockRoutes.js';
 import roleRoutes from './routes/roleRoutes.js';
 import wooSyncRoutes from './routes/wooSyncRoutes.js';
 import syncWooOrdersRoutes from './routes/syncWooOrdersRoutes.js';
+import wooCategoriaRoutes from './routes/wooCategoriaRoutes.js';
 import documentoInventarioRoutes from './routes/documentoInventarioRoutes.js';
 dotenv.config();
 
@@ -67,6 +68,7 @@ app.use(fileUpload({
 app.use("/api/woo", wooRoutes);
 app.use("/api/woo", wooSyncRoutes);
 app.use("/api/woo", syncWooOrdersRoutes);
+app.use("/api/woo", wooCategoriaRoutes);
 app.use("/api/inventory-differences", inventoryDifferenceRoutes);
 app.get("/api/woo/test", (req, res) => {
   res.json({ message: "WooCommerce router is working" });
