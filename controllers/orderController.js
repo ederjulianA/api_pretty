@@ -98,7 +98,7 @@ const updateOrderEndpoint = async (req, res) => {
 
 const createCompleteOrder = async (req, res) => {
   try {
-    const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general } = req.body;
+    const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general, fac_fec } = req.body;
     console.log(req.body);
     // Validar que se envíe el nit del cliente y al menos un detalle
     if (!nit_sec || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
@@ -113,7 +113,7 @@ const createCompleteOrder = async (req, res) => {
       await validarExistenciasVTA(detalles);
     }
 
-    const result = await orderModel.createCompleteOrder({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general });
+    const result = await orderModel.createCompleteOrder({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general, fac_fec });
     res.status(201).json({
       success: true,
       fac_sec: result.fac_sec,
