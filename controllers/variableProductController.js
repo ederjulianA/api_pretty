@@ -19,7 +19,8 @@ const createVariable = async (req, res) => {
       categoria,
       subcategoria,
       precio_detal_referencia,
-      precio_mayor_referencia
+      precio_mayor_referencia,
+      art_max_unidades_pedido
     } = req.body;
 
     // Parsear attributes si viene como string (desde form-data de Postman)
@@ -42,6 +43,16 @@ const createVariable = async (req, res) => {
       });
     }
 
+    if (art_max_unidades_pedido !== undefined && art_max_unidades_pedido !== null && art_max_unidades_pedido !== '') {
+      const maxUnidades = Number(art_max_unidades_pedido);
+      if (!Number.isInteger(maxUnidades) || maxUnidades <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'art_max_unidades_pedido debe ser un entero positivo o null'
+        });
+      }
+    }
+
     // express-fileupload: extraer imagenes nombradas (image1, image2, etc.)
     const image1 = req.files?.image1;
     const image2 = req.files?.image2;
@@ -57,7 +68,8 @@ const createVariable = async (req, res) => {
       precio_detal_referencia,
       precio_mayor_referencia,
       attributes,
-      images
+      images,
+      art_max_unidades_pedido
     });
 
     res.status(201).json(result);

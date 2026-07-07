@@ -33,6 +33,26 @@ const wcApi = new WooCommerceRestApi({
   version: "wc/v3"
 });
 
+// Meta key pendiente de confirmar contra el plugin/theme real de la tienda (ver SOLICITUD-5)
+const WOO_META_MAX_UNIDADES = '_max_unidades_pedido';
+
+/**
+ * Valida que un valor sea un entero positivo o null
+ * @param {*} valor
+ * @returns {number|null} valor normalizado
+ * @throws {Error} si el valor no es un entero positivo ni null
+ */
+const validarMaxUnidadesPedido = (valor) => {
+  if (valor === undefined || valor === null || valor === '') {
+    return null;
+  }
+  const numero = Number(valor);
+  if (!Number.isInteger(numero) || numero <= 0) {
+    throw new Error('art_max_unidades_pedido debe ser un entero positivo o null');
+  }
+  return numero;
+};
+
 const validateArticulo = async ({ art_cod, art_woo_id }) => {
   try {
     const pool = await poolPromise;
@@ -83,7 +103,7 @@ const getAIContentForProduct = async (art_sec) => {
   }
 };
 
-const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null, categoria = null, subcategoria = null) => {
+const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null, categoria = null, subcategoria = null, art_max_unidades_pedido = null) => {
   console.log(`[UPDATE_WOO_PRODUCT] Iniciando actualización en WooCommerce`, {
     art_woo_id,
     art_cod,
@@ -133,6 +153,15 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
         { key: '_precio_mayorista', value: precio_mayor }
       ]
     };
+
+    // value: "" le indica a la API de WooCommerce que elimine el meta existente;
+    // omitir la key por completo deja intacto cualquier valor previo en Woo.
+    data.meta_data.push({
+      key: WOO_META_MAX_UNIDADES,
+      value: (art_max_unidades_pedido !== null && art_max_unidades_pedido !== undefined)
+        ? art_max_unidades_pedido.toString()
+        : ''
+    });
 
     // Agregar descripciones si hay contenido IA
     if (contenidoIA?.ai_contenido) {
@@ -565,10 +594,12 @@ const createArticulo = async (articuloData) => {
       .query(updateSecQuery);
 
     // 2. Insertar en la base de datos
+    const maxUnidadesPedido = validarMaxUnidadesPedido(articuloData.art_max_unidades_pedido);
+
     const insertQuery = `
-      INSERT INTO dbo.articulos 
-      (art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec) 
-      VALUES (@artSecInsert, @art_cod, @art_nom, @subcategoria, '1')
+      INSERT INTO dbo.articulos
+      (art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec, art_max_unidades_pedido)
+      VALUES (@artSecInsert, @art_cod, @art_nom, @subcategoria, '1', @maxUnidadesPedido)
     `;
 
     await request
@@ -576,6 +607,7 @@ const createArticulo = async (articuloData) => {
       .input('art_cod', sql.VarChar(30), articuloData.art_cod)
       .input('art_nom', sql.VarChar(100), articuloData.art_nom)
       .input('subcategoria', sql.SmallInt, parseInt(articuloData.subcategoria, 10))
+      .input('maxUnidadesPedido', sql.Int, maxUnidadesPedido)
       .query(insertQuery);
 
     // 3. Subir imágenes a Cloudinary si se proporcionaron
@@ -685,14 +717,21 @@ const createArticulo = async (articuloData) => {
         images: imageUrls.map(url => ({ src: url }))
       };
 
+      if (maxUnidadesPedido !== null) {
+        wooData.meta_data.push({
+          key: WOO_META_MAX_UNIDADES,
+          value: maxUnidadesPedido.toString()
+        });
+      }
+
       // Agregar descripciones si hay contenido IA
       if (contenidoIA?.ai_contenido) {
         const aiContent = contenidoIA.ai_contenido;
-        
+
         if (aiContent.descripcion_larga_html) {
           wooData.description = aiContent.descripcion_larga_html;
         }
-        
+
         if (aiContent.descripcion_corta) {
           wooData.short_description = aiContent.descripcion_corta;
         }
@@ -777,6 +816,7 @@ const createArticulo = async (articuloData) => {
         subcategoria: articuloData.subcategoria,
         precio_detal: articuloData.precio_detal,
         precio_mayor: articuloData.precio_mayor,
+        art_max_unidades_pedido: maxUnidadesPedido,
         art_woo_id,
         images: imageUrls
       },
@@ -949,7 +989,8 @@ const getArticulo = async (art_sec) => {
         a.art_variable,
         a.art_sec_padre,
         a.art_variation_attributes,
-        ISNULL(a.art_bundle, 'N') AS art_bundle
+        ISNULL(a.art_bundle, 'N') AS art_bundle,
+        a.art_max_unidades_pedido
         FROM dbo.articulos a
 	      LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
 	      left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
@@ -1014,7 +1055,7 @@ const getArticulo = async (art_sec) => {
   }
 };
 
-const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, fac_fec = null }) => {
+const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, fac_fec = null, art_max_unidades_pedido }) => {
   let transaction;
   
   console.log(`[UPDATE_ARTICULO] Iniciando actualización para artículo ${id_articulo}`, {
@@ -1035,6 +1076,8 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
 
     const request = new sql.Request(transaction);
 
+    const maxUnidadesPedido = validarMaxUnidadesPedido(art_max_unidades_pedido);
+
     // Actualizar la tabla articulos
     const updateArticuloQuery = `
       UPDATE dbo.articulos
@@ -1042,6 +1085,7 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
           art_nom = @art_nom,
           inv_sub_gru_cod = @subcategoria,
           art_woo_id = @art_woo_id,
+          art_max_unidades_pedido = @maxUnidadesPedido,
           art_woo_sync_status = 'PENDING',
           art_woo_sync_message = NULL
       WHERE art_sec = @id_articulo
@@ -1051,6 +1095,7 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       .input('art_nom', sql.VarChar(100), art_nom)
       .input('subcategoria', sql.SmallInt, parseInt(subcategoria, 10))
       .input('art_woo_id', sql.Int, art_woo_id)
+      .input('maxUnidadesPedido', sql.Int, maxUnidadesPedido)
       .input('id_articulo', sql.VarChar(30), id_articulo.toString())
       .query(updateArticuloQuery);
 
@@ -1139,11 +1184,11 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
         } else {
           // Bundle sin componentes: usar updateWooCommerceProduct normal
           console.log(`[UPDATE_ARTICULO] Bundle sin componentes, usando updateWooCommerceProduct normal`);
-          wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria);
+          wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido);
         }
       } else {
         // No es bundle: usar updateWooCommerceProduct normal
-        wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria);
+        wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido);
       }
       
       // Actualizar estado de sincronización
@@ -1283,7 +1328,8 @@ const createVariableProduct = async (productData) => {
     precio_detal_referencia,
     precio_mayor_referencia,
     attributes,    // [{name: "Tono", options: ["Rojo", "Rosa", "Ciruela", "Coral"]}]
-    images
+    images,
+    art_max_unidades_pedido
   } = productData;
 
   const pool = await poolPromise;
@@ -1340,19 +1386,22 @@ const createVariableProduct = async (productData) => {
     // 2. Insertar producto padre en dbo.articulos
     // NOTA: art_sec=VARCHAR(30), inv_sub_gru_cod=SMALLINT, pre_sec obligatorio
     // NO existen: inv_gru_cod, art_est en esta tabla
+    const maxUnidadesPedido = validarMaxUnidadesPedido(art_max_unidades_pedido);
+
     await request
       .input('art_sec', sql.VarChar(30), art_sec.toString())
       .input('art_cod', sql.VarChar(30), art_cod)
       .input('art_nom', sql.VarChar(100), art_nom)
       .input('subcategoria', sql.SmallInt, parseInt(subcategoria, 10))
+      .input('maxUnidadesPedido', sql.Int, maxUnidadesPedido)
       .query(`
         INSERT INTO dbo.articulos (
           art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec,
-          art_variable, art_woo_type
+          art_variable, art_woo_type, art_max_unidades_pedido
         )
         VALUES (
           @art_sec, @art_cod, @art_nom, @subcategoria, '1',
-          'S', 'variable'
+          'S', 'variable', @maxUnidadesPedido
         )
       `);
 
@@ -1456,6 +1505,13 @@ const createVariableProduct = async (productData) => {
         images: imageUrls.map(url => ({ src: url }))
       };
 
+      if (maxUnidadesPedido !== null) {
+        wooData.meta_data = [{
+          key: WOO_META_MAX_UNIDADES,
+          value: maxUnidadesPedido.toString()
+        }];
+      }
+
       console.log('Creando producto variable en WooCommerce:', JSON.stringify(wooData, null, 2));
 
       const wooProduct = await wcApi.post('products', wooData);
@@ -1511,6 +1567,7 @@ const createVariableProduct = async (productData) => {
         art_nom,
         art_woo_id,
         art_woo_type: 'variable',
+        art_max_unidades_pedido: maxUnidadesPedido,
         attributes: validAttributes,
         images: imageUrls
       },

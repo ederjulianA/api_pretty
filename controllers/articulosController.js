@@ -12,13 +12,23 @@ const updateArticuloEndpoint = async (req, res) => {
     });
     
     const { id_articulo } = req.params;
-    const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha } = req.body;
+    const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, art_max_unidades_pedido } = req.body;
 
     if (!id_articulo || !art_cod || !art_nom || !categoria || !subcategoria || !art_woo_id || precio_detal == null || precio_mayor == null) {
       return res.status(400).json({
         success: false,
         error: "Todos los campos son requeridos: art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal y precio_mayor."
       });
+    }
+
+    if (art_max_unidades_pedido !== undefined && art_max_unidades_pedido !== null && art_max_unidades_pedido !== '') {
+      const maxUnidades = Number(art_max_unidades_pedido);
+      if (!Number.isInteger(maxUnidades) || maxUnidades <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'art_max_unidades_pedido debe ser un entero positivo o null'
+        });
+      }
     }
 
     console.log(`[UPDATE_ARTICULO_ENDPOINT] Llamando a updateArticulo para artículo ${id_articulo}`);
@@ -32,7 +42,8 @@ const updateArticuloEndpoint = async (req, res) => {
       art_woo_id,
       precio_detal,
       precio_mayor,
-      actualiza_fecha
+      actualiza_fecha,
+      art_max_unidades_pedido
     });
 
     console.log(`[UPDATE_ARTICULO_ENDPOINT] Actualización completada para artículo ${id_articulo}`, result);
@@ -53,7 +64,7 @@ const createArticuloEndpoint = async (req, res) => {
     console.log('Request body:', JSON.stringify(req.body, null, 2));
     console.log('Request files:', JSON.stringify(req.files, null, 2));
 
-    const { art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor } = req.body;
+    const { art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor, art_max_unidades_pedido } = req.body;
 
     // Validar que se envíen todos los campos requeridos
     if (!art_cod || !art_nom || !categoria || !subcategoria || precio_detal == null || precio_mayor == null) {
@@ -81,6 +92,16 @@ const createArticuloEndpoint = async (req, res) => {
       });
     }
 
+    if (art_max_unidades_pedido !== undefined && art_max_unidades_pedido !== null && art_max_unidades_pedido !== '') {
+      const maxUnidades = Number(art_max_unidades_pedido);
+      if (!Number.isInteger(maxUnidades) || maxUnidades <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'art_max_unidades_pedido debe ser un entero positivo o null'
+        });
+      }
+    }
+
     // Obtener las imágenes de la petición
     const image1 = req.files?.image1;
     const image2 = req.files?.image2;
@@ -98,6 +119,7 @@ const createArticuloEndpoint = async (req, res) => {
       subcategoria,
       precio_detal,
       precio_mayor,
+      art_max_unidades_pedido,
       images
     });
 
