@@ -13,6 +13,11 @@ const wcApi = new WooCommerceRestApi({
   timeout: 15000
 });
 
+// Fecha centinela para promociones "permanentes": pro_fecha_fin es NOT NULL en BD
+// y se usa en múltiples queries con BETWEEN para validar vigencia, por lo que no
+// puede quedar NULL. Nunca debe enviarse a WooCommerce como date_on_sale_to.
+const FECHA_FIN_PERMANENTE = new Date('9999-12-31T00:00:00');
+
 // Crear promoción (encabezado y detalle)
 const crearPromocion = async (promocionData) => {
   const pool = await poolPromise;
@@ -23,27 +28,29 @@ const crearPromocion = async (promocionData) => {
     const request = new sql.Request(transaction);
     
     // Validar fechas
+    const esPermanente = promocionData.permanente === true;
     const fechaInicio = new Date(promocionData.fecha_inicio);
-    const fechaFin = new Date(promocionData.fecha_fin);
-    
-    if (fechaInicio >= fechaFin) {
+    const fechaFin = esPermanente ? FECHA_FIN_PERMANENTE : new Date(promocionData.fecha_fin);
+
+    if (!esPermanente && fechaInicio >= fechaFin) {
       throw new Error('La fecha de inicio debe ser menor a la fecha de fin');
     }
-    
+
     // Crear encabezado de promoción
     const resultEncabezado = await request
       .input('codigo', sql.VarChar(20), promocionData.codigo)
       .input('descripcion', sql.VarChar(200), promocionData.descripcion)
       .input('fecha_inicio', sql.DateTime, fechaInicio)
       .input('fecha_fin', sql.DateTime, fechaFin)
+      .input('permanente', sql.Char(1), esPermanente ? 'S' : 'N')
       .input('tipo', sql.VarChar(20), promocionData.tipo || 'OFERTA')
       .input('observaciones', sql.VarChar(500), promocionData.observaciones || null)
       .input('usuario', sql.VarChar(50), promocionData.usuario || 'SISTEMA')
       .query(`
-        INSERT INTO dbo.promociones 
-        (pro_codigo, pro_descripcion, pro_fecha_inicio, pro_fecha_fin, pro_tipo, pro_observaciones, pro_usuario_creacion)
+        INSERT INTO dbo.promociones
+        (pro_codigo, pro_descripcion, pro_fecha_inicio, pro_fecha_fin, pro_permanente, pro_tipo, pro_observaciones, pro_usuario_creacion)
         OUTPUT INSERTED.pro_sec
-        VALUES (@codigo, @descripcion, @fecha_inicio, @fecha_fin, @tipo, @observaciones, @usuario)
+        VALUES (@codigo, @descripcion, @fecha_inicio, @fecha_fin, @permanente, @tipo, @observaciones, @usuario)
       `);
     
     const proSec = resultEncabezado.recordset[0].pro_sec;
@@ -134,13 +141,14 @@ const crearPromocion = async (promocionData) => {
         solo_activos: false, // Sincronizar todos los artículos para quitar ofertas de inactivos
         fechasPromocion: {
           fecha_inicio: fechaInicio,
-          fecha_fin: fechaFin
+          fecha_fin: fechaFin,
+          permanente: esPermanente
         }
       });
     } catch (error) {
       errorSincronizacion = error;
     }
-    
+
     // Preparar respuesta
     const respuesta = {
       success: true,
@@ -150,7 +158,8 @@ const crearPromocion = async (promocionData) => {
         codigo: promocionData.codigo,
         descripcion: promocionData.descripcion,
         fecha_inicio: fechaInicio,
-        fecha_fin: fechaFin,
+        fecha_fin: esPermanente ? null : fechaFin,
+        permanente: esPermanente,
         articulos_count: promocionData.articulos.length
       }
     };
@@ -206,30 +215,35 @@ const actualizarPromocion = async (proSec, promocionData) => {
     const promocionExistente = await requestCheck
       .input('pro_sec', sql.Decimal(18, 0), proSec)
       .query(`
-        SELECT pro_sec, pro_codigo, pro_descripcion, pro_fecha_inicio, pro_fecha_fin, pro_tipo, pro_observaciones
-        FROM dbo.promociones 
+        SELECT pro_sec, pro_codigo, pro_descripcion, pro_fecha_inicio, pro_fecha_fin, pro_permanente, pro_tipo, pro_observaciones
+        FROM dbo.promociones
         WHERE pro_sec = @pro_sec
       `);
-    
+
     if (promocionExistente.recordset.length === 0) {
       throw new Error('La promoción no existe');
     }
-    
+
     // Validar fechas si se proporcionan
+    // permanente ausente en el request = mantener el valor actual (compatibilidad retroactiva)
+    const esPermanente = promocionData.permanente !== undefined
+      ? promocionData.permanente === true
+      : promocionExistente.recordset[0].pro_permanente === 'S';
+
     let fechaInicio = promocionExistente.recordset[0].pro_fecha_inicio;
-    let fechaFin = promocionExistente.recordset[0].pro_fecha_fin;
-    
+    let fechaFin = esPermanente ? FECHA_FIN_PERMANENTE : promocionExistente.recordset[0].pro_fecha_fin;
+
     if (promocionData.fecha_inicio) {
       fechaInicio = new Date(promocionData.fecha_inicio);
     }
-    if (promocionData.fecha_fin) {
+    if (!esPermanente && promocionData.fecha_fin) {
       fechaFin = new Date(promocionData.fecha_fin);
     }
-    
-    if (fechaInicio >= fechaFin) {
+
+    if (!esPermanente && fechaInicio >= fechaFin) {
       throw new Error('La fecha de inicio debe ser menor a la fecha de fin');
     }
-    
+
     // Actualizar encabezado de promoción
     const requestUpdate = new sql.Request(transaction);
     await requestUpdate
@@ -238,15 +252,17 @@ const actualizarPromocion = async (proSec, promocionData) => {
       .input('descripcion', sql.VarChar(200), promocionData.descripcion || promocionExistente.recordset[0].pro_descripcion)
       .input('fecha_inicio', sql.DateTime, fechaInicio)
       .input('fecha_fin', sql.DateTime, fechaFin)
+      .input('permanente', sql.Char(1), esPermanente ? 'S' : 'N')
       .input('tipo', sql.VarChar(20), promocionData.tipo || promocionExistente.recordset[0].pro_tipo)
       .input('observaciones', sql.VarChar(500), promocionData.observaciones || promocionExistente.recordset[0].pro_observaciones)
       .input('usuario', sql.VarChar(50), promocionData.usuario || 'SISTEMA')
       .query(`
-        UPDATE dbo.promociones 
+        UPDATE dbo.promociones
         SET pro_codigo = @codigo,
             pro_descripcion = @descripcion,
             pro_fecha_inicio = @fecha_inicio,
             pro_fecha_fin = @fecha_fin,
+            pro_permanente = @permanente,
             pro_tipo = @tipo,
             pro_observaciones = @observaciones,
             pro_usuario_modificacion = @usuario,
@@ -391,13 +407,14 @@ const actualizarPromocion = async (proSec, promocionData) => {
         solo_activos: false, // Sincronizar todos los artículos para quitar ofertas de inactivos
         fechasPromocion: {
           fecha_inicio: fechaInicio,
-          fecha_fin: fechaFin
+          fecha_fin: fechaFin,
+          permanente: esPermanente
         }
       });
     } catch (error) {
       errorSincronizacion = error;
     }
-    
+
     // Preparar respuesta
     const respuesta = {
       success: true,
@@ -407,7 +424,8 @@ const actualizarPromocion = async (proSec, promocionData) => {
         codigo: promocionData.codigo || promocionExistente.recordset[0].pro_codigo,
         descripcion: promocionData.descripcion || promocionExistente.recordset[0].pro_descripcion,
         fecha_inicio: fechaInicio,
-        fecha_fin: fechaFin,
+        fecha_fin: esPermanente ? null : fechaFin,
+        permanente: esPermanente,
         articulos_count: promocionData.articulos ? promocionData.articulos.length : 0
       }
     };
@@ -505,12 +523,13 @@ const obtenerPromociones = async ({ fechaDesde, fechaHasta, codigo, descripcion,
     // Consulta principal con conteo total
     const query = `
       WITH PromocionesConConteo AS (
-        SELECT 
+        SELECT
           p.pro_sec,
           p.pro_codigo,
           p.pro_descripcion,
           p.pro_fecha_inicio,
           p.pro_fecha_fin,
+          p.pro_permanente,
           p.pro_activa,
           p.pro_tipo,
           p.pro_observaciones,
@@ -522,18 +541,19 @@ const obtenerPromociones = async ({ fechaDesde, fechaHasta, codigo, descripcion,
           SUM(CASE WHEN pd.pro_det_estado = 'A' THEN 1 ELSE 0 END) as articulos_activos,
           SUM(CASE WHEN pd.pro_det_precio_oferta > 0 THEN 1 ELSE 0 END) as articulos_precio_oferta,
           SUM(CASE WHEN pd.pro_det_descuento_porcentaje > 0 THEN 1 ELSE 0 END) as articulos_descuento,
-          CASE 
+          CASE
+            WHEN p.pro_permanente = 'S' AND GETDATE() >= p.pro_fecha_inicio THEN 'ACTIVA'
             WHEN GETDATE() < p.pro_fecha_inicio THEN 'PENDIENTE'
             WHEN GETDATE() BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin THEN 'ACTIVA'
             WHEN GETDATE() > p.pro_fecha_fin THEN 'VENCIDA'
             ELSE 'DESCONOCIDA'
           END as estado_temporal,
-          DATEDIFF(day, GETDATE(), p.pro_fecha_fin) as dias_restantes
+          CASE WHEN p.pro_permanente = 'S' THEN NULL ELSE DATEDIFF(day, GETDATE(), p.pro_fecha_fin) END as dias_restantes
         FROM dbo.promociones p
         LEFT JOIN dbo.promociones_detalle pd ON p.pro_sec = pd.pro_sec
         ${whereClause}
-        GROUP BY 
-          p.pro_sec, p.pro_codigo, p.pro_descripcion, p.pro_fecha_inicio, p.pro_fecha_fin,
+        GROUP BY
+          p.pro_sec, p.pro_codigo, p.pro_descripcion, p.pro_fecha_inicio, p.pro_fecha_fin, p.pro_permanente,
           p.pro_activa, p.pro_tipo, p.pro_observaciones, p.pro_fecha_creacion,
           p.pro_usuario_creacion, p.pro_fecha_modificacion, p.pro_usuario_modificacion
       ),
@@ -567,10 +587,16 @@ const obtenerPromociones = async ({ fechaDesde, fechaHasta, codigo, descripcion,
     request.input('PageSize', sql.Int, PageSize || 15);
     
     const result = await request.query(query);
-    
+
+    const data = result.recordset.map(row => ({
+      ...row,
+      pro_fecha_fin: row.pro_permanente === 'S' ? null : row.pro_fecha_fin,
+      pro_permanente: row.pro_permanente === 'S'
+    }));
+
     return {
       success: true,
-      data: result.recordset,
+      data,
       pagination: {
         page: PageNumber || 1,
         pageSize: PageSize || 15,
@@ -591,12 +617,13 @@ const obtenerPromocionPorId = async (proSec) => {
     
     // Consulta para obtener la información del encabezado de la promoción
     const queryEncabezado = `
-      SELECT 
+      SELECT
         p.pro_sec,
         p.pro_codigo,
         p.pro_descripcion,
         p.pro_fecha_inicio,
         p.pro_fecha_fin,
+        p.pro_permanente,
         p.pro_activa,
         p.pro_tipo,
         p.pro_observaciones,
@@ -604,26 +631,32 @@ const obtenerPromocionPorId = async (proSec) => {
         p.pro_usuario_creacion,
         p.pro_fecha_modificacion,
         p.pro_usuario_modificacion,
-        CASE 
+        CASE
+          WHEN p.pro_permanente = 'S' AND GETDATE() >= p.pro_fecha_inicio THEN 'ACTIVA'
           WHEN GETDATE() < p.pro_fecha_inicio THEN 'PENDIENTE'
           WHEN GETDATE() BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin THEN 'ACTIVA'
           WHEN GETDATE() > p.pro_fecha_fin THEN 'VENCIDA'
           ELSE 'DESCONOCIDA'
         END as estado_temporal,
-        DATEDIFF(day, GETDATE(), p.pro_fecha_fin) as dias_restantes
+        CASE WHEN p.pro_permanente = 'S' THEN NULL ELSE DATEDIFF(day, GETDATE(), p.pro_fecha_fin) END as dias_restantes
       FROM dbo.promociones p
       WHERE p.pro_sec = @pro_sec
     `;
-    
+
     const resultEncabezado = await pool.request()
       .input('pro_sec', sql.Decimal(18, 0), proSec)
       .query(queryEncabezado);
-    
+
     if (resultEncabezado.recordset.length === 0) {
       throw new Error('Promoción no encontrada');
     }
-    
-    const promocion = resultEncabezado.recordset[0];
+
+    const promocionRaw = resultEncabezado.recordset[0];
+    const promocion = {
+      ...promocionRaw,
+      pro_fecha_fin: promocionRaw.pro_permanente === 'S' ? null : promocionRaw.pro_fecha_fin,
+      pro_permanente: promocionRaw.pro_permanente === 'S'
+    };
     
     // Consulta para obtener los detalles de artículos de la promoción
     const queryDetalles = `
@@ -734,14 +767,16 @@ const sincronizarPreciosPromocion = async (proSec, opciones = {}) => {
     const promocionResult = await pool.request()
       .input('pro_sec', sql.Decimal(18, 0), proSec)
       .query(`
-        SELECT 
+        SELECT
           p.pro_sec,
           p.pro_codigo,
           p.pro_descripcion,
           p.pro_fecha_inicio,
           p.pro_fecha_fin,
+          p.pro_permanente,
           p.pro_activa,
-          CASE 
+          CASE
+            WHEN p.pro_permanente = 'S' AND GETDATE() >= p.pro_fecha_inicio THEN 'ACTIVA'
             WHEN GETDATE() < p.pro_fecha_inicio THEN 'PENDIENTE'
             WHEN GETDATE() BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin THEN 'ACTIVA'
             WHEN GETDATE() > p.pro_fecha_fin THEN 'VENCIDA'
@@ -823,7 +858,8 @@ const sincronizarPreciosPromocion = async (proSec, opciones = {}) => {
     } else {
       fechasPromocion = {
         fecha_inicio: promocion.pro_fecha_inicio,
-        fecha_fin: promocion.pro_fecha_fin
+        fecha_fin: promocion.pro_fecha_fin,
+        permanente: promocion.pro_permanente === 'S'
       };
     }
 
@@ -877,9 +913,16 @@ const sincronizarPreciosPromocion = async (proSec, opciones = {}) => {
             }
             if (fechasPromocion.fecha_inicio && fechasPromocion.fecha_fin) {
               const fechaInicio = new Date(fechasPromocion.fecha_inicio);
-              const fechaFin = new Date(fechasPromocion.fecha_fin);
               wooData.date_on_sale_from = fechaInicio.toISOString().slice(0, 19);
-              wooData.date_on_sale_to = fechaFin.toISOString().slice(0, 19).replace(/T\d{2}:\d{2}:\d{2}/, 'T23:59:59');
+              // Promoción permanente: limpiar explícitamente date_on_sale_to (cadena vacía),
+              // nunca omitir la key ni enviar la fecha centinela — WooCommerce interpreta
+              // ausencia de campo como "no tocar" y dejaría una fecha vieja intacta.
+              if (fechasPromocion.permanente) {
+                wooData.date_on_sale_to = '';
+              } else {
+                const fechaFin = new Date(fechasPromocion.fecha_fin);
+                wooData.date_on_sale_to = fechaFin.toISOString().slice(0, 19).replace(/T\d{2}:\d{2}:\d{2}/, 'T23:59:59');
+              }
             }
           } else {
             wooData.sale_price = '';

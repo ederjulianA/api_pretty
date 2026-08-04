@@ -233,6 +233,7 @@ export const obtenerPreciosConOferta = async (art_sec, fecha_consulta = null) =>
                         pd.pro_det_descuento_porcentaje,
                         p.pro_fecha_inicio,
                         p.pro_fecha_fin,
+                        p.pro_permanente,
                         p.pro_codigo,
                         p.pro_descripcion,
                         p.pro_activa,
@@ -271,14 +272,15 @@ export const obtenerPreciosConOferta = async (art_sec, fecha_consulta = null) =>
                     pa.pro_det_descuento_porcentaje AS descuento_porcentaje,
                     pa.pro_fecha_inicio,
                     pa.pro_fecha_fin,
+                    pa.pro_permanente,
                     pa.pro_codigo AS codigo_promocion,
                     pa.pro_descripcion AS descripcion_promocion,
                     pa.pro_activa,
-                    CASE 
-                        WHEN (pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0) 
+                    CASE
+                        WHEN (pa.pro_det_precio_oferta IS NOT NULL AND pa.pro_det_precio_oferta > 0)
                              OR (pa.pro_det_descuento_porcentaje IS NOT NULL AND pa.pro_det_descuento_porcentaje > 0)
-                        THEN 'S' 
-                        ELSE 'N' 
+                        THEN 'S'
+                        ELSE 'N'
                     END AS tiene_oferta
                 FROM dbo.articulos a
                 LEFT JOIN dbo.articulosdetalle ad1 ON a.art_sec = ad1.art_sec AND ad1.lis_pre_cod = 1 AND ad1.bod_sec = '1'
@@ -307,6 +309,7 @@ export const obtenerPreciosConOferta = async (art_sec, fecha_consulta = null) =>
                 descuento_porcentaje: articulo.descuento_porcentaje,
                 fecha_inicio: articulo.pro_fecha_inicio,
                 fecha_fin: articulo.pro_fecha_fin,
+                permanente: articulo.pro_permanente === 'S',
                 codigo_promocion: articulo.codigo_promocion,
                 descripcion_promocion: articulo.descripcion_promocion
             } : null
@@ -349,6 +352,7 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
                         pd.pro_det_descuento_porcentaje,
                         p.pro_fecha_inicio,
                         p.pro_fecha_fin,
+                        p.pro_permanente,
                         p.pro_codigo,
                         p.pro_descripcion,
                         p.pro_activa,
@@ -387,6 +391,7 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
                     pa.pro_det_descuento_porcentaje AS descuento_porcentaje,
                     pa.pro_fecha_inicio,
                     pa.pro_fecha_fin,
+                    pa.pro_permanente,
                     pa.pro_codigo AS codigo_promocion,
                     pa.pro_descripcion AS descripcion_promocion,
                     pa.pro_activa,
@@ -420,6 +425,7 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
                     descuento_porcentaje: row.descuento_porcentaje,
                     fecha_inicio: row.pro_fecha_inicio,
                     fecha_fin: row.pro_fecha_fin,
+                    permanente: row.pro_permanente === 'S',
                     codigo_promocion: row.codigo_promocion,
                     descripcion_promocion: row.descripcion_promocion
                 } : null

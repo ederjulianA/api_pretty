@@ -185,6 +185,7 @@ export const getArticlePricesAndOffers = async (art_cod) => {
       descuento_porcentaje: preciosData.oferta_info?.descuento_porcentaje || null,
       pro_fecha_inicio: preciosData.oferta_info?.fecha_inicio || null,
       pro_fecha_fin: preciosData.oferta_info?.fecha_fin || null,
+      pro_permanente: preciosData.oferta_info?.permanente ? 'S' : 'N',
       codigo_promocion: preciosData.oferta_info?.codigo_promocion || null,
       descripcion_promocion: preciosData.oferta_info?.descripcion_promocion || null,
       tiene_oferta: preciosData.tiene_oferta ? 'S' : 'N'
@@ -329,20 +330,26 @@ const updateWooProductPrices = async (art_cods = [], opciones = {}) => {
           // Agregar fechas de oferta - priorizar fechas de promoción pasadas como parámetro
           let fechaInicio = null;
           let fechaFin = null;
-          
+          let esPermanente = false;
+
           if (opciones.fechasPromocion && opciones.fechasPromocion.fecha_inicio && opciones.fechasPromocion.fecha_fin) {
             // Usar fechas de promoción pasadas como parámetro (para promociones nuevas o futuras)
             fechaInicio = opciones.fechasPromocion.fecha_inicio;
             fechaFin = opciones.fechasPromocion.fecha_fin;
+            esPermanente = !!opciones.fechasPromocion.permanente;
           } else if (articleData.pro_fecha_inicio && articleData.pro_fecha_fin) {
             // Usar fechas de promoción desde articleData (para promociones activas)
             fechaInicio = articleData.pro_fecha_inicio;
             fechaFin = articleData.pro_fecha_fin;
+            esPermanente = articleData.pro_permanente === 'S';
           }
-          
+
           if (fechaInicio && fechaFin) {
             wooData.date_on_sale_from = formatDateToISO8601(fechaInicio, false); // Fecha de inicio
-            wooData.date_on_sale_to = formatDateToISO8601(fechaFin, true); // Fecha de fin (23:59:59)
+            // Promoción permanente: limpiar explícitamente date_on_sale_to (cadena vacía),
+            // nunca omitir la key ni enviar la fecha centinela — WooCommerce interpreta
+            // ausencia de campo como "no tocar" y dejaría una fecha vieja intacta.
+            wooData.date_on_sale_to = esPermanente ? '' : formatDateToISO8601(fechaFin, true); // Fecha de fin (23:59:59)
           }
 
           // NO agregar meta_data de promoción que interfieren con special deals
