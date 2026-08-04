@@ -103,7 +103,7 @@ const getAIContentForProduct = async (art_sec) => {
   }
 };
 
-const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null, categoria = null, subcategoria = null, art_max_unidades_pedido = null) => {
+const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null, categoria = null, subcategoria = null, art_max_unidades_pedido = null, esVariable = false) => {
   console.log(`[UPDATE_WOO_PRODUCT] Iniciando actualización en WooCommerce`, {
     art_woo_id,
     art_cod,
@@ -145,14 +145,19 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
     }
 
     // Preparar datos base
+    // Un producto padre 'variable' no gestiona precio/stock propio en WooCommerce
+    // (lo gestionan sus variaciones) - enviarlo genera inconsistencia o es ignorado por la API.
     const data = {
       name: contenidoIA?.ai_contenido?.titulo_seo || art_nom,
       sku: art_cod,
-      regular_price: precio_detal.toString(),
       meta_data: [
         { key: '_precio_mayorista', value: precio_mayor }
       ]
     };
+
+    if (!esVariable) {
+      data.regular_price = precio_detal.toString();
+    }
 
     // value: "" le indica a la API de WooCommerce que elimine el meta existente;
     // omitir la key por completo deja intacto cualquier valor previo en Woo.
@@ -356,7 +361,7 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
   }
 };
 
-const getArticulos = async ({ codigo, nombre, inv_gru_cod, inv_sub_gru_cod, tieneExistencia, PageNumber, PageSize }) => {
+const getArticulos = async ({ codigo, nombre, inv_gru_cod, inv_sub_gru_cod, tieneExistencia, PageNumber, PageSize, excluirVariables }) => {
   try {
     const pool = await poolPromise;
 
@@ -517,6 +522,7 @@ WITH ArticulosBase AS (
              OR (@tieneExistencia = 1 AND ISNULL(e.existencia, 0) > 0)
              OR (@tieneExistencia = 0 AND ISNULL(e.existencia, 0) = 0)
           )
+      AND (@excluirVariables = 0 OR ISNULL(a.art_woo_type, '') <> 'variable')
 )
 SELECT *, COUNT(*) OVER() AS total_records
 FROM ArticulosBase
@@ -532,6 +538,7 @@ OPTION (RECOMPILE);
       .input('inv_gru_cod', sql.VarChar(16), inv_gru_cod)
       .input('inv_sub_gru_cod', sql.SmallInt, inv_sub_gru_cod ? parseInt(inv_sub_gru_cod, 10) : null)
       .input('tieneExistencia', sql.Bit, typeof tieneExistencia !== 'undefined' ? tieneExistencia : null)
+      .input('excluirVariables', sql.Bit, excluirVariables ? 1 : 0)
       .input('PageNumber', sql.Int, PageNumber)
       .input('PageSize', sql.Int, PageSize)
       .query(query);
@@ -1142,13 +1149,14 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
     await transaction.commit();
     console.log(`[UPDATE_ARTICULO] Transacción confirmada para artículo ${id_articulo}`);
 
-    // Verificar si es bundle antes de sincronizar con WooCommerce
+    // Verificar si es bundle o padre variable antes de sincronizar con WooCommerce
     const checkBundle = await pool.request()
       .input('id_articulo', sql.VarChar(30), id_articulo.toString())
-      .query('SELECT art_bundle, inv_sub_gru_cod FROM dbo.articulos WHERE art_sec = @id_articulo');
-    
+      .query('SELECT art_bundle, inv_sub_gru_cod, art_woo_type FROM dbo.articulos WHERE art_sec = @id_articulo');
+
     const esBundle = checkBundle.recordset[0]?.art_bundle === 'S';
     const inv_sub_gru_cod = checkBundle.recordset[0]?.inv_sub_gru_cod;
+    const esVariable = checkBundle.recordset[0]?.art_woo_type === 'variable';
 
     // Actualización en WooCommerce
     try {
@@ -1188,7 +1196,8 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
         }
       } else {
         // No es bundle: usar updateWooCommerceProduct normal
-        wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido);
+        // Si es padre variable, omitir regular_price/stock (SOLICITUD-1)
+        wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido, esVariable);
       }
       
       // Actualizar estado de sincronización
@@ -2058,6 +2067,22 @@ const convertArticuloToVariable = async (art_sec, attributes) => {
       throw new Error('No se puede convertir una variación a producto variable');
     }
 
+    // 1b. Bloquear conversión si el artículo tiene existencia propia.
+    // El padre variable no gestiona stock en WooCommerce (lo gestionan las variaciones),
+    // y no hay mecanismo de reparto automático hacia las variaciones que se creen después.
+    const stockResult = await pool.request()
+      .input('art_sec', sql.VarChar(30), art_sec)
+      .query('SELECT ISNULL(existencia, 0) AS existencia FROM dbo.vwExistencias WHERE art_sec = @art_sec');
+
+    const existenciaActual = stockResult.recordset.length > 0 ? Number(stockResult.recordset[0].existencia) : 0;
+
+    if (existenciaActual > 0) {
+      throw {
+        statusCode: 400,
+        message: `El artículo tiene ${existenciaActual} unidades en existencia. Ajuste el inventario a 0 antes de convertirlo a variable, ya que el stock del padre no se traslada automáticamente a las variaciones.`
+      };
+    }
+
     // 2. Validar attributes
     if (!attributes || !Array.isArray(attributes) || attributes.length === 0) {
       throw new Error('Se requiere al menos un atributo para convertir a variable');
@@ -2134,6 +2159,7 @@ const convertArticuloToVariable = async (art_sec, attributes) => {
 
   } catch (error) {
     throw {
+      statusCode: error.statusCode,
       success: false,
       message: error.message || 'Error al convertir artículo a variable',
       error: error.message
@@ -2141,4 +2167,272 @@ const convertArticuloToVariable = async (art_sec, attributes) => {
   }
 };
 
-module.exports = { getArticulos, validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod, getNextArticuloCodigo, createVariableProduct, createProductVariation, syncVariableProductAttributes, convertArticuloToVariable };
+/**
+ * Edita una variación existente (SKU/nombre/precio/atributos)
+ * Actualiza BD y sincroniza con WooCommerce (no bloqueante ante error de Woo)
+ */
+const updateProductVariation = async (variation_art_sec, variationData) => {
+  const { art_nom, precio_detal, precio_mayor, attributes } = variationData;
+  const pool = await poolPromise;
+  let transaction = null;
+  const errors = {};
+
+  try {
+    const variationResult = await pool.request()
+      .input('art_sec', sql.VarChar(30), variation_art_sec)
+      .query(`
+        SELECT art_sec, art_cod, art_nom, art_woo_type, art_sec_padre, art_parent_woo_id, art_woo_variation_id
+        FROM dbo.articulos
+        WHERE art_sec = @art_sec
+      `);
+
+    if (variationResult.recordset.length === 0) {
+      throw new Error('La variación no existe');
+    }
+
+    const variation = variationResult.recordset[0];
+
+    if (variation.art_woo_type !== 'variation') {
+      throw new Error('El art_sec indicado no corresponde a una variación');
+    }
+
+    if (attributes) {
+      const { validateVariationAttributes } = require('../utils/variationUtils');
+      if (!validateVariationAttributes(attributes)) {
+        throw new Error('Atributos de variacion invalidos. Solo se permite "Tono" o "Color"');
+      }
+    }
+
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    const request = new sql.Request(transaction);
+
+    if (art_nom) {
+      await request
+        .input('art_sec_nom', sql.VarChar(30), variation_art_sec)
+        .input('art_nom', sql.VarChar(100), art_nom)
+        .query(`
+          UPDATE dbo.articulos
+          SET art_nom = @art_nom
+          WHERE art_sec = @art_sec_nom
+        `);
+    }
+
+    if (attributes) {
+      await request
+        .input('art_sec_attrs', sql.VarChar(30), variation_art_sec)
+        .input('attributes_json', sql.NVarChar(sql.MAX), JSON.stringify(attributes))
+        .query(`
+          UPDATE dbo.articulos
+          SET art_variation_attributes = @attributes_json
+          WHERE art_sec = @art_sec_attrs
+        `);
+    }
+
+    if (precio_detal !== undefined && precio_detal !== null) {
+      await request
+        .input('art_sec_detal', sql.VarChar(30), variation_art_sec)
+        .input('precio_detal', sql.Decimal(17, 2), precio_detal)
+        .query(`
+          UPDATE dbo.articulosdetalle
+          SET art_bod_pre = @precio_detal
+          WHERE art_sec = @art_sec_detal AND lis_pre_cod = 1 AND bod_sec = '1'
+        `);
+    }
+
+    if (precio_mayor !== undefined && precio_mayor !== null) {
+      await request
+        .input('art_sec_mayor', sql.VarChar(30), variation_art_sec)
+        .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
+        .query(`
+          UPDATE dbo.articulosdetalle
+          SET art_bod_pre = @precio_mayor
+          WHERE art_sec = @art_sec_mayor AND lis_pre_cod = 2 AND bod_sec = '1'
+        `);
+    }
+
+    await transaction.commit();
+    transaction = null;
+
+    // Sincronizar con WooCommerce (no bloqueante)
+    let syncStatus = 'SUCCESS';
+    let syncMessage = null;
+
+    if (variation.art_parent_woo_id && variation.art_woo_variation_id) {
+      try {
+        const wooData = {};
+        if (art_nom) wooData.name = art_nom;
+        if (precio_detal !== undefined && precio_detal !== null) wooData.regular_price = precio_detal.toString();
+        if (precio_mayor !== undefined && precio_mayor !== null) {
+          wooData.meta_data = [{ key: '_precio_mayorista', value: precio_mayor.toString() }];
+        }
+        if (attributes) {
+          wooData.attributes = Object.entries(attributes).map(([name, option]) => ({ name, option }));
+        }
+
+        if (Object.keys(wooData).length > 0) {
+          const wooResponse = await wcApi.put(
+            `products/${variation.art_parent_woo_id}/variations/${variation.art_woo_variation_id}`,
+            wooData
+          );
+          syncMessage = JSON.stringify(wooResponse.data);
+        }
+      } catch (wooError) {
+        syncStatus = 'ERROR';
+        syncMessage = JSON.stringify({
+          message: wooError.message,
+          response: wooError.response?.data
+        });
+        errors.wooCommerce = {
+          message: 'Error al sincronizar variación con WooCommerce',
+          details: wooError.message,
+          response: wooError.response?.data
+        };
+      }
+    } else {
+      syncStatus = 'ERROR';
+      syncMessage = 'Variación sin art_parent_woo_id/art_woo_variation_id, no sincronizada';
+      errors.wooCommerce = { message: syncMessage };
+    }
+
+    await pool.request()
+      .input('art_sec_sync', sql.VarChar(30), variation_art_sec)
+      .input('sync_status', sql.VarChar(20), syncStatus)
+      .input('sync_message', sql.NVarChar(sql.MAX), syncMessage)
+      .query(`
+        UPDATE dbo.articulos
+        SET art_woo_sync_status = @sync_status,
+            art_woo_sync_message = @sync_message
+        WHERE art_sec = @art_sec_sync
+      `);
+
+    return {
+      success: true,
+      data: {
+        art_sec: variation_art_sec,
+        art_woo_variation_id: variation.art_woo_variation_id
+      },
+      errors: Object.keys(errors).length > 0 ? errors : { wooCommerce: null }
+    };
+
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error('Error en rollback:', rollbackError);
+      }
+    }
+    throw {
+      success: false,
+      message: error.message || 'Error al actualizar variación',
+      error: error.message
+    };
+  }
+};
+
+/**
+ * Elimina una variación existente (BD + WooCommerce)
+ * Bloquea con conflicto si existen movimientos de inventario asociados (facturakardes)
+ */
+const deleteProductVariation = async (variation_art_sec) => {
+  const pool = await poolPromise;
+  let transaction = null;
+
+  try {
+    const variationResult = await pool.request()
+      .input('art_sec', sql.VarChar(30), variation_art_sec)
+      .query(`
+        SELECT art_sec, art_cod, art_woo_type, art_parent_woo_id, art_woo_variation_id
+        FROM dbo.articulos
+        WHERE art_sec = @art_sec
+      `);
+
+    if (variationResult.recordset.length === 0) {
+      throw { statusCode: 404, message: 'La variación no existe' };
+    }
+
+    const variation = variationResult.recordset[0];
+
+    if (variation.art_woo_type !== 'variation') {
+      throw { statusCode: 400, message: 'El art_sec indicado no corresponde a una variación' };
+    }
+
+    // Bloquear si existen movimientos de inventario asociados
+    const kardexResult = await pool.request()
+      .input('art_sec', sql.VarChar(30), variation_art_sec)
+      .query(`
+        SELECT TOP 1 kar_sec
+        FROM dbo.facturakardes
+        WHERE art_sec = @art_sec
+      `);
+
+    if (kardexResult.recordset.length > 0) {
+      throw { statusCode: 409, message: 'La variación tiene movimientos de inventario asociados y no puede eliminarse' };
+    }
+
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    const request = new sql.Request(transaction);
+
+    await request
+      .input('art_sec_fotos', sql.VarChar(30), variation_art_sec)
+      .query('DELETE FROM dbo.producto_fotos WHERE art_sec = @art_sec_fotos');
+
+    await request
+      .input('art_sec_promo', sql.VarChar(30), variation_art_sec)
+      .query('DELETE FROM dbo.promociones_detalle WHERE art_sec = @art_sec_promo');
+
+    await request
+      .input('art_sec_ai', sql.VarChar(30), variation_art_sec)
+      .query('DELETE FROM dbo.articulos_ai_content WHERE art_sec = @art_sec_ai');
+
+    await request
+      .input('art_sec_detalle', sql.VarChar(30), variation_art_sec)
+      .query('DELETE FROM dbo.articulosdetalle WHERE art_sec = @art_sec_detalle');
+
+    await request
+      .input('art_sec_del', sql.VarChar(30), variation_art_sec)
+      .query('DELETE FROM dbo.articulos WHERE art_sec = @art_sec_del');
+
+    await transaction.commit();
+    transaction = null;
+
+    // Eliminar en WooCommerce (no bloqueante)
+    if (variation.art_parent_woo_id && variation.art_woo_variation_id) {
+      try {
+        await wcApi.delete(
+          `products/${variation.art_parent_woo_id}/variations/${variation.art_woo_variation_id}`,
+          { force: true }
+        );
+      } catch (wooError) {
+        console.error('[DELETE_VARIATION] Error al eliminar variación en WooCommerce (no fatal):', wooError.message);
+        return {
+          success: true,
+          message: 'Variación eliminada',
+          errors: { wooCommerce: { message: wooError.message, response: wooError.response?.data } }
+        };
+      }
+    }
+
+    return { success: true, message: 'Variación eliminada' };
+
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error('Error en rollback:', rollbackError);
+      }
+    }
+    if (error.statusCode) {
+      throw error;
+    }
+    throw {
+      statusCode: 500,
+      message: error.message || 'Error al eliminar variación'
+    };
+  }
+};
+
+module.exports = { getArticulos, validateArticulo, createArticulo, getArticulo, updateArticulo, getArticuloByArtCod, getNextArticuloCodigo, createVariableProduct, createProductVariation, syncVariableProductAttributes, convertArticuloToVariable, updateProductVariation, deleteProductVariation };

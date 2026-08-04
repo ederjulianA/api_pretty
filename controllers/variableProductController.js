@@ -3,7 +3,9 @@ const {
   createVariableProduct,
   createProductVariation,
   syncVariableProductAttributes,
-  convertArticuloToVariable
+  convertArticuloToVariable,
+  updateProductVariation,
+  deleteProductVariation
 } = require('../models/articulosModel');
 const { getProductVariations } = require('../utils/variationUtils');
 
@@ -243,10 +245,84 @@ const convertToVariable = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error en convertToVariable:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Error al convertir artículo a variable',
-      error: error.message || error.error
+      message: error.message || 'Error al convertir artículo a variable',
+      error: error.error || error.message
+    });
+  }
+};
+
+/**
+ * Edita una variación puntual (SKU/nombre/precio/atributos)
+ * PUT /api/articulos/variable/:parent_art_sec/variations/:variation_art_sec
+ */
+const updateVariation = async (req, res) => {
+  try {
+    const { variation_art_sec } = req.params;
+    const { art_nom, precio_detal, precio_mayor } = req.body;
+
+    let attributes;
+    try {
+      attributes = typeof req.body.attributes === 'string'
+        ? JSON.parse(req.body.attributes)
+        : req.body.attributes;
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'El campo attributes debe ser un JSON válido'
+      });
+    }
+
+    if (!art_nom && precio_detal === undefined && precio_mayor === undefined && !attributes) {
+      return res.status(400).json({
+        success: false,
+        message: 'Debe proporcionar al menos un campo a actualizar: art_nom, precio_detal, precio_mayor o attributes'
+      });
+    }
+
+    const result = await updateProductVariation(variation_art_sec, {
+      art_nom,
+      precio_detal,
+      precio_mayor,
+      attributes
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error en updateVariation:', error);
+    const statusCode = error.message === 'La variación no existe' ? 404 : (error.statusCode || 400);
+    res.status(statusCode).json({
+      success: false,
+      message: error.message || 'Error al actualizar variación',
+      error: error.error || error.message
+    });
+  }
+};
+
+/**
+ * Elimina una variación puntual
+ * DELETE /api/articulos/variable/:parent_art_sec/variations/:variation_art_sec
+ */
+const deleteVariation = async (req, res) => {
+  try {
+    const { variation_art_sec } = req.params;
+
+    if (!variation_art_sec) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere variation_art_sec'
+      });
+    }
+
+    const result = await deleteProductVariation(variation_art_sec);
+    res.json(result);
+  } catch (error) {
+    console.error('Error en deleteVariation:', error);
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({
+      success: false,
+      message: error.message || 'Error al eliminar variación'
     });
   }
 };
@@ -256,5 +332,7 @@ module.exports = {
   createVariation,
   getVariations,
   syncAttributes,
-  convertToVariable
+  convertToVariable,
+  updateVariation,
+  deleteVariation
 };

@@ -157,7 +157,7 @@ const validateArticuloEndpoint = async (req, res) => {
 const getArticulos = async (req, res) => {
   try {
     // Extraer parámetros de la query string
-    const { codigo, nombre, inv_gru_cod, inv_sub_gru_cod, tieneExistencia, PageNumber, PageSize } = req.query;
+    const { codigo, nombre, inv_gru_cod, inv_sub_gru_cod, tieneExistencia, PageNumber, PageSize, excluir_variables } = req.query;
 
     // Convertir y validar los parámetros:
     // - Si el parámetro es una cadena vacía, se asigna null.
@@ -170,6 +170,9 @@ const getArticulos = async (req, res) => {
       tieneExistencia: (typeof tieneExistencia !== 'undefined' && tieneExistencia !== '')
         ? (tieneExistencia === '1' || tieneExistencia.toLowerCase() === 'true' ? 1 : 0)
         : null,
+      // Excluye el padre variable de los resultados (uso exclusivo del contexto POS,
+      // no aplicar por defecto para no afectar el panel admin de productos)
+      excluirVariables: excluir_variables === '1' || (typeof excluir_variables === 'string' && excluir_variables.toLowerCase() === 'true'),
       PageNumber: PageNumber ? parseInt(PageNumber, 10) : 1,
       PageSize: PageSize ? parseInt(PageSize, 10) : 10
     };

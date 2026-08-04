@@ -7,7 +7,9 @@ const {
   createVariation,
   getVariations,
   syncAttributes,
-  convertToVariable
+  convertToVariable,
+  updateVariation,
+  deleteVariation
 } = require('../controllers/variableProductController');
 
 const router = express.Router();
@@ -26,5 +28,11 @@ router.put('/:parent_art_sec/sync-attributes', verifyToken, syncAttributes);
 
 // POST /api/articulos/variable/:art_sec/convert-to-variable - Convertir artículo simple a variable
 router.post('/:art_sec/convert-to-variable', verifyToken, convertToVariable);
+
+// PUT /api/articulos/variable/:parent_art_sec/variations/:variation_art_sec - Editar variacion puntual
+router.put('/:parent_art_sec/variations/:variation_art_sec', verifyToken, updateVariation);
+
+// DELETE /api/articulos/variable/:parent_art_sec/variations/:variation_art_sec - Eliminar variacion puntual
+router.delete('/:parent_art_sec/variations/:variation_art_sec', verifyToken, deleteVariation);
 
 module.exports = router;

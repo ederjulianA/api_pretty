@@ -87,20 +87,26 @@ const getArticleStock = async (art_sec) => {
   }
 };
 
-// Función auxiliar para obtener el art_woo_id 
-const getArticleWooId = async (art_sec) => {
-  log(logLevels.INFO, `Buscando art_woo_id para art_sec: ${art_sec}`);
+// Función auxiliar para obtener el tipo de sincronización WooCommerce del artículo
+// (padre simple/variable vs. variación) y sus IDs asociados
+const getArticleWooSyncInfo = async (art_sec) => {
+  log(logLevels.INFO, `Buscando info de sincronización Woo para art_sec: ${art_sec}`);
   try {
     const pool = await poolPromise;
     const result = await pool.request()
       .input("art_sec", sql.VarChar(50), art_sec)
-      .query("SELECT art_woo_id FROM dbo.articulos WHERE art_sec = @art_sec");
+      .query(`
+        SELECT art_woo_id, art_woo_type, art_parent_woo_id, art_woo_variation_id
+        FROM dbo.articulos
+        WHERE art_sec = @art_sec
+      `);
 
-    const artWooId = result.recordset.length > 0 ? result.recordset[0].art_woo_id : '';
-    log(logLevels.INFO, `art_woo_id encontrado para art_sec ${art_sec}: ${artWooId || 'No encontrado'}`, { art_sec, artWooId });
-    return artWooId;
+    if (result.recordset.length === 0) {
+      return null;
+    }
+    return result.recordset[0];
   } catch (error) {
-    log(logLevels.ERROR, `Error buscando art_woo_id para art_sec ${art_sec}`, {
+    log(logLevels.ERROR, `Error buscando info de sincronización Woo para art_sec ${art_sec}`, {
       error: error.message,
       stack: error.stack,
       art_sec
@@ -141,13 +147,44 @@ const updateWooStockEndpoint = async (req, res) => {
       return res.status(404).json({ success: false, error });
     }
 
-    // Obtener el art_woo_id
-    const artWooId = await getArticleWooId(art_sec);
-    if (!artWooId) {
-      const error = `No se encontró art_woo_id para art_cod: ${art_cod}`;
+    // Obtener info de sincronización Woo (padre simple/variable vs. variación)
+    const syncInfo = await getArticleWooSyncInfo(art_sec);
+    if (!syncInfo) {
+      const error = `No se encontró información de artículo para art_cod: ${art_cod}`;
       debugLogs.push(log(logLevels.WARN, error));
       return res.status(404).json({ success: false, error });
     }
+
+    // Un padre 'variable' no gestiona stock propio en WooCommerce (lo gestionan sus variaciones)
+    if (syncInfo.art_woo_type === 'variable') {
+      const msg = `Artículo ${art_cod} es padre variable: no gestiona stock propio en WooCommerce, no-op`;
+      log(logLevels.INFO, msg, { art_cod, art_sec });
+      return res.json({
+        success: true,
+        messages: [msg],
+        data: { art_cod, art_sec, art_woo_id: syncInfo.art_woo_id, stock: null }
+      });
+    }
+
+    // Determinar el endpoint de WooCommerce según el tipo: variación vs. producto simple
+    const esVariacion = syncInfo.art_woo_type === 'variation';
+    let wooEndpoint;
+    if (esVariacion) {
+      if (!syncInfo.art_parent_woo_id || !syncInfo.art_woo_variation_id) {
+        const error = `Variación ${art_cod} no tiene art_parent_woo_id/art_woo_variation_id asignados`;
+        debugLogs.push(log(logLevels.WARN, error));
+        return res.status(404).json({ success: false, error });
+      }
+      wooEndpoint = `products/${syncInfo.art_parent_woo_id}/variations/${syncInfo.art_woo_variation_id}`;
+    } else {
+      if (!syncInfo.art_woo_id) {
+        const error = `No se encontró art_woo_id para art_cod: ${art_cod}`;
+        debugLogs.push(log(logLevels.WARN, error));
+        return res.status(404).json({ success: false, error });
+      }
+      wooEndpoint = `products/${syncInfo.art_woo_id}`;
+    }
+    const artWooId = esVariacion ? syncInfo.art_woo_variation_id : syncInfo.art_woo_id;
 
     // Obtener el stock actual
     const newStock = await getArticleStock(art_sec);
@@ -172,12 +209,13 @@ const updateWooStockEndpoint = async (req, res) => {
         art_cod,
         art_sec,
         art_woo_id: artWooId,
+        wooEndpoint,
         newStock,
         updateData
       });
 
-      const response = await wcApi.put(`products/${artWooId}`, updateData, config);
-      
+      const response = await wcApi.put(wooEndpoint, updateData, config);
+
       messages.push(`Producto ${artWooId} actualizado con nuevo stock: ${newStock}`);
       log(logLevels.INFO, `Producto actualizado exitosamente`, {
         artWooId,
@@ -216,8 +254,8 @@ const updateWooStockEndpoint = async (req, res) => {
         try {
           // Esperar 5 segundos antes de reintentar
           await new Promise(resolve => setTimeout(resolve, 5000));
-          
-          const response = await wcApi.put(`products/${artWooId}`, updateData, config);
+
+          const response = await wcApi.put(wooEndpoint, updateData, config);
           messages.push(`Producto ${artWooId} actualizado con nuevo stock: ${newStock} (segundo intento)`);
           
           return res.json({
