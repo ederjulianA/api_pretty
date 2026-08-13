@@ -10,6 +10,22 @@ const {
 const { getProductVariations } = require('../utils/variationUtils');
 
 /**
+ * Valida los 4 campos opcionales de peso/dimensiones: numérico positivo o null.
+ * @returns {string|null} mensaje de error o null si es válido
+ */
+const validarPesoDimensionesBody = ({ art_peso, art_largo, art_ancho, art_alto }) => {
+  const campos = { art_peso, art_largo, art_ancho, art_alto };
+  for (const [nombre, valor] of Object.entries(campos)) {
+    if (valor === undefined || valor === null || valor === '') continue;
+    const numero = Number(valor);
+    if (!Number.isFinite(numero) || numero <= 0) {
+      return `${nombre} debe ser un número positivo o null`;
+    }
+  }
+  return null;
+};
+
+/**
  * Crea un producto variable (padre)
  * POST /api/articulos/variable
  */
@@ -22,7 +38,12 @@ const createVariable = async (req, res) => {
       subcategoria,
       precio_detal_referencia,
       precio_mayor_referencia,
-      art_max_unidades_pedido
+      art_max_unidades_pedido,
+      art_peso,
+      art_largo,
+      art_ancho,
+      art_alto,
+      art_peso_fuente
     } = req.body;
 
     // Parsear attributes si viene como string (desde form-data de Postman)
@@ -55,6 +76,11 @@ const createVariable = async (req, res) => {
       }
     }
 
+    const errorPesoDimensiones = validarPesoDimensionesBody({ art_peso, art_largo, art_ancho, art_alto });
+    if (errorPesoDimensiones) {
+      return res.status(400).json({ success: false, message: errorPesoDimensiones });
+    }
+
     // express-fileupload: extraer imagenes nombradas (image1, image2, etc.)
     const image1 = req.files?.image1;
     const image2 = req.files?.image2;
@@ -71,7 +97,12 @@ const createVariable = async (req, res) => {
       precio_mayor_referencia,
       attributes,
       images,
-      art_max_unidades_pedido
+      art_max_unidades_pedido,
+      art_peso,
+      art_largo,
+      art_ancho,
+      art_alto,
+      art_peso_fuente
     });
 
     res.status(201).json(result);
@@ -95,7 +126,12 @@ const createVariation = async (req, res) => {
     const {
       art_nom,
       precio_detal,
-      precio_mayor
+      precio_mayor,
+      art_peso,
+      art_largo,
+      art_ancho,
+      art_alto,
+      art_peso_fuente
     } = req.body;
 
     // Parsear attributes si viene como string (desde form-data de Postman)
@@ -118,6 +154,11 @@ const createVariation = async (req, res) => {
       });
     }
 
+    const errorPesoDimensiones = validarPesoDimensionesBody({ art_peso, art_largo, art_ancho, art_alto });
+    if (errorPesoDimensiones) {
+      return res.status(400).json({ success: false, message: errorPesoDimensiones });
+    }
+
     // express-fileupload: extraer imagenes nombradas
     const image1 = req.files?.image1;
     const image2 = req.files?.image2;
@@ -131,7 +172,12 @@ const createVariation = async (req, res) => {
       attributes,
       precio_detal,
       precio_mayor,
-      images
+      images,
+      art_peso,
+      art_largo,
+      art_ancho,
+      art_alto,
+      art_peso_fuente
     });
 
     res.status(201).json(result);
@@ -260,7 +306,7 @@ const convertToVariable = async (req, res) => {
 const updateVariation = async (req, res) => {
   try {
     const { variation_art_sec } = req.params;
-    const { art_nom, precio_detal, precio_mayor } = req.body;
+    const { art_nom, precio_detal, precio_mayor, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente } = req.body;
 
     let attributes;
     try {
@@ -274,18 +320,30 @@ const updateVariation = async (req, res) => {
       });
     }
 
-    if (!art_nom && precio_detal === undefined && precio_mayor === undefined && !attributes) {
+    const hayPesoDimensiones = [art_peso, art_largo, art_ancho, art_alto].some(v => v !== undefined);
+
+    if (!art_nom && precio_detal === undefined && precio_mayor === undefined && !attributes && !hayPesoDimensiones) {
       return res.status(400).json({
         success: false,
-        message: 'Debe proporcionar al menos un campo a actualizar: art_nom, precio_detal, precio_mayor o attributes'
+        message: 'Debe proporcionar al menos un campo a actualizar: art_nom, precio_detal, precio_mayor, attributes, art_peso, art_largo, art_ancho o art_alto'
       });
+    }
+
+    const errorPesoDimensiones = validarPesoDimensionesBody({ art_peso, art_largo, art_ancho, art_alto });
+    if (errorPesoDimensiones) {
+      return res.status(400).json({ success: false, message: errorPesoDimensiones });
     }
 
     const result = await updateProductVariation(variation_art_sec, {
       art_nom,
       precio_detal,
       precio_mayor,
-      attributes
+      attributes,
+      art_peso,
+      art_largo,
+      art_ancho,
+      art_alto,
+      art_peso_fuente
     });
 
     res.json(result);

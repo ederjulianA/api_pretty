@@ -1,6 +1,22 @@
 // controllers/articulosController.js
 const articulosModel = require('../models/articulosModel');
 
+/**
+ * Valida los 4 campos opcionales de peso/dimensiones: numérico positivo o null.
+ * @returns {string|null} mensaje de error o null si es válido
+ */
+const validarPesoDimensionesBody = ({ art_peso, art_largo, art_ancho, art_alto }) => {
+  const campos = { art_peso, art_largo, art_ancho, art_alto };
+  for (const [nombre, valor] of Object.entries(campos)) {
+    if (valor === undefined || valor === null || valor === '') continue;
+    const numero = Number(valor);
+    if (!Number.isFinite(numero) || numero <= 0) {
+      return `${nombre} debe ser un número positivo o null`;
+    }
+  }
+  return null;
+};
+
 const updateArticuloEndpoint = async (req, res) => {
   try {
     console.log(`[UPDATE_ARTICULO_ENDPOINT] Iniciando actualización`, {
@@ -12,7 +28,7 @@ const updateArticuloEndpoint = async (req, res) => {
     });
     
     const { id_articulo } = req.params;
-    const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, art_max_unidades_pedido } = req.body;
+    const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, art_max_unidades_pedido, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente } = req.body;
 
     if (!id_articulo || !art_cod || !art_nom || !categoria || !subcategoria || !art_woo_id || precio_detal == null || precio_mayor == null) {
       return res.status(400).json({
@@ -31,8 +47,13 @@ const updateArticuloEndpoint = async (req, res) => {
       }
     }
 
+    const errorPesoDimensiones = validarPesoDimensionesBody({ art_peso, art_largo, art_ancho, art_alto });
+    if (errorPesoDimensiones) {
+      return res.status(400).json({ success: false, error: errorPesoDimensiones });
+    }
+
     console.log(`[UPDATE_ARTICULO_ENDPOINT] Llamando a updateArticulo para artículo ${id_articulo}`);
-    
+
     const result = await articulosModel.updateArticulo({
       id_articulo,
       art_cod,
@@ -43,7 +64,12 @@ const updateArticuloEndpoint = async (req, res) => {
       precio_detal,
       precio_mayor,
       actualiza_fecha,
-      art_max_unidades_pedido
+      art_max_unidades_pedido,
+      art_peso,
+      art_largo,
+      art_ancho,
+      art_alto,
+      art_peso_fuente
     });
 
     console.log(`[UPDATE_ARTICULO_ENDPOINT] Actualización completada para artículo ${id_articulo}`, result);
@@ -64,7 +90,7 @@ const createArticuloEndpoint = async (req, res) => {
     console.log('Request body:', JSON.stringify(req.body, null, 2));
     console.log('Request files:', JSON.stringify(req.files, null, 2));
 
-    const { art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor, art_max_unidades_pedido } = req.body;
+    const { art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor, art_max_unidades_pedido, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente } = req.body;
 
     // Validar que se envíen todos los campos requeridos
     if (!art_cod || !art_nom || !categoria || !subcategoria || precio_detal == null || precio_mayor == null) {
@@ -102,6 +128,11 @@ const createArticuloEndpoint = async (req, res) => {
       }
     }
 
+    const errorPesoDimensiones = validarPesoDimensionesBody({ art_peso, art_largo, art_ancho, art_alto });
+    if (errorPesoDimensiones) {
+      return res.status(400).json({ success: false, error: errorPesoDimensiones });
+    }
+
     // Obtener las imágenes de la petición
     const image1 = req.files?.image1;
     const image2 = req.files?.image2;
@@ -120,6 +151,11 @@ const createArticuloEndpoint = async (req, res) => {
       precio_detal,
       precio_mayor,
       art_max_unidades_pedido,
+      art_peso,
+      art_largo,
+      art_ancho,
+      art_alto,
+      art_peso_fuente,
       images
     });
 

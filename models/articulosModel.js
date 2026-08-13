@@ -53,6 +53,64 @@ const validarMaxUnidadesPedido = (valor) => {
   return numero;
 };
 
+/**
+ * Valida un campo numérico de peso/dimensión: positivo o null
+ * @param {*} valor
+ * @param {string} nombreCampo
+ * @returns {number|null} valor normalizado
+ * @throws {Error} si el valor no es numérico positivo ni null
+ */
+const validarCampoPesoDimension = (valor, nombreCampo) => {
+  if (valor === undefined || valor === null || valor === '') {
+    return null;
+  }
+  const numero = Number(valor);
+  if (!Number.isFinite(numero) || numero <= 0) {
+    throw new Error(`${nombreCampo} debe ser un número positivo o null`);
+  }
+  return numero;
+};
+
+/**
+ * Valida los 4 campos de peso/dimensiones de un producto (todos opcionales)
+ * @param {Object} datos - { art_peso, art_largo, art_ancho, art_alto }
+ * @returns {Object} valores normalizados
+ */
+const validarPesoDimensiones = ({ art_peso, art_largo, art_ancho, art_alto } = {}) => {
+  return {
+    art_peso: validarCampoPesoDimension(art_peso, 'art_peso'),
+    art_largo: validarCampoPesoDimension(art_largo, 'art_largo'),
+    art_ancho: validarCampoPesoDimension(art_ancho, 'art_ancho'),
+    art_alto: validarCampoPesoDimension(art_alto, 'art_alto')
+  };
+};
+
+/**
+ * Arma el objeto weight/dimensions nativo de WooCommerce a partir de los valores normalizados.
+ * Un campo con valor numérico se envía como string; un campo explícitamente null se envía
+ * como "" (instruye a WooCommerce a vaciarlo); un campo undefined se omite (no llega a pisar
+ * el valor existente en Woo) — mismo criterio usado para el resto de campos opcionales de esta función.
+ * @param {Object} valores - { art_peso, art_largo, art_ancho, art_alto } ya normalizados
+ * @returns {Object} { weight, dimensions } listo para mergear en el payload de WooCommerce
+ */
+const armarPesoDimensionesWoo = ({ art_peso, art_largo, art_ancho, art_alto } = {}) => {
+  const wooData = {};
+
+  if (art_peso !== undefined) {
+    wooData.weight = art_peso !== null ? art_peso.toString() : '';
+  }
+
+  const hayDimension = art_largo !== undefined || art_ancho !== undefined || art_alto !== undefined;
+  if (hayDimension) {
+    wooData.dimensions = {};
+    if (art_largo !== undefined) wooData.dimensions.length = art_largo !== null ? art_largo.toString() : '';
+    if (art_ancho !== undefined) wooData.dimensions.width = art_ancho !== null ? art_ancho.toString() : '';
+    if (art_alto !== undefined) wooData.dimensions.height = art_alto !== null ? art_alto.toString() : '';
+  }
+
+  return wooData;
+};
+
 const validateArticulo = async ({ art_cod, art_woo_id }) => {
   try {
     const pool = await poolPromise;
@@ -103,7 +161,7 @@ const getAIContentForProduct = async (art_sec) => {
   }
 };
 
-const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null, categoria = null, subcategoria = null, art_max_unidades_pedido = null, esVariable = false) => {
+const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha = 'N', fac_fec = null, categoria = null, subcategoria = null, art_max_unidades_pedido = null, esVariable = false, pesoDimensiones = {}) => {
   console.log(`[UPDATE_WOO_PRODUCT] Iniciando actualización en WooCommerce`, {
     art_woo_id,
     art_cod,
@@ -167,6 +225,9 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
         ? art_max_unidades_pedido.toString()
         : ''
     });
+
+    // weight/dimensions son campos nativos del schema REST de WooCommerce (no meta_data)
+    Object.assign(data, armarPesoDimensionesWoo(pesoDimensiones));
 
     // Agregar descripciones si hay contenido IA
     if (contenidoIA?.ai_contenido) {
@@ -602,11 +663,12 @@ const createArticulo = async (articuloData) => {
 
     // 2. Insertar en la base de datos
     const maxUnidadesPedido = validarMaxUnidadesPedido(articuloData.art_max_unidades_pedido);
+    const pesoDimensiones = validarPesoDimensiones(articuloData);
 
     const insertQuery = `
       INSERT INTO dbo.articulos
-      (art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec, art_max_unidades_pedido)
-      VALUES (@artSecInsert, @art_cod, @art_nom, @subcategoria, '1', @maxUnidadesPedido)
+      (art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec, art_max_unidades_pedido, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente)
+      VALUES (@artSecInsert, @art_cod, @art_nom, @subcategoria, '1', @maxUnidadesPedido, @art_peso, @art_largo, @art_ancho, @art_alto, @art_peso_fuente)
     `;
 
     await request
@@ -615,6 +677,11 @@ const createArticulo = async (articuloData) => {
       .input('art_nom', sql.VarChar(100), articuloData.art_nom)
       .input('subcategoria', sql.SmallInt, parseInt(articuloData.subcategoria, 10))
       .input('maxUnidadesPedido', sql.Int, maxUnidadesPedido)
+      .input('art_peso', sql.Decimal(10, 3), pesoDimensiones.art_peso)
+      .input('art_largo', sql.Decimal(10, 2), pesoDimensiones.art_largo)
+      .input('art_ancho', sql.Decimal(10, 2), pesoDimensiones.art_ancho)
+      .input('art_alto', sql.Decimal(10, 2), pesoDimensiones.art_alto)
+      .input('art_peso_fuente', sql.VarChar(15), articuloData.art_peso_fuente || null)
       .query(insertQuery);
 
     // 3. Subir imágenes a Cloudinary si se proporcionaron
@@ -731,6 +798,10 @@ const createArticulo = async (articuloData) => {
         });
       }
 
+      // weight/dimensions: solo se envían si hay algún valor (no tiene sentido vaciar en creación)
+      const wooPesoDimensiones = armarPesoDimensionesWoo(pesoDimensiones);
+      Object.assign(wooData, wooPesoDimensiones);
+
       // Agregar descripciones si hay contenido IA
       if (contenidoIA?.ai_contenido) {
         const aiContent = contenidoIA.ai_contenido;
@@ -824,6 +895,11 @@ const createArticulo = async (articuloData) => {
         precio_detal: articuloData.precio_detal,
         precio_mayor: articuloData.precio_mayor,
         art_max_unidades_pedido: maxUnidadesPedido,
+        art_peso: pesoDimensiones.art_peso,
+        art_largo: pesoDimensiones.art_largo,
+        art_ancho: pesoDimensiones.art_ancho,
+        art_alto: pesoDimensiones.art_alto,
+        art_peso_fuente: articuloData.art_peso_fuente || null,
         art_woo_id,
         images: imageUrls
       },
@@ -997,7 +1073,12 @@ const getArticulo = async (art_sec) => {
         a.art_sec_padre,
         a.art_variation_attributes,
         ISNULL(a.art_bundle, 'N') AS art_bundle,
-        a.art_max_unidades_pedido
+        a.art_max_unidades_pedido,
+        a.art_peso,
+        a.art_largo,
+        a.art_ancho,
+        a.art_alto,
+        a.art_peso_fuente
         FROM dbo.articulos a
 	      LEFT JOIN inventario_subgrupo s on s.inv_sub_gru_cod = a.inv_sub_gru_cod
 	      left join inventario_grupo g on g.inv_gru_cod = s.inv_gru_cod
@@ -1062,7 +1143,7 @@ const getArticulo = async (art_sec) => {
   }
 };
 
-const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, fac_fec = null, art_max_unidades_pedido }) => {
+const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, fac_fec = null, art_max_unidades_pedido, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente }) => {
   let transaction;
   
   console.log(`[UPDATE_ARTICULO] Iniciando actualización para artículo ${id_articulo}`, {
@@ -1084,6 +1165,7 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
     const request = new sql.Request(transaction);
 
     const maxUnidadesPedido = validarMaxUnidadesPedido(art_max_unidades_pedido);
+    const pesoDimensiones = validarPesoDimensiones({ art_peso, art_largo, art_ancho, art_alto });
 
     // Actualizar la tabla articulos
     const updateArticuloQuery = `
@@ -1093,6 +1175,11 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
           inv_sub_gru_cod = @subcategoria,
           art_woo_id = @art_woo_id,
           art_max_unidades_pedido = @maxUnidadesPedido,
+          art_peso = @art_peso,
+          art_largo = @art_largo,
+          art_ancho = @art_ancho,
+          art_alto = @art_alto,
+          art_peso_fuente = @art_peso_fuente,
           art_woo_sync_status = 'PENDING',
           art_woo_sync_message = NULL
       WHERE art_sec = @id_articulo
@@ -1103,6 +1190,11 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       .input('subcategoria', sql.SmallInt, parseInt(subcategoria, 10))
       .input('art_woo_id', sql.Int, art_woo_id)
       .input('maxUnidadesPedido', sql.Int, maxUnidadesPedido)
+      .input('art_peso', sql.Decimal(10, 3), pesoDimensiones.art_peso)
+      .input('art_largo', sql.Decimal(10, 2), pesoDimensiones.art_largo)
+      .input('art_ancho', sql.Decimal(10, 2), pesoDimensiones.art_ancho)
+      .input('art_alto', sql.Decimal(10, 2), pesoDimensiones.art_alto)
+      .input('art_peso_fuente', sql.VarChar(15), art_peso_fuente || null)
       .input('id_articulo', sql.VarChar(30), id_articulo.toString())
       .query(updateArticuloQuery);
 
@@ -1192,12 +1284,12 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
         } else {
           // Bundle sin componentes: usar updateWooCommerceProduct normal
           console.log(`[UPDATE_ARTICULO] Bundle sin componentes, usando updateWooCommerceProduct normal`);
-          wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido);
+          wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido, false, pesoDimensiones);
         }
       } else {
         // No es bundle: usar updateWooCommerceProduct normal
         // Si es padre variable, omitir regular_price/stock (SOLICITUD-1)
-        wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido, esVariable);
+        wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido, esVariable, pesoDimensiones);
       }
       
       // Actualizar estado de sincronización
@@ -1338,7 +1430,12 @@ const createVariableProduct = async (productData) => {
     precio_mayor_referencia,
     attributes,    // [{name: "Tono", options: ["Rojo", "Rosa", "Ciruela", "Coral"]}]
     images,
-    art_max_unidades_pedido
+    art_max_unidades_pedido,
+    art_peso,
+    art_largo,
+    art_ancho,
+    art_alto,
+    art_peso_fuente
   } = productData;
 
   const pool = await poolPromise;
@@ -1396,6 +1493,7 @@ const createVariableProduct = async (productData) => {
     // NOTA: art_sec=VARCHAR(30), inv_sub_gru_cod=SMALLINT, pre_sec obligatorio
     // NO existen: inv_gru_cod, art_est en esta tabla
     const maxUnidadesPedido = validarMaxUnidadesPedido(art_max_unidades_pedido);
+    const pesoDimensiones = validarPesoDimensiones({ art_peso, art_largo, art_ancho, art_alto });
 
     await request
       .input('art_sec', sql.VarChar(30), art_sec.toString())
@@ -1403,14 +1501,21 @@ const createVariableProduct = async (productData) => {
       .input('art_nom', sql.VarChar(100), art_nom)
       .input('subcategoria', sql.SmallInt, parseInt(subcategoria, 10))
       .input('maxUnidadesPedido', sql.Int, maxUnidadesPedido)
+      .input('art_peso', sql.Decimal(10, 3), pesoDimensiones.art_peso)
+      .input('art_largo', sql.Decimal(10, 2), pesoDimensiones.art_largo)
+      .input('art_ancho', sql.Decimal(10, 2), pesoDimensiones.art_ancho)
+      .input('art_alto', sql.Decimal(10, 2), pesoDimensiones.art_alto)
+      .input('art_peso_fuente', sql.VarChar(15), art_peso_fuente || null)
       .query(`
         INSERT INTO dbo.articulos (
           art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec,
-          art_variable, art_woo_type, art_max_unidades_pedido
+          art_variable, art_woo_type, art_max_unidades_pedido,
+          art_peso, art_largo, art_ancho, art_alto, art_peso_fuente
         )
         VALUES (
           @art_sec, @art_cod, @art_nom, @subcategoria, '1',
-          'S', 'variable', @maxUnidadesPedido
+          'S', 'variable', @maxUnidadesPedido,
+          @art_peso, @art_largo, @art_ancho, @art_alto, @art_peso_fuente
         )
       `);
 
@@ -1577,6 +1682,11 @@ const createVariableProduct = async (productData) => {
         art_woo_id,
         art_woo_type: 'variable',
         art_max_unidades_pedido: maxUnidadesPedido,
+        art_peso: pesoDimensiones.art_peso,
+        art_largo: pesoDimensiones.art_largo,
+        art_ancho: pesoDimensiones.art_ancho,
+        art_alto: pesoDimensiones.art_alto,
+        art_peso_fuente: art_peso_fuente || null,
         attributes: validAttributes,
         images: imageUrls
       },
@@ -1611,7 +1721,12 @@ const createProductVariation = async (variationData) => {
     attributes,        // {Tono: "Rojo Pasion"}
     precio_detal,
     precio_mayor,
-    images
+    images,
+    art_peso,
+    art_largo,
+    art_ancho,
+    art_alto,
+    art_peso_fuente
   } = variationData;
 
   const pool = await poolPromise;
@@ -1682,6 +1797,8 @@ const createProductVariation = async (variationData) => {
 
     // 2. Insertar variacion en dbo.articulos
     // art_sec=VARCHAR(30), inv_sub_gru_cod=SMALLINT, pre_sec obligatorio
+    const pesoDimensiones = validarPesoDimensiones({ art_peso, art_largo, art_ancho, art_alto });
+
     await request
       .input('art_sec', sql.VarChar(30), art_sec.toString())
       .input('art_cod', sql.VarChar(30), art_cod)
@@ -1690,16 +1807,23 @@ const createProductVariation = async (variationData) => {
       .input('parent_woo_id', sql.Int, parentProduct.art_woo_id)
       .input('attributes_json', sql.NVarChar(sql.MAX), JSON.stringify(attributes))
       .input('subcategoria', sql.SmallInt, parentProduct.inv_sub_gru_cod)
+      .input('art_peso', sql.Decimal(10, 3), pesoDimensiones.art_peso)
+      .input('art_largo', sql.Decimal(10, 2), pesoDimensiones.art_largo)
+      .input('art_ancho', sql.Decimal(10, 2), pesoDimensiones.art_ancho)
+      .input('art_alto', sql.Decimal(10, 2), pesoDimensiones.art_alto)
+      .input('art_peso_fuente', sql.VarChar(15), art_peso_fuente || null)
       .query(`
         INSERT INTO dbo.articulos (
           art_sec, art_cod, art_nom, inv_sub_gru_cod, pre_sec,
           art_woo_type, art_sec_padre, art_parent_woo_id,
-          art_variation_attributes
+          art_variation_attributes,
+          art_peso, art_largo, art_ancho, art_alto, art_peso_fuente
         )
         VALUES (
           @art_sec, @art_cod, @art_nom, @subcategoria, '1',
           'variation', @parent_art_sec, @parent_woo_id,
-          @attributes_json
+          @attributes_json,
+          @art_peso, @art_largo, @art_ancho, @art_alto, @art_peso_fuente
         )
       `);
 
@@ -1839,6 +1963,9 @@ const createProductVariation = async (variationData) => {
         image: imageUrls.length > 0 ? { src: imageUrls[0] } : undefined
       };
 
+      // weight/dimensions: solo se envían si hay algún valor (no tiene sentido vaciar en creación)
+      Object.assign(wooVariationData, armarPesoDimensionesWoo(pesoDimensiones));
+
       console.log('Creando variacion en WooCommerce:', JSON.stringify(wooVariationData, null, 2));
 
       const wooVariation = await wcApi.post(
@@ -1899,6 +2026,11 @@ const createProductVariation = async (variationData) => {
         attributes,
         precio_detal,
         precio_mayor,
+        art_peso: pesoDimensiones.art_peso,
+        art_largo: pesoDimensiones.art_largo,
+        art_ancho: pesoDimensiones.art_ancho,
+        art_alto: pesoDimensiones.art_alto,
+        art_peso_fuente: art_peso_fuente || null,
         images: imageUrls
       },
       errors: Object.keys(errors).length > 0 ? errors : undefined
@@ -2172,7 +2304,8 @@ const convertArticuloToVariable = async (art_sec, attributes) => {
  * Actualiza BD y sincroniza con WooCommerce (no bloqueante ante error de Woo)
  */
 const updateProductVariation = async (variation_art_sec, variationData) => {
-  const { art_nom, precio_detal, precio_mayor, attributes } = variationData;
+  const { art_nom, precio_detal, precio_mayor, attributes, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente } = variationData;
+  const hayPesoDimensiones = [art_peso, art_largo, art_ancho, art_alto].some(v => v !== undefined);
   const pool = await poolPromise;
   let transaction = null;
   const errors = {};
@@ -2229,6 +2362,27 @@ const updateProductVariation = async (variation_art_sec, variationData) => {
         `);
     }
 
+    const pesoDimensiones = validarPesoDimensiones({ art_peso, art_largo, art_ancho, art_alto });
+
+    if (hayPesoDimensiones || art_peso_fuente !== undefined) {
+      await request
+        .input('art_sec_peso', sql.VarChar(30), variation_art_sec)
+        .input('art_peso', sql.Decimal(10, 3), pesoDimensiones.art_peso)
+        .input('art_largo', sql.Decimal(10, 2), pesoDimensiones.art_largo)
+        .input('art_ancho', sql.Decimal(10, 2), pesoDimensiones.art_ancho)
+        .input('art_alto', sql.Decimal(10, 2), pesoDimensiones.art_alto)
+        .input('art_peso_fuente', sql.VarChar(15), art_peso_fuente || null)
+        .query(`
+          UPDATE dbo.articulos
+          SET art_peso = @art_peso,
+              art_largo = @art_largo,
+              art_ancho = @art_ancho,
+              art_alto = @art_alto,
+              art_peso_fuente = @art_peso_fuente
+          WHERE art_sec = @art_sec_peso
+        `);
+    }
+
     if (precio_detal !== undefined && precio_detal !== null) {
       await request
         .input('art_sec_detal', sql.VarChar(30), variation_art_sec)
@@ -2268,6 +2422,9 @@ const updateProductVariation = async (variation_art_sec, variationData) => {
         }
         if (attributes) {
           wooData.attributes = Object.entries(attributes).map(([name, option]) => ({ name, option }));
+        }
+        if (hayPesoDimensiones) {
+          Object.assign(wooData, armarPesoDimensionesWoo(pesoDimensiones));
         }
 
         if (Object.keys(wooData).length > 0) {
@@ -2310,7 +2467,12 @@ const updateProductVariation = async (variation_art_sec, variationData) => {
       success: true,
       data: {
         art_sec: variation_art_sec,
-        art_woo_variation_id: variation.art_woo_variation_id
+        art_woo_variation_id: variation.art_woo_variation_id,
+        art_peso: pesoDimensiones.art_peso,
+        art_largo: pesoDimensiones.art_largo,
+        art_ancho: pesoDimensiones.art_ancho,
+        art_alto: pesoDimensiones.art_alto,
+        art_peso_fuente: art_peso_fuente || null
       },
       errors: Object.keys(errors).length > 0 ? errors : { wooCommerce: null }
     };
