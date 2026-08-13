@@ -1,4 +1,5 @@
 import express from 'express';
+import { verifyToken } from '../middlewares/authMiddleware.js';
 import {
   crearPromocion,
   actualizarPromocion,
@@ -13,8 +14,8 @@ import {
 const router = express.Router();
 
 // Rutas básicas de promociones
-router.post('/', crearPromocion);
-router.put('/:pro_sec', actualizarPromocion);
+router.post('/', verifyToken, crearPromocion);
+router.put('/:pro_sec', verifyToken, actualizarPromocion);
 router.get('/', obtenerPromociones);
 router.get('/:pro_sec', obtenerPromocionPorId);
 
