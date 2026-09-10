@@ -99,12 +99,13 @@
       "gate": "Con token de usuario NO admin -> 403. Con token admin -> 200 y cambia la password. Verificar contra un usuario de prueba, nunca contra 'admin' real.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-01-rol-admin-change-password",
           "commit": "9d5bb33",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "855d455"
         }
       },
       "notas": [
@@ -137,12 +138,13 @@
       "gate": "El front en produccion usa API_URL='/api' (proxy same-origin), asi que no depende de CORS. Verificar que el front local (vite dev) siga funcionando: incluir su origen en la lista.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-02-cors-restringido",
           "commit": "1db6922",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "855d455"
         }
       },
       "notas": [
