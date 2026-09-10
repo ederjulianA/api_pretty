@@ -81,7 +81,7 @@
       "severidad": "critica",
       "fase": 1,
       "hallazgo": "CRITICO-1",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -99,16 +99,17 @@
       "gate": "Con token de usuario NO admin -> 403. Con token admin -> 200 y cambia la password. Verificar contra un usuario de prueba, nunca contra 'admin' real.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-01-rol-admin-change-password",
+          "commit": "9d5bb33",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
       "notas": [
-        "Requiere confirmar con db-explorer como se identifica el rol admin en dbo.Roles."
+        "Requiere confirmar con db-explorer como se identifica el rol admin en dbo.Roles.",
+        "[2026-09-10] Gate: no se ejercito el UPDATE final (200) porque exigiria cambiar la password de un usuario real y solo hay 4 en BD, todos en uso. Se verifico que un admin PASA el middleware llegando al 404 del controller con un usu_cod inexistente. El UPDATE no se modifico en esta tarea, solo se agregaron validaciones previas."
       ]
     },
     {
@@ -920,7 +921,8 @@
       },
       "notas": [
         "PRIMERO validar con db-explorer los nombres reales de dbo.UsuariosRoles y dbo.RolesPermisosAcciones: la consulta propuesta en el informe se derivo de userRoleModel.js y no esta confirmada.",
-        "Aplicar por modulo en tareas separadas, no todo de golpe."
+        "Aplicar por modulo en tareas separadas, no todo de golpe.",
+        "[2026-09-10] CONFIRMADO contra BD 2026-09-10: la estructura real es dbo.UsuariosRoles(usurol_id, usu_cod VARCHAR(100), rol_id, fecha_asignacion) -> dbo.Roles(rol_id, rol_nombre, rol_descripcion, rol_activo). RolesPermisos usa rolperm_id + mod_id (NO mod_codigo como propuso el informe) y JOIN a dbo.Modulos; RolesPermisosAcciones usa rolperm_id + acc_id con JOIN a dbo.Acciones. Roles existentes: 1=Administrador, 2=Vendedor, 3=Supervisor. Ya existe middlewares/authorize.js creado en SEC-01 con requireAdmin: extender ahi requirePermission."
       ]
     },
     {
