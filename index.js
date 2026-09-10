@@ -22,6 +22,7 @@ const rentabilidadRoutes = require('./routes/rentabilidadRoutes.js');
 const ventasKpiRoutes = require('./routes/ventasKpiRoutes.js');
 const auditiaFacturasRoutes = require('./routes/auditiaFacturasRoutes.js');
 const cierreMesRoutes = require('./routes/cierreMesRoutes.js');
+const authAudit = require('./middlewares/authAudit.js');
 // const aiRoutes = require('./routes/aiRoutes.js'); // Comentado temporalmente - archivos no en repo
 
 const app = express();
@@ -64,6 +65,11 @@ app.use(fileUpload({
     fileSize: 50 * 1024 * 1024 // 50MB max file(s) size
   },
 }));
+
+// Auditoria de autenticacion (SEC-00) — solo registra, no bloquea nada.
+// Instrumentacion temporal para decidir con evidencia que endpoints se pueden
+// proteger sin romper produccion. Ver revision_seguridad/plan/.
+app.use(authAudit);
 
 // Rutas
 app.use("/api/woo", wooRoutes);
