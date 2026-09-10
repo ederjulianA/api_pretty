@@ -12,11 +12,11 @@ cuales se pueden proteger sin romper nada.
 
 Uso:  python3 analizar-auditoria.py [--dias N]
 """
-import json, os, re, sys, argparse
+import json, os, re, sys, glob, argparse
 from datetime import datetime, timezone
 
 RAIZ = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-RESUMEN = os.path.join(RAIZ, 'logs', 'auth-audit-resumen.json')
+PATRON_RESUMEN = os.path.join(RAIZ, 'logs', 'auth-audit-resumen-*.json')
 
 
 def montajes():
@@ -67,16 +67,39 @@ def main():
                     help='dias minimos de observacion para confiar en un veredicto de huerfano')
     args = ap.parse_args()
 
-    if not os.path.exists(RESUMEN):
-        sys.exit(f"No existe {RESUMEN}\nEl middleware de SEC-00 aun no ha corrido o no ha volcado el resumen.")
+    archivos = sorted(glob.glob(PATRON_RESUMEN))
+    if not archivos:
+        sys.exit(f"No hay resumenes en {PATRON_RESUMEN}\n"
+                 f"El middleware de SEC-00 aun no ha corrido o no ha volcado nada.")
 
-    d = json.load(open(RESUMEN, encoding='utf-8'))
-    obs = {e['endpoint']: e for e in d['endpoints']}
+    # Consolidar todos los procesos: cada reinicio y cada worker escribe el suyo.
+    obs, desde_iso = {}, None
+    for ruta in archivos:
+        try:
+            d = json.load(open(ruta, encoding='utf-8'))
+        except (ValueError, OSError):
+            continue
+        if desde_iso is None or d.get('desde', '') < desde_iso:
+            desde_iso = d.get('desde')
+        for e in d.get('endpoints', []):
+            k = e['endpoint']
+            if k not in obs:
+                obs[k] = {'sin_token': 0, 'token_invalido': 0, 'token_valido': 0,
+                          'total': 0, 'usuarios': set(), 'ips_sin_token': set()}
+            a = obs[k]
+            for c in ('sin_token', 'token_invalido', 'token_valido', 'total'):
+                a[c] += e.get(c, 0)
+            a['usuarios'].update(e.get('usuarios', []))
+            a['ips_sin_token'].update(e.get('ips_sin_token', []))
+    for v in obs.values():
+        v['usuarios'] = sorted(v['usuarios'])
+        v['ips_sin_token'] = sorted(v['ips_sin_token'])
 
-    desde = datetime.fromisoformat(d['desde'].replace('Z', '+00:00'))
+    desde = datetime.fromisoformat(desde_iso.replace('Z', '+00:00'))
     dias = (datetime.now(timezone.utc) - desde).total_seconds() / 86400
 
-    print(f"\n  AUDITORIA DE AUTH — {dias:.1f} dias de observacion (desde {d['desde'][:10]})")
+    print(f"\n  AUDITORIA DE AUTH — {dias:.1f} dias de observacion (desde {desde_iso[:10]})")
+    print(f"  Consolidando {len(archivos)} proceso(s) observado(s)")
     if dias < args.dias:
         print(f"  AVISO: menos de {args.dias} dias. Un veredicto HUERFANO todavia no es confiable:")
         print(f"         un consumidor semanal o mensual aun no habria aparecido.\n")
