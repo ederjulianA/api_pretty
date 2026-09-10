@@ -1,0 +1,1130 @@
+{
+  "plan": "hardening-seguridad-2026-09",
+  "version": 1,
+  "creado": "2026-09-10",
+  "actualizado": "2026-09-10",
+  "informe_base": "revision_seguridad/INFORME_SEGURIDAD_2026-09-10.md",
+  "repos": {
+    "backend": {
+      "nombre": "api_pretty",
+      "path": "/Users/eder/Developer/GitHub/api_pretty",
+      "rama_base": "main",
+      "deploy": "manual-pm2",
+      "deploy_nota": "Mergear a main NO despliega. Requiere 'pm2 restart api_pretty' explicito."
+    },
+    "frontend": {
+      "nombre": "pretty_front",
+      "path": "/Users/eder/Developer/GitHub/pretty_front",
+      "rama_base": "main",
+      "deploy": "auto-vercel",
+      "deploy_nota": "Mergear a main SALE EN VIVO de inmediato. Punto de no retorno."
+    }
+  },
+  "validacion": {
+    "modo": "local-contra-bd-produccion",
+    "nota": "Sin staging. Priorizar pruebas de LECTURA y de codigo de respuesta (401/200). NUNCA crear facturas, anular documentos ni escribir datos reales como prueba."
+  },
+  "regla_de_orden": "En toda tarea de dos repos: PRIMERO frontend (empieza a mandar token; el backend aun lo ignora, es inofensivo), verificar en vivo, DESPUES backend, y de ultimo desplegar backend con PM2. Invertir este orden tumba produccion.",
+  "tareas": [
+    {
+      "id": "SEC-00",
+      "titulo": "Middleware de auditoria de auth (registra sin bloquear)",
+      "severidad": "instrumentacion",
+      "fase": 0,
+      "hallazgo": "Habilitador del plan",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [
+        "SEC-10",
+        "SEC-11",
+        "SEC-12",
+        "SEC-13",
+        "SEC-14",
+        "SEC-15",
+        "SEC-16",
+        "SEC-17",
+        "SEC-18"
+      ],
+      "archivos": {
+        "backend": [
+          "middlewares/authAudit.js (nuevo)",
+          "index.js"
+        ]
+      },
+      "descripcion": "Middleware global que registra cada request indicando si trae token valido, sin bloquear nada. Convierte el plan de adivinar a medir: tras ~7 dias de datos sabremos exactamente que endpoints reciben trafico sin token y desde donde.",
+      "gate": "Servidor arranca. Peticion con y sin token responde igual que antes (nada bloqueado). Log escribe entrada con path, metodo, ip, tiene_token.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": []
+    },
+    {
+      "id": "SEC-01",
+      "titulo": "Exigir rol admin en change-password-admin",
+      "severidad": "critica",
+      "fase": 1,
+      "hallazgo": "CRITICO-1",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "controllers/authController.js:236"
+        ]
+      },
+      "descripcion": "Cualquier usuario autenticado puede reescribir la password del admin. Validar rol antes de ejecutar y prohibir que apunte al propio usu_cod del llamante.",
+      "gate": "Con token de usuario NO admin -> 403. Con token admin -> 200 y cambia la password. Verificar contra un usuario de prueba, nunca contra 'admin' real.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Requiere confirmar con db-explorer como se identifica el rol admin en dbo.Roles."
+      ]
+    },
+    {
+      "id": "SEC-02",
+      "titulo": "Restringir CORS a dominios conocidos",
+      "severidad": "alta",
+      "fase": 1,
+      "hallazgo": "ALTA-6",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "index.js:63",
+          ".env"
+        ]
+      },
+      "descripcion": "app.use(cors()) emite Access-Control-Allow-Origin: *. Restringir por lista desde variable de entorno CORS_ORIGINS.",
+      "gate": "El front en produccion usa API_URL='/api' (proxy same-origin), asi que no depende de CORS. Verificar que el front local (vite dev) siga funcionando: incluir su origen en la lista.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Riesgo bajo confirmado: src/config.js del front usa ruta relativa /api via proxy."
+      ]
+    },
+    {
+      "id": "SEC-03",
+      "titulo": "Rate limiting en login + registro de intentos fallidos",
+      "severidad": "alta",
+      "fase": 1,
+      "hallazgo": "ALTA-7",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "routes/authRoutes.js:9",
+          "package.json"
+        ]
+      },
+      "descripcion": "Login acepta intentos ilimitados contra bcrypt. Anadir express-rate-limit (5 intentos / 15 min por IP+usuario) y loguear fallos a Winston.",
+      "gate": "6 intentos fallidos seguidos -> el 6o responde 429. Login correcto sigue funcionando. Probar con usuario de prueba.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Ojo con Vercel/proxy: configurar trust proxy para que la IP no sea siempre la del proxy."
+      ]
+    },
+    {
+      "id": "SEC-04",
+      "titulo": "helmet + disable x-powered-by",
+      "severidad": "baja",
+      "fase": 1,
+      "hallazgo": "BAJA-16",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "index.js",
+          "package.json"
+        ]
+      },
+      "descripcion": "Anadir cabeceras de seguridad. Cuidado con CSP por defecto de helmet si algun endpoint sirve HTML.",
+      "gate": "curl -I muestra X-Content-Type-Options y no muestra X-Powered-By. El front sigue cargando.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": []
+    },
+    {
+      "id": "SEC-05",
+      "titulo": "req.user como unica fuente de identidad en auditoria",
+      "severidad": "alta",
+      "fase": 1,
+      "hallazgo": "ALTA-5",
+      "estado": "pendiente",
+      "repos": [
+        "backend",
+        "frontend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "controllers/cargaCostosController.js:162,430,596,1005,1244",
+          "controllers/orderController.js:101"
+        ],
+        "frontend": [
+          "verificar si algun form envia usu_cod en el body"
+        ]
+      },
+      "descripcion": "El body tiene precedencia sobre el token al resolver quien ejecuto la accion. Invertir a req.user.usu_cod como unica fuente.",
+      "gate": "Aprobar un costo y verificar en BD que el usuario registrado es el del token, no el del body. Revisar antes si el front depende de mandar usu_cod.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        },
+        "frontend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        }
+      },
+      "notas": [
+        "fac_usu_cod_cre en createCompleteOrder no puede migrarse hasta que ese endpoint tenga auth (SEC-11): hoy no hay req.user."
+      ]
+    },
+    {
+      "id": "SEC-06",
+      "titulo": "Quitar console.log(req.body) de createCompleteOrder",
+      "severidad": "baja",
+      "fase": 1,
+      "hallazgo": "BAJA-17",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "controllers/orderController.js:102"
+        ]
+      },
+      "descripcion": "Vuelca pedidos completos con datos de cliente a los logs de PM2 en texto plano.",
+      "gate": "Crear un pedido y confirmar que el log ya no contiene el body.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": []
+    },
+    {
+      "id": "SEC-07",
+      "titulo": "npm audit fix + reemplazar xlsx por exceljs",
+      "severidad": "media",
+      "fase": 1,
+      "hallazgo": "MEDIA-13",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "package.json",
+          "controllers/cargaCostosController.js"
+        ]
+      },
+      "descripcion": "38 CVEs. xlsx no tiene fix en npm y parsea Excel subido por usuarios. exceljs ya esta en el proyecto.",
+      "gate": "npm audit sin criticas. Importar un Excel de costos real y verificar que el parseo da el mismo resultado que antes.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "El fix de uuid quiere bajar exceljs a 3.4.0 (breaking). Evaluar por separado, no forzar."
+      ]
+    },
+    {
+      "id": "SEC-08",
+      "titulo": "Backend acepta Authorization: Bearer ademas de x-access-token",
+      "severidad": "media",
+      "fase": 1,
+      "hallazgo": "Caso especial 3 del informe de agosto",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [
+        "SEC-17"
+      ],
+      "archivos": {
+        "backend": [
+          "middlewares/auth.js",
+          "middlewares/authMiddleware.js"
+        ]
+      },
+      "descripcion": "DiferenciaInventario.jsx manda Bearer, que el backend ignora. Aceptarlo en backend resuelve el bug sin tocar el front y alinea la API con el estandar.",
+      "gate": "Mismo token funciona por x-access-token y por Authorization: Bearer. Sin token sigue dando 401.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": []
+    },
+    {
+      "id": "SEC-10",
+      "titulo": "Proteger endpoints huerfanos confirmados por auditoria",
+      "severidad": "media",
+      "fase": 2,
+      "hallazgo": "Grupo C del informe de agosto",
+      "estado": "bloqueado",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-00"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "routes/woo.js:19,132",
+          "routes/wooSyncRoutes.js:29,38,46",
+          "routes/diagnosticRoutes.js:14,50,93,129",
+          "routes/testSyncRoutes.js:8,144,248",
+          "routes/salesRoutes.js:7",
+          "routes/syncOrdersRoutes.js:7",
+          "routes/confirmOrderRoutes.js:9",
+          "routes/inventarioSubgrupoRoutes.js:65",
+          "routes/promocionRoutes.js:23,24,28"
+        ]
+      },
+      "descripcion": "15 endpoints sin consumidor conocido. Con los datos de SEC-00 se confirma cuales no reciben trafico y se protegen en bloque.",
+      "gate": "Cada endpoint del lote lleva >=7 dias con cero requests sin token en el log de auditoria. Tras proteger: 401 sin token, 200 con token.",
+      "progreso": {
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Si la auditoria detecta trafico en alguno, sacarlo del lote e investigar el consumidor antes de tocarlo."
+      ]
+    },
+    {
+      "id": "SEC-11",
+      "titulo": "Proteger /api/order/* y /api/ordenes/*",
+      "severidad": "critica",
+      "fase": 2,
+      "hallazgo": "CRITICO-3a",
+      "estado": "bloqueado",
+      "repos": [
+        "frontend",
+        "backend"
+      ],
+      "secuencia": [
+        "frontend",
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-00"
+      ],
+      "bloquea": [
+        "SEC-23"
+      ],
+      "archivos": {
+        "frontend": [
+          "src/**/POS2.jsx (lineas 497, 551, 731, 787)",
+          "src/**/AnularDocumentoModal.jsx:15",
+          "src/**/Orders.jsx"
+        ],
+        "backend": [
+          "routes/orderRoutes.js:9,10,12,14,15"
+        ]
+      },
+      "descripcion": "Crear, actualizar, anular, listar y ver facturas sin token. Montado ademas en dos paths (/api/order y /api/ordenes). Migrar las llamadas del front a axiosInstance y luego proteger las 5 rutas.",
+      "gate": "FRONT: crear pedido, editar pedido y anular documento funcionan en vivo tras el deploy de Vercel. BACKEND (despues): esas mismas 3 operaciones siguen funcionando y sin token dan 401.",
+      "progreso": {
+        "frontend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        },
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "POS2.jsx es inconsistente: linea 731 manda token y 497 no. Revisar las 4 llamadas."
+      ]
+    },
+    {
+      "id": "SEC-12",
+      "titulo": "Proteger /api/nits/ (GET listado + POST creacion)",
+      "severidad": "alta",
+      "fase": 2,
+      "hallazgo": "ALTA-4",
+      "estado": "bloqueado",
+      "repos": [
+        "frontend",
+        "backend"
+      ],
+      "secuencia": [
+        "frontend",
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-00"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "frontend": [
+          "src/**/CreateClientModal.jsx:45"
+        ],
+        "backend": [
+          "routes/nitsRoutes.js:10,13"
+        ]
+      },
+      "descripcion": "GET /api/nits/ expone la base completa de clientes con PII (cedula, telefono, email, direccion). Riesgo Ley 1581 de 2012.",
+      "gate": "FRONT: crear cliente funciona en vivo. BACKEND: crear y buscar cliente funcionan; sin token da 401.",
+      "progreso": {
+        "frontend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        },
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Clients.jsx lista clientes via microservicio Spring, no via este endpoint. Confirmar quien consume GET /api/nits/ con los datos de SEC-00."
+      ]
+    },
+    {
+      "id": "SEC-13",
+      "titulo": "Proteger galeria de fotos de productos (6 endpoints)",
+      "severidad": "media",
+      "fase": 2,
+      "hallazgo": "MEDIA-12",
+      "estado": "bloqueado",
+      "repos": [
+        "frontend",
+        "backend"
+      ],
+      "secuencia": [
+        "frontend",
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-00"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "frontend": [
+          "src/**/photoService.js:8,22,46,58,70,82"
+        ],
+        "backend": [
+          "routes/productPhotoRoutes.js:7,10,13,16,19,22"
+        ]
+      },
+      "descripcion": "Ninguna llamada de photoService envia token. Cualquiera puede subir o borrar imagenes del catalogo. Bajar tambien el limite de express-fileupload de 50MB a 5MB y validar magic bytes.",
+      "gate": "FRONT: subir, marcar principal, reordenar y borrar foto funcionan en vivo. BACKEND: idem, y sin token 401.",
+      "progreso": {
+        "frontend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        },
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": []
+    },
+    {
+      "id": "SEC-14",
+      "titulo": "Proteger /api/inventario-conteo/* (9 endpoints)",
+      "severidad": "media",
+      "fase": 2,
+      "hallazgo": "Grupo B",
+      "estado": "bloqueado",
+      "repos": [
+        "frontend",
+        "backend"
+      ],
+      "secuencia": [
+        "frontend",
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-00"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "frontend": [
+          "src/**/ConteoCreate.jsx",
+          "src/**/Conteos.jsx:45,175"
+        ],
+        "backend": [
+          "routes/inventarioConteo.js:6,9,12,15,18,21,24,27,30"
+        ]
+      },
+      "descripcion": "Flujo completo de conteo fisico abierto. Es el lote mas grande y el de mayor riesgo operativo: si se rompe, se cae el conteo en bodega.",
+      "gate": "FRONT: crear conteo, agregar detalle, editar cantidad, cambiar estado y listar funcionan en vivo. BACKEND: idem, y sin token 401.",
+      "progreso": {
+        "frontend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        },
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Coordinar con bodega: no ejecutar el merge de backend mientras haya un conteo en curso."
+      ]
+    },
+    {
+      "id": "SEC-15",
+      "titulo": "Proteger /api/kardex/:art_cod",
+      "severidad": "media",
+      "fase": 2,
+      "hallazgo": "MEDIA-15",
+      "estado": "bloqueado",
+      "repos": [
+        "frontend",
+        "backend"
+      ],
+      "secuencia": [
+        "frontend",
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-00"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "frontend": [
+          "src/**/ArticleMovementModal.jsx:21"
+        ],
+        "backend": [
+          "routes/kardexRoutes.js:7"
+        ]
+      },
+      "descripcion": "Expone movimientos y costos de cualquier articulo sin token.",
+      "gate": "FRONT: el modal de movimientos carga en vivo. BACKEND: idem, y sin token 401.",
+      "progreso": {
+        "frontend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        },
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": []
+    },
+    {
+      "id": "SEC-16",
+      "titulo": "Proteger /api/ciudades/ y /api/categorias/",
+      "severidad": "baja",
+      "fase": 2,
+      "hallazgo": "Grupo B",
+      "estado": "bloqueado",
+      "repos": [
+        "frontend",
+        "backend"
+      ],
+      "secuencia": [
+        "frontend",
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-00"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "frontend": [
+          "src/**/CreateClientModal.jsx:20",
+          "src/**/useCategories.jsx:11"
+        ],
+        "backend": [
+          "routes/ciudadesRoutes.js:7",
+          "routes/inventarioGrupoRoutes.js:13"
+        ]
+      },
+      "descripcion": "Catalogos de referencia. Bajo valor para un atacante, pero cierran la superficie y son de los mas simples de migrar.",
+      "gate": "FRONT: el selector de ciudad y el de categorias cargan en vivo. BACKEND: idem, y sin token 401.",
+      "progreso": {
+        "frontend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        },
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Buen candidato para estrenar el flujo de dos repos: bajo riesgo y verificacion visual inmediata."
+      ]
+    },
+    {
+      "id": "SEC-17",
+      "titulo": "Proteger endpoints de sincronizacion Woo",
+      "severidad": "alta",
+      "fase": 2,
+      "hallazgo": "ALTA-8",
+      "estado": "bloqueado",
+      "repos": [
+        "frontend",
+        "backend"
+      ],
+      "secuencia": [
+        "frontend",
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-00",
+        "SEC-08"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "frontend": [
+          "src/**/DiferenciaInventario.jsx:84-88",
+          "src/**/ProductCard.jsx:22,24",
+          "src/**/Orders.jsx:275"
+        ],
+        "backend": [
+          "routes/wooSyncRoutes.js:21",
+          "routes/woo.js:35",
+          "routes/syncWooOrdersRoutes.js:6",
+          "routes/documentoInventarioRoutes.js:7"
+        ]
+      },
+      "descripcion": "Jobs pesados que reescriben datos de la tienda en vivo, disparables por cualquiera. SEC-08 ya habra hecho que el Bearer de DiferenciaInventario funcione.",
+      "gate": "FRONT: sincronizar diferencia de inventario, sincronizar imagen de producto y actualizar inventario por documento funcionan en vivo. BACKEND: idem, y sin token 401.",
+      "progreso": {
+        "frontend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        },
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": []
+    },
+    {
+      "id": "SEC-18",
+      "titulo": "Proteger lecturas masivas restantes",
+      "severidad": "media",
+      "fase": 2,
+      "hallazgo": "MEDIA-15 / omitidos del informe de agosto",
+      "estado": "bloqueado",
+      "repos": [
+        "frontend",
+        "backend"
+      ],
+      "secuencia": [
+        "frontend",
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-00"
+      ],
+      "bloquea": [
+        "SEC-23"
+      ],
+      "archivos": {
+        "backend": [
+          "routes/inventoryComparisonRoutes.js:7",
+          "routes/inventoryDifferenceRoutes.js:6",
+          "routes/salesRoutes.js:7",
+          "routes/promocionRoutes.js:19,20,25"
+        ]
+      },
+      "descripcion": "Inventario completo, ventas y promociones legibles sin token. Cierra los ultimos GET abiertos y deja la API lista para SEC-23.",
+      "gate": "FRONT: las pantallas de diferencias de inventario y promociones cargan en vivo. BACKEND: idem, y sin token 401.",
+      "progreso": {
+        "frontend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        },
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": []
+    },
+    {
+      "id": "SEC-20",
+      "titulo": "Recalcular precios en el servidor",
+      "severidad": "critica",
+      "fase": 3,
+      "hallazgo": "CRITICO-3b",
+      "estado": "bloqueado",
+      "repos": [
+        "backend",
+        "frontend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-11"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "models/orderModel.js:363,368,408",
+          "utils/precioUtils.js"
+        ],
+        "frontend": [
+          "revisar si POS2 depende de fijar kar_pre_pub manualmente"
+        ]
+      },
+      "descripcion": "kar_pre_pub se inserta tal como llega del body. El servidor debe recalcularlo desde articulosdetalle + promociones + eventos. El body solo aporta art_sec, kar_uni y kar_lis_pre_cod.",
+      "gate": "Pedido con precio manipulado en el body se guarda con el precio real de BD. Pedidos normales (detal, mayor, con promocion, con evento, con bundle) mantienen exactamente el mismo total que antes del cambio. Comparar contra 5 pedidos historicos reales.",
+      "progreso": {
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        },
+        "frontend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        }
+      },
+      "notas": [
+        "La tarea de mayor riesgo funcional del plan. Si el negocio necesita precio manual, modelarlo como descuento explicito sujeto a permiso y auditado."
+      ]
+    },
+    {
+      "id": "SEC-21",
+      "titulo": "Middleware requirePermission y aplicacion por modulo",
+      "severidad": "critica",
+      "fase": 3,
+      "hallazgo": "CRITICO-2",
+      "estado": "bloqueado",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-01"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "middlewares/authorize.js (nuevo)",
+          "routes/userRoutes.js",
+          "routes/roleRoutes.js",
+          "routes/parametrosRoutes.js",
+          "routes/cierreMesRoutes.js"
+        ]
+      },
+      "descripcion": "No existe autorizacion en el backend: el RBAC solo pinta la UI. Crear requirePermission que consulte dbo.RolesPermisos y aplicarlo modulo por modulo empezando por los mas sensibles.",
+      "gate": "Por cada modulo: usuario CON el permiso opera normal; usuario SIN el permiso recibe 403. Validar con dos usuarios de prueba de roles distintos.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "PRIMERO validar con db-explorer los nombres reales de dbo.UsuariosRoles y dbo.RolesPermisosAcciones: la consulta propuesta en el informe se derivo de userRoleModel.js y no esta confirmada.",
+        "Aplicar por modulo en tareas separadas, no todo de golpe."
+      ]
+    },
+    {
+      "id": "SEC-22",
+      "titulo": "Error handler centralizado",
+      "severidad": "media",
+      "fase": 3,
+      "hallazgo": "MEDIA-10",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "middlewares/errorHandler.js (nuevo)",
+          "207 puntos en controllers/ y routes/"
+        ]
+      },
+      "descripcion": "207 respuestas devuelven error.message al cliente, filtrando esquema de BD y errores del driver. Centralizar: detalle a Winston, mensaje generico + requestId al cliente.",
+      "gate": "Provocar un error de BD y confirmar que la respuesta trae requestId y mensaje generico, y que el detalle si aparece en el log.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Migrar por lotes de archivos, no los 207 en un commit."
+      ]
+    },
+    {
+      "id": "SEC-23",
+      "titulo": "Autenticacion por defecto (whitelist)",
+      "severidad": "alta",
+      "fase": 3,
+      "hallazgo": "Seccion 4.2 del informe",
+      "estado": "bloqueado",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-10",
+        "SEC-11",
+        "SEC-12",
+        "SEC-13",
+        "SEC-14",
+        "SEC-15",
+        "SEC-16",
+        "SEC-17",
+        "SEC-18"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "index.js"
+        ]
+      },
+      "descripcion": "Invertir el modelo: todo protegido salvo lista blanca explicita. Es el unico cambio que garantiza que un endpoint nuevo no nazca abierto.",
+      "gate": "Recorrer las pantallas principales del front con sesion iniciada: todo funciona. El log de auditoria de SEC-00 debe llevar >=7 dias sin requests sin token a rutas no publicas.",
+      "progreso": {
+        "backend": {
+          "estado": "bloqueado",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Cierre del plan. No intentar antes de completar toda la fase 2."
+      ]
+    },
+    {
+      "id": "SEC-24",
+      "titulo": "Unificar middlewares auth.js y authMiddleware.js",
+      "severidad": "baja",
+      "fase": 3,
+      "hallazgo": "Seccion 4.3",
+      "estado": "bloqueado",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-08"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "middlewares/auth.js",
+          "middlewares/authMiddleware.js"
+        ]
+      },
+      "descripcion": "Dos implementaciones duplicadas del mismo middleware (CommonJS y ESM) que hay que mantener en paralelo. Unificar en un modulo con ambas exportaciones.",
+      "gate": "Todas las rutas que hoy usan cualquiera de los dos siguen respondiendo 401 sin token y 200 con token.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": []
+    },
+    {
+      "id": "SEC-25",
+      "titulo": "Corregir SQL injection en aiController.batchOptimize",
+      "severidad": "media",
+      "fase": 3,
+      "hallazgo": "MEDIA-11",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "controllers/aiController.js:288"
+        ]
+      },
+      "descripcion": "SELECT TOP ${limit} con limit desde el body sin sanear. La ruta esta comentada en index.js:24, asi que hoy no es explotable, pero el codigo se reactivara.",
+      "gate": "limit parametrizado con sql.Int. Revisar el resto de aiController antes de descomentar la ruta.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Corregir AHORA aunque la ruta este apagada: el costo es de minutos y evita que reviva con el bug."
+      ]
+    },
+    {
+      "id": "SEC-26",
+      "titulo": "Invalidacion de sesiones al cambiar password o rol",
+      "severidad": "media",
+      "fase": 3,
+      "hallazgo": "MEDIA-9",
+      "estado": "bloqueado",
+      "repos": [
+        "backend",
+        "frontend"
+      ],
+      "secuencia": [
+        "backend",
+        "frontend"
+      ],
+      "depende_de": [
+        "SEC-21"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "controllers/authController.js",
+          "middlewares/auth.js"
+        ],
+        "frontend": [
+          "src/axiosConfig.js"
+        ]
+      },
+      "descripcion": "Token de 24h sin revocacion. Un empleado despedido conserva acceso hasta 24h y cambiar la password no cierra sesiones. Anadir columna de token_version en Usuarios e incluirla en el JWT.",
+      "gate": "Cambiar la password de un usuario de prueba invalida su token anterior de inmediato (401), y el front lo redirige a login.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        },
+        "frontend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false
+        }
+      },
+      "notas": [
+        "Requiere migracion de BD. Usar db-explorer para el script de impacto."
+      ]
+    },
+    {
+      "id": "SEC-27",
+      "titulo": "Confirmar terminacion TLS y anadir HSTS",
+      "severidad": "baja",
+      "fase": 3,
+      "hallazgo": "BAJA-18",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-04"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "backend": [
+          "infra / configuracion de despliegue"
+        ]
+      },
+      "descripcion": "El server escucha HTTP plano en 0.0.0.0:3000. Confirmar que hay un reverse proxy con TLS delante en produccion y activar HSTS via helmet.",
+      "gate": "curl -I https://<dominio-api> devuelve Strict-Transport-Security. Peticion HTTP plana redirige a HTTPS.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "merged": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "Tarea de infraestructura, no de codigo. Puede requerir acceso al servidor o al panel de Vercel."
+      ]
+    }
+  ]
+}

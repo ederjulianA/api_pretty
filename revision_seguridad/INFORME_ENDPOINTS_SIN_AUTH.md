@@ -6,6 +6,25 @@
 
 ---
 
+> **⚠️ ESTADO A 2026-09-10 — este documento quedó parcialmente desactualizado.**
+> Se validó su contenido contra el código actual. Resultado:
+> - **Grupo A:** ✅ aplicado y verificado (12 rutas con `verifyToken`).
+> - **Grupo B:** ❌ ninguno aplicado — sigue bloqueado esperando la corrección del frontend.
+> - **Grupo C:** ❌ ninguno aplicado, incluido `sync-weight-dimensions` que aquí se marcó como "riesgo cero".
+> - **Conteo:** hoy hay **53** endpoints sin auth. Este informe subcontó: omitió varios `GET` de lectura masiva
+>   (`GET /api/nits/`, `GET /api/order/`, `GET /api/inventory-comparison`, entre otros) porque la metodología
+>   clasificaba por "¿lo llama el frontend?", lo que encuentra escrituras pero pasa por alto fugas de datos.
+>
+> Además, la revisión completa encontró **3 fallas críticas que no son de falta de `verifyToken`** y que
+> comprometen el sistema aun con la autenticación al 100 %: escalada a admin vía `change-password-admin`,
+> ausencia total de autorización en el backend (el RBAC solo pinta la UI), y facturación con precio
+> controlado por el cliente.
+>
+> 👉 **Ver `revision_seguridad/INFORME_SEGURIDAD_2026-09-10.md`** — reemplaza a este documento como
+> referencia vigente. Este se conserva como registro histórico del análisis de agosto.
+
+---
+
 ## Resumen ejecutivo
 
 Se encontraron **60 endpoints** en `api_pretty` sin el middleware `verifyToken`/`auth` aplicado. No existe protección global en `index.js` — toda la seguridad es por-ruta, y ~15 archivos completos de `/routes` quedaron sin el patrón que sí usan `articulosRoutes.js`, `promocionRoutes.js` (parcial) y el resto del proyecto.
