@@ -200,7 +200,7 @@
       "severidad": "baja",
       "fase": 1,
       "hallazgo": "BAJA-16",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -219,10 +219,10 @@
       "gate": "curl -I muestra X-Content-Type-Options y no muestra X-Powered-By. El front sigue cargando.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-04-helmet",
           "commit": "ab8a331",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "c44fc70"
@@ -238,7 +238,7 @@
       "severidad": "alta",
       "fase": 1,
       "hallazgo": "ALTA-5",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend",
         "frontend"
@@ -261,10 +261,10 @@
       "gate": "Aprobar un costo y verificar en BD que el usuario registrado es el del token, no el del body. Revisar antes si el front depende de mandar usu_cod.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-05-identidad-auditoria",
           "commit": "7e7ad60",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "c44fc70"
@@ -289,7 +289,7 @@
       "severidad": "baja",
       "fase": 1,
       "hallazgo": "BAJA-17",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -307,10 +307,10 @@
       "gate": "Crear un pedido y confirmar que el log ya no contiene el body.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-06-logs-sin-datos",
           "commit": "9bb073f",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "c44fc70"
@@ -326,7 +326,7 @@
       "severidad": "media",
       "fase": 1,
       "hallazgo": "MEDIA-13",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -345,10 +345,10 @@
       "gate": "npm audit sin criticas. Importar un Excel de costos real y verificar que el parseo da el mismo resultado que antes.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-07-quitar-xlsx",
           "commit": "84fd694",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "c44fc70"
@@ -365,7 +365,7 @@
       "severidad": "media",
       "fase": 1,
       "hallazgo": "Caso especial 3 del informe de agosto",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -386,10 +386,10 @@
       "gate": "Mismo token funciona por x-access-token y por Authorization: Bearer. Sin token sigue dando 401.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-08-aceptar-bearer",
           "commit": "753af39",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "c44fc70"
@@ -754,7 +754,7 @@
       "severidad": "alta",
       "fase": 2,
       "hallazgo": "ALTA-8",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "frontend",
         "backend"
@@ -1040,7 +1040,7 @@
       "severidad": "baja",
       "fase": 3,
       "hallazgo": "Seccion 4.3",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "backend"
       ],
@@ -1166,7 +1166,7 @@
       "severidad": "alta",
       "fase": 3,
       "hallazgo": "BAJA-18",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "backend"
       ],
