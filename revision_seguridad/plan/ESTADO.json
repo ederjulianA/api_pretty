@@ -1095,7 +1095,7 @@
       "severidad": "baja",
       "fase": 3,
       "hallazgo": "BAJA-18",
-      "estado": "pendiente",
+      "estado": "bloqueado",
       "repos": [
         "backend"
       ],
