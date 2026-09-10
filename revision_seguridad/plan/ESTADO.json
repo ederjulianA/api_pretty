@@ -178,12 +178,13 @@
       "gate": "6 intentos fallidos seguidos -> el 6o responde 429. Login correcto sigue funcionando. Probar con usuario de prueba.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-03-rate-limit-login",
           "commit": "149d383",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "d276185"
         }
       },
       "notas": [
