@@ -225,10 +225,12 @@
           "desplegado": false,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         }
       },
-      "notas": []
+      "notas": [
+        "[2026-09-10] Correccion de registro: el primer intento de merge a main fallo porque ESTADO.json tenia cambios sin commitear, y el CLI registro el commit del main VIEJO (766ba56). El merge real es c44fc70."
+      ]
     },
     {
       "id": "SEC-05",
@@ -265,7 +267,7 @@
           "desplegado": false,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         },
         "frontend": {
           "estado": "en_main",
@@ -311,7 +313,7 @@
           "desplegado": false,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         }
       },
       "notas": [
@@ -349,7 +351,7 @@
           "desplegado": false,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         }
       },
       "notas": [
@@ -390,7 +392,7 @@
           "desplegado": false,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         }
       },
       "notas": []
