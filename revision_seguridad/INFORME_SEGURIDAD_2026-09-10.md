@@ -20,9 +20,9 @@ Hay tres fallas que permiten comprometer el sistema incluso con la autenticació
 | Severidad | Hallazgos |
 |---|---|
 | 🔴 Crítica | 3 |
-| 🟠 Alta | 5 |
+| 🟠 Alta | 6 |
 | 🟡 Media | 7 |
-| 🔵 Baja | 4 |
+| 🔵 Baja | 3 |
 
 ---
 
@@ -323,9 +323,15 @@ No está instalado. Falta `X-Content-Type-Options`, `X-Frame-Options`, `Referrer
 
 `controllers/orderController.js:102` — `console.log(req.body);` en `createCompleteOrder` escribe el pedido completo (incluidos datos del cliente) a los logs de PM2 sin rotación ni control de acceso.
 
-### 🔵 BAJA-18 — Sin TLS forzado ni HSTS
+### 🟠 ALTA-18 — El token viaja en claro: no hay TLS (elevada desde BAJA el 2026-09-10)
 
-`app.listen(PORT, '0.0.0.0')` en HTTP plano (`index.js:120`). Si no hay un reverse proxy con TLS delante, el token viaja en claro en cada petición. Confirmar la terminación TLS del despliegue.
+`app.listen(PORT, '0.0.0.0')` en HTTP plano (`index.js`). La versión original de este hallazgo decía "confirmar la terminación TLS del despliegue" y lo clasificaba como BAJA.
+
+**Confirmado durante SEC-02: no hay TLS.** `pretty_front/vercel.json` reenvía `/api/:path*` a **`http://154.53.62.220:3000`** — HTTP plano, sobre IP pública, sin dominio ni certificado. El `x-access-token` viaja **en claro por internet** en cada petición entre la infraestructura de Vercel y el backend, y es interceptable en cualquier salto intermedio.
+
+Eso degrada todo lo demás: da igual cuán bien se proteja cada endpoint si la credencial que los protege se puede leer del cable. Reclasificado a **ALTA** y elevado en el plan (SEC-27).
+
+**Corrección:** poner un reverse proxy con TLS (Caddy/nginx + Let's Encrypt) delante del backend, apuntar el rewrite de Vercel a `https://<dominio>` en vez de a la IP, y activar HSTS. El puerto 3000 no debería quedar expuesto a internet.
 
 ### 🔵 BAJA-19 — Rutas montadas múltiples veces (superficie duplicada)
 

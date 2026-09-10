@@ -118,7 +118,7 @@
       "severidad": "alta",
       "fase": 1,
       "hallazgo": "ALTA-6",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -137,16 +137,17 @@
       "gate": "El front en produccion usa API_URL='/api' (proxy same-origin), asi que no depende de CORS. Verificar que el front local (vite dev) siga funcionando: incluir su origen en la lista.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-02-cors-restringido",
+          "commit": "1db6922",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
       "notas": [
-        "Riesgo bajo confirmado: src/config.js del front usa ruta relativa /api via proxy."
+        "Riesgo bajo confirmado: src/config.js del front usa ruta relativa /api via proxy.",
+        "[2026-09-10] El front no usa CORS en ningun entorno: vercel.json hace rewrite server-side de /api/* a http://154.53.62.220:3000 y vite.config.js hace proxy en dev. El navegador siempre ve same-origin. Por eso restringir CORS fue de riesgo nulo. Falta definir CORS_ORIGINS en el .env de PRODUCCION antes de desplegar; sin ella el default solo permite localhost."
       ]
     },
     {
@@ -1136,7 +1137,7 @@
     {
       "id": "SEC-27",
       "titulo": "Confirmar terminacion TLS y anadir HSTS",
-      "severidad": "baja",
+      "severidad": "alta",
       "fase": 3,
       "hallazgo": "BAJA-18",
       "estado": "bloqueado",
@@ -1168,7 +1169,8 @@
         }
       },
       "notas": [
-        "Tarea de infraestructura, no de codigo. Puede requerir acceso al servidor o al panel de Vercel."
+        "Tarea de infraestructura, no de codigo. Puede requerir acceso al servidor o al panel de Vercel.",
+        "[2026-09-10] Severidad baja -> alta: Confirmado en pretty_front/vercel.json: el backend de produccion es http://154.53.62.220:3000 — HTTP plano sobre IP publica, sin dominio ni TLS. No es 'confirmar si hay reverse proxy': no lo hay. El x-access-token viaja en claro por internet en cada request entre Vercel y el backend, y es interceptable en cualquier salto intermedio."
       ]
     }
   ],

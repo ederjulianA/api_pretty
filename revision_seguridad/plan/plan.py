@@ -329,6 +329,19 @@ def cmd_agregar(d, args):
 
 
 
+def cmd_severidad(d, args):
+    """Recalibra la severidad de una tarea cuando un hallazgo lo justifica."""
+    t = buscar(d, args.id)
+    antes = t['severidad']
+    t['severidad'] = args.nivel
+    t.setdefault('notas', []).append(
+        f"[{date.today().isoformat()}] Severidad {antes} -> {args.nivel}: {args.razon}")
+    refrescar(d); guardar(d)
+    print(f"OK  {t['id']}  severidad {antes} -> {args.nivel}")
+    print(f"    {args.razon}")
+
+
+
 def main():
     ap = argparse.ArgumentParser(description='Estado del plan de hardening')
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -344,6 +357,7 @@ def main():
     p = sub.add_parser('bloquear');    p.add_argument('id'); p.add_argument('razon')
     p = sub.add_parser('desbloquear'); p.add_argument('id')
     p = sub.add_parser('nota');        p.add_argument('id'); p.add_argument('texto')
+    p = sub.add_parser('severidad'); p.add_argument('id'); p.add_argument('nivel', choices=['critica','alta','media','baja','instrumentacion']); p.add_argument('razon')
     p = sub.add_parser('agregar')
     p.add_argument('id')
     p.add_argument('--titulo', required=True)
