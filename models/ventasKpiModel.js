@@ -5,6 +5,7 @@
  */
 
 const { poolPromise, sql } = require('../db');
+const { obtenerPorcentajesComision, porcentajeDeCanal, redondear2 } = require('../utils/comisionUtils');
 
 /**
  * Obtiene KPIs principales de ventas para un período
@@ -394,6 +395,11 @@ const obtenerOrdenesPorCanal = async (fechaInicio, fechaFin) => {
   try {
     const pool = await poolPromise;
 
+    // Los porcentajes ya no viven en el SQL: se leen de dbo.parametros
+    // (comision_woo / comision_local) para que el dashboard y el cierre de mes
+    // usen exactamente el mismo valor. Ver utils/comisionUtils.js.
+    const porcentajes = await obtenerPorcentajesComision();
+
     const result = await pool.request()
       .input('fecha_inicio', sql.Date, fechaInicio)
       .input('fecha_fin', sql.Date, fechaFin)
@@ -408,17 +414,7 @@ const obtenerOrdenesPorCanal = async (fechaInicio, fechaFin) => {
             ELSE 0
           END AS ticket_promedio,
           SUM(utilidad_linea) AS utilidad_total,
-          AVG(rentabilidad_real) AS rentabilidad_promedio,
-          CASE
-            WHEN canal_venta = 'WooCommerce' THEN SUM(total_linea) * 0.05
-            WHEN canal_venta = 'Local' THEN SUM(total_linea) * 0.025
-            ELSE 0
-          END AS comision_venta,
-          CASE
-            WHEN canal_venta = 'WooCommerce' THEN 5.0
-            WHEN canal_venta = 'Local' THEN 2.5
-            ELSE 0
-          END AS porcentaje_comision
+          AVG(rentabilidad_real) AS rentabilidad_promedio
         FROM dbo.vw_ventas_dashboard
         WHERE fecha_venta >= @fecha_inicio
           AND fecha_venta <= @fecha_fin
@@ -426,16 +422,20 @@ const obtenerOrdenesPorCanal = async (fechaInicio, fechaFin) => {
         ORDER BY ventas_totales DESC
       `);
 
-    const canales = result.recordset.map(c => ({
-      canal: c.canal_venta,
-      numero_ordenes: parseInt(c.numero_ordenes),
-      ventas_totales: parseFloat(c.ventas_totales),
-      ticket_promedio: parseFloat(c.ticket_promedio),
-      utilidad_total: parseFloat(c.utilidad_total),
-      rentabilidad_promedio: parseFloat(c.rentabilidad_promedio),
-      porcentaje_comision: parseFloat(c.porcentaje_comision),
-      comision_venta: parseFloat(c.comision_venta)
-    }));
+    const canales = result.recordset.map(c => {
+      const ventas_totales = parseFloat(c.ventas_totales);
+      const porcentaje_comision = porcentajeDeCanal(porcentajes, c.canal_venta);
+      return {
+        canal: c.canal_venta,
+        numero_ordenes: parseInt(c.numero_ordenes),
+        ventas_totales,
+        ticket_promedio: parseFloat(c.ticket_promedio),
+        utilidad_total: parseFloat(c.utilidad_total),
+        rentabilidad_promedio: parseFloat(c.rentabilidad_promedio),
+        porcentaje_comision,
+        comision_venta: redondear2(ventas_totales * porcentaje_comision / 100)
+      };
+    });
 
     const totales = {
       ventas_totales: canales.reduce((sum, c) => sum + c.ventas_totales, 0),
