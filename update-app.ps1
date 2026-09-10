@@ -10,8 +10,8 @@ $repoUrl  = "https://github.com/ederjulianA/api_pretty.git"
 
 # Verificación post-despliegue
 $healthPath      = "/"          # responde "API Working"
-$healthIntentos  = 6            # 6 intentos x 5s = hasta 30s para arrancar
-$healthEsperaSeg = 5
+$healthIntentos  = 12           # 12 intentos x 5s = hasta 60s para arrancar
+$healthEsperaSeg = 5            # (el 2026-09-10 un arranque lento disparo un rollback falso con 30s)
 $puertoPorDefecto = 3000
 
 function Write-Log {
@@ -35,16 +35,25 @@ function Get-AppPort {
 
 # PM2 expone el listado como JSON con 'pm2 jlist'. La variante
 # 'pm2 list --format json' no existe en todas las versiones.
+# pm2 jlist puede anteponer avisos al JSON ("Use --update-env..."), lo que
+# rompe ConvertFrom-Json. Se recorta todo lo anterior al primer '['.
+function Get-PM2Json {
+    $raw = (pm2 jlist 2>$null | Out-String)
+    $i = $raw.IndexOf('[')
+    if ($i -lt 0) { throw "pm2 jlist no devolvio JSON" }
+    return ($raw.Substring($i) | ConvertFrom-Json)
+}
+
 function Get-PM2AppName {
     try {
-        $pm2List = pm2 jlist | ConvertFrom-Json
+        $pm2List = Get-PM2Json
         if ($pm2List -and $pm2List.Count -gt 0) {
             $app = $pm2List | Where-Object { $_.name -like "*index*" -or $_.name -like "*api_pretty*" } | Select-Object -First 1
             if ($app) { return $app.name }
             return $pm2List[0].name
         }
     } catch {
-        Write-Log "Advertencia: no se pudo leer el listado de PM2, se usa 'index' por defecto"
+        Write-Log "Advertencia: no se pudo leer el listado de PM2 ($($_.Exception.Message)), se usa 'index' por defecto"
     }
     return "index"
 }
@@ -74,7 +83,7 @@ function Test-AppHealth {
 function Test-PM2Online {
     param($AppName)
     try {
-        $pm2List = pm2 jlist | ConvertFrom-Json
+        $pm2List = Get-PM2Json
         $app = $pm2List | Where-Object { $_.name -eq $AppName } | Select-Object -First 1
         if ($app) {
             $estado = $app.pm2_env.status
@@ -83,7 +92,7 @@ function Test-PM2Online {
         }
         Write-Log "Advertencia: '$AppName' no aparece en el listado de PM2"
     } catch {
-        Write-Log "Advertencia: no se pudo consultar el estado en PM2"
+        Write-Log "Advertencia: no se pudo consultar el estado en PM2 ($($_.Exception.Message))"
     }
     return $true  # ante la duda no se dispara un rollback por esto solo
 }
