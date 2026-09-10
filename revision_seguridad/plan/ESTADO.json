@@ -200,7 +200,7 @@
       "severidad": "baja",
       "fase": 1,
       "hallazgo": "BAJA-16",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -219,11 +219,11 @@
       "gate": "curl -I muestra X-Content-Type-Options y no muestra X-Powered-By. El front sigue cargando.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-04-helmet",
+          "commit": "ab8a331",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -283,7 +283,7 @@
       "severidad": "baja",
       "fase": 1,
       "hallazgo": "BAJA-17",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -301,15 +301,17 @@
       "gate": "Crear un pedido y confirmar que el log ya no contiene el body.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-06-logs-sin-datos",
+          "commit": "9bb073f",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
-      "notas": []
+      "notas": [
+        "[2026-09-10] Ademas del console.log(req.body) de createCompleteOrder, se encontro el mismo defecto en articulosController.js:90-91, que serializaba req.files (buffers binarios de imagenes) escribiendo megabytes por articulo. Ambos corregidos."
+      ]
     },
     {
       "id": "SEC-07",
@@ -1181,7 +1183,8 @@
         "Tarea de infraestructura, no de codigo. Puede requerir acceso al servidor o al panel de Vercel.",
         "[2026-09-10] Severidad baja -> alta: Confirmado en pretty_front/vercel.json: el backend de produccion es http://154.53.62.220:3000 — HTTP plano sobre IP publica, sin dominio ni TLS. No es 'confirmar si hay reverse proxy': no lo hay. El x-access-token viaja en claro por internet en cada request entre Vercel y el backend, y es interceptable en cualquier salto intermedio.",
         "[2026-09-10] Cuando este el reverse proxy con TLS y la IP real sea confiable, anadir un limite por IP encima del limite por usuario de SEC-03 (ver middlewares/rateLimits.js).",
-        "[2026-09-10] El servidor de produccion es WINDOWS (C:\\api_pretty), no Linux: la propuesta del informe (Caddy/nginx + Let's Encrypt) hay que adaptarla — opciones reales son IIS como reverse proxy con certificado, Caddy para Windows, o mover la terminacion TLS a Cloudflare delante de 154.53.62.220. Tarea de infraestructura, no de codigo."
+        "[2026-09-10] El servidor de produccion es WINDOWS (C:\\api_pretty), no Linux: la propuesta del informe (Caddy/nginx + Let's Encrypt) hay que adaptarla — opciones reales son IIS como reverse proxy con certificado, Caddy para Windows, o mover la terminacion TLS a Cloudflare delante de 154.53.62.220. Tarea de infraestructura, no de codigo.",
+        "[2026-09-10] Al poner TLS, reactivar HSTS en helmet: quitar 'strictTransportSecurity: false' de index.js (SEC-04 lo dejo desactivado a proposito porque sobre HTTP es ruido)."
       ]
     },
     {
