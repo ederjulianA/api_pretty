@@ -219,12 +219,13 @@
       "gate": "curl -I muestra X-Content-Type-Options y no muestra X-Powered-By. El front sigue cargando.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-04-helmet",
           "commit": "ab8a331",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "766ba56"
         }
       },
       "notas": []
@@ -258,19 +259,21 @@
       "gate": "Aprobar un costo y verificar en BD que el usuario registrado es el del token, no el del body. Revisar antes si el front depende de mandar usu_cod.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-05-identidad-auditoria",
           "commit": "7e7ad60",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "766ba56"
         },
         "frontend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-05-no-enviar-usu-cod",
           "commit": "582b825",
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "83039b4"
         }
       },
       "notas": [
@@ -302,12 +305,13 @@
       "gate": "Crear un pedido y confirmar que el log ya no contiene el body.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-06-logs-sin-datos",
           "commit": "9bb073f",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "766ba56"
         }
       },
       "notas": [
@@ -339,12 +343,13 @@
       "gate": "npm audit sin criticas. Importar un Excel de costos real y verificar que el parseo da el mismo resultado que antes.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-07-quitar-xlsx",
           "commit": "84fd694",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "766ba56"
         }
       },
       "notas": [
@@ -379,12 +384,13 @@
       "gate": "Mismo token funciona por x-access-token y por Authorization: Bearer. Sin token sigue dando 401.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-08-aceptar-bearer",
           "commit": "753af39",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "766ba56"
         }
       },
       "notas": []
