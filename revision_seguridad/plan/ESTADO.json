@@ -73,7 +73,8 @@
         "[2026-09-10] Desplegado el <FECHA-PM2-RESTART>. Analizar a partir de 7 dias despues con analizar-auditoria.py. Ajustar esta nota con la fecha real al desplegar.",
         "[2026-09-10] Bug corregido antes de desplegar: el resumen se escribia a un unico archivo y cada proceso pisaba al anterior; un pm2 restart borraba el historico. Ahora es un archivo por proceso y analizar-auditoria.py consolida. Fix en develop, pendiente de pasar a main.",
         "[2026-09-10] Fix del resumen multiproceso pasado a main el 2026-09-10 con visto bueno de Eder (commit 4c13567). main ya tiene la version corregida: seguro desplegar con pm2 restart.",
-        "[2026-09-10] Desplegado en produccion el 2026-09-10 (commit 8776f57). La ventana de observacion arranca hoy: analizar con analizar-auditoria.py a partir del 2026-09-17."
+        "[2026-09-10] Desplegado en produccion el 2026-09-10 (commit 8776f57). La ventana de observacion arranca hoy: analizar con analizar-auditoria.py a partir del 2026-09-17.",
+        "[2026-09-10] Despliegue: el servidor es WINDOWS (C:\\api_pretty) y se actualiza con update-app.bat -> update-app.ps1, que hace git reset --hard origin/main, npm install condicional y pm2 restart. Desde 2026-09-10 verifica con health check y revierte solo si la app no responde."
       ]
     },
     {
