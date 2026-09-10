@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { extraerToken } = require('./tokenHeader');
 
 const DIR = path.join(__dirname, '..', 'logs');
 const LOG_EVENTOS = path.join(DIR, 'auth-audit.log');       // solo trafico anomalo (append)
@@ -52,15 +53,6 @@ try {
 } catch (e) {
   secretKey = null;
 }
-
-const extraerToken = (req) => {
-  const h = req.headers || {};
-  if (h['x-access-token']) return h['x-access-token'];
-  if (typeof h.authorization === 'string' && h.authorization.startsWith('Bearer ')) {
-    return h.authorization.slice(7);
-  }
-  return null;
-};
 
 const ipReal = (req) => {
   const fwd = req.headers && req.headers['x-forwarded-for'];

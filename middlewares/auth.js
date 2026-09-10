@@ -1,10 +1,11 @@
 // middlewares/auth.js
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { extraerToken } = require('./tokenHeader');
 
 const verifyToken = (req, res, next) => {
-  // Se espera que el token se envíe en el header "x-access-token"
-  const token = req.headers['x-access-token'];
+  // Acepta "x-access-token" (historico) y "Authorization: Bearer" (estandar)
+  const token = extraerToken(req);
   
   if (!token) {
     return res.status(401).json({ success: false, error: 'No token provided.' });

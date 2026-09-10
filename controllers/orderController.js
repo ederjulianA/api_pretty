@@ -99,7 +99,8 @@ const updateOrderEndpoint = async (req, res) => {
 const createCompleteOrder = async (req, res) => {
   try {
     const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general, fac_fec } = req.body;
-    console.log(req.body);
+    // Trazabilidad sin volcar el pedido: el body lleva datos del cliente.
+    console.log(`[ORDEN] crear tipo=${fac_tip_cod || 'N/D'} nit_sec=${nit_sec} items=${Array.isArray(detalles) ? detalles.length : 0}`);
     // Validar que se envíe el nit del cliente y al menos un detalle
     if (!nit_sec || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
       return res.status(400).json({ error: "Debe enviar 'nit_sec' y un arreglo no vacío de 'detalles'." });

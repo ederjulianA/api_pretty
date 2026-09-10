@@ -6,6 +6,42 @@ Formato: fecha, tarea, repo, qué se hizo, cómo se validó, qué quedó abierto
 
 ---
 
+## 2026-09-10 — SEC-03 + despliegue con verificación
+
+**Repo:** backend
+**Estado:** SEC-03 desplegada en producción (`main` = `766ba56`). Fase 1 va 3/8.
+
+### SEC-03 — Rate limiting en login (ALTA-7)
+
+**Hecho:** `middlewares/rateLimits.js` (nuevo) + `routes/authRoutes.js:10` + log de fallos en `controllers/authController.js`. Dependencia nueva: `express-rate-limit@8.7.0`.
+
+**Decisión que se aparta del plan:** el plan pedía limitar "por IP+usuario"; se limita **solo por `usu_cod`**. El front llega por rewrite server-side de Vercel, así que todo el tráfico legítimo comparte la IP de Vercel: un límite por IP habría dejado fuera a todos los usuarios en cuanto un atacante agotara la cuota, convirtiendo la fuerza bruta en una caída de servicio. Y `X-Forwarded-For` no es fiable mientras el puerto 3000 esté expuesto directo (ALTA-18).
+
+**Validado** (local, `PORT=3999`, Node 23): 6º intento → **429**; otro usuario desde la misma IP → **401** (el bloqueo no se propaga); mayúsculas/minúsculas no evaden; cabeceras `RateLimit` presentes; logs `LOGIN-FALLIDO` / `LOGIN-BLOQUEADO` OK; sin regresiones en `/permissions` ni `/login`.
+
+⚠️ **No se pudo ejercitar un login EXITOSO** — no hay credenciales de prueba y adivinarlas es justo lo que este cambio impide. Queda **pendiente de confirmar en vivo** que entrar tras 2-3 fallos funciona (`skipSuccessfulRequests`). Eder confirmó el despliegue, no ese caso concreto.
+
+### Despliegue — `update-app.ps1`
+
+**Hecho:** health check tras el reinicio (6 intentos × 5s contra `http://localhost:<PORT>/`, puerto leído del `.env`), **rollback automático** si no responde, verificación del exit code de `npm install`, detección de `package-lock.json`, log de los commits aplicados, comprobación de `online` en PM2, y `pm2 jlist` en vez de `pm2 list --format json`.
+
+**Validado:** sintaxis parseada con `pwsh`; `Get-AppPort` lee `PORT=3000` del `.env`; `Test-AppHealth` → `True` contra servidor vivo y `False` contra puerto muerto. PM2 y el rollback completo no se pudieron probar (requieren Windows).
+
+**Aprendido:**
+1. **El servidor de producción es WINDOWS** (`C:\api_pretty`), se despliega con `update-app.bat` → `update-app.ps1`. → memoria `despliegue-backend-windows`.
+2. **El script YA hacía `npm install` condicional.** La advertencia de "instala las dependencias a mano antes de reiniciar" que se dio al desplegar SEC-03 era innecesaria. → memoria.
+3. **El script hace `git reset --hard origin/main`**, así que nada de `develop` llega nunca al servidor: el paso a `main` es obligatorio para desplegar cualquier cosa, incluidas las mejoras al propio script. → memoria.
+4. **`pm2 list --format json` no existe en varias versiones de PM2** — caía al `catch` y usaba `"index"` por defecto, así que probablemente nunca detectó el nombre real. Corregido a `pm2 jlist`.
+5. ⚠️ **El health check condiciona SEC-23.** El script pide `GET /` y revierte solo si no responde 200. Si SEC-23 (auth por defecto con whitelist) no deja `/` como ruta pública, **cada despliegue se revertiría solo**, incluido el de esa misma tarea. → nota en **SEC-23**.
+6. **SEC-27 hay que replantearla:** Caddy/nginx + Let's Encrypt asumía Linux. En Windows las opciones son IIS como reverse proxy, Caddy para Windows, o TLS en Cloudflare delante de la IP. → nota en SEC-27.
+
+**Abierto:**
+- Confirmar en vivo el login exitoso tras fallos (SEC-03).
+- Ventana de observación de SEC-00 corriendo desde hoy: analizar a partir del **2026-09-17** con `analizar-auditoria.py`. Los logs están en `C:\api_pretty\logs\` del servidor Windows — hay que traerlos o correr el análisis allá.
+- Quedan en Fase 1: SEC-04, SEC-05, SEC-06, SEC-07, SEC-08.
+
+---
+
 ## 2026-09-10 — SEC-01 y SEC-02 (+ despliegue de SEC-00)
 
 > Entrada escrita en diferido: al cerrar SEC-01 y SEC-02 no se invocó `cierre-sesion` y la bitácora

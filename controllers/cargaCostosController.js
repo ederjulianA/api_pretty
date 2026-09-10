@@ -6,7 +6,6 @@
  */
 
 const { poolPromise, sql } = require('../db');
-const XLSX = require('xlsx');
 const ExcelJS = require('exceljs');
 
 /**
@@ -146,6 +145,63 @@ const exportarPlantillaCostos = async (req, res) => {
   }
 };
 
+
+/**
+ * Lee la primera hoja de un Excel y devuelve un array de objetos, usando la
+ * primera fila como nombres de campo.
+ *
+ * Reemplaza a XLSX.utils.sheet_to_json. Se dejo de usar 'xlsx' porque arrastra
+ * Prototype Pollution y ReDoS sin correccion publicada en npm, y aqui parsea
+ * archivos que sube el usuario — el peor sitio posible para eso. ExcelJS ya
+ * estaba en el proyecto para generar la plantilla.
+ *
+ * Replica el comportamiento de sheet_to_json en lo que este codigo depende:
+ * las celdas vacias no generan clave, de modo que las comprobaciones de
+ * undefined aguas abajo siguen siendo validas.
+ */
+const valorPlanoDeCelda = (v) => {
+  if (v === null || v === undefined) return v;
+  if (v instanceof Date) return v;
+  if (typeof v === 'object') {
+    if (Array.isArray(v.richText)) return v.richText.map((t) => t.text).join('');
+    if ('result' in v) return v.result;   // celda con formula
+    if ('text' in v) return v.text;       // hipervinculo
+    return null;
+  }
+  return v;
+};
+
+const leerFilasDeExcel = async (buffer) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+
+  const headers = [];
+  worksheet.getRow(1).eachCell({ includeEmpty: false }, (cell, col) => {
+    const nombre = valorPlanoDeCelda(cell.value);
+    if (nombre !== null && nombre !== undefined) headers[col] = String(nombre).trim();
+  });
+
+  const filas = [];
+  worksheet.eachRow({ includeEmpty: false }, (row, numero) => {
+    if (numero === 1) return;
+    const fila = {};
+    let tieneDatos = false;
+    row.eachCell({ includeEmpty: false }, (cell, col) => {
+      const clave = headers[col];
+      if (!clave) return;
+      const valor = valorPlanoDeCelda(cell.value);
+      if (valor === null || valor === undefined || valor === '') return;
+      fila[clave] = valor;
+      tieneDatos = true;
+    });
+    if (tieneDatos) filas.push(fila);
+  });
+
+  return filas;
+};
+
 /**
  * Importar costos desde archivo Excel
  * POST /api/carga-costos/importar
@@ -159,12 +215,9 @@ const importarCostosDesdeExcel = async (req, res) => {
       });
     }
 
-    const usuarioCarga = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuarioCarga = req.user?.usu_cod || 'SYSTEM';
     const archivoExcel = req.files.archivo;
-    const workbook = XLSX.read(archivoExcel.data, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const datos = XLSX.utils.sheet_to_json(worksheet);
+    const datos = await leerFilasDeExcel(archivoExcel.data);
 
     if (datos.length === 0) {
       return res.status(400).json({
@@ -427,7 +480,7 @@ const obtenerProductosConAlertas = async (req, res) => {
  */
 const calcularCostosAutomatico = async (req, res) => {
   try {
-    const usuario = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuario = req.user?.usu_cod || 'SYSTEM';
     const margen_mayor = parseFloat(req.body.margen_mayor) || 20;
     const margen_detal = parseFloat(req.body.margen_detal) || margen_mayor; // Por defecto usa el mismo margen
     const divisor_mayor = 1 + (margen_mayor / 100);
@@ -593,7 +646,7 @@ const calcularCostosAutomatico = async (req, res) => {
  */
 const aplicarCostosValidados = async (req, res) => {
   try {
-    const usuario = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuario = req.user?.usu_cod || 'SYSTEM';
     const pool = await poolPromise;
     const result = await pool.request()
       .input('usuario', sql.VarChar(100), usuario)
@@ -620,7 +673,7 @@ const aplicarCostosValidados = async (req, res) => {
 const registrarCostoIndividual = async (req, res) => {
   try {
     const { art_sec, art_cod, costo_inicial, cantidad, metodo, observaciones } = req.body;
-    const usu_cod = req.usuario?.usu_cod || 'sistema';
+    const usu_cod = req.user?.usu_cod || 'sistema';
 
     // Validaciones
     if (!art_sec && !art_cod) {
@@ -789,7 +842,7 @@ const aprobarCostoIndividual = async (req, res) => {
   try {
     const { art_cod } = req.params;
     const { observaciones } = req.body;
-    const usu_cod = req.usuario?.usu_cod || 'sistema';
+    const usu_cod = req.user?.usu_cod || 'sistema';
 
     if (!art_cod) {
       return res.status(400).json({
@@ -885,7 +938,7 @@ const aprobarCostoIndividual = async (req, res) => {
 const aprobarCostosMasivo = async (req, res) => {
   try {
     const { estado_actual, nuevo_estado, art_cods, observaciones } = req.body;
-    const usu_cod = req.body.usu_cod || req.usuario?.usu_cod || 'sistema';
+    const usu_cod = req.user?.usu_cod || 'sistema';
 
     // Validar que se indicó al menos un modo de selección
     const porEstado = estado_actual && nuevo_estado;
@@ -1002,7 +1055,7 @@ const aprobarCostosMasivo = async (req, res) => {
  */
 const actualizarCostosMasivo = async (req, res) => {
   try {
-    const usuario      = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuario      = req.user?.usu_cod || 'SYSTEM';
     const margen_mayor = parseFloat(req.body.margen_mayor) || 20;
     const margen_detal = parseFloat(req.body.margen_detal) || margen_mayor;
     const forzar       = req.body.forzar === true || req.body.forzar === 'true';
@@ -1241,7 +1294,7 @@ const actualizarCostosMasivo = async (req, res) => {
 const reprocesarCostosDocumentos = async (req, res) => {
   try {
     const { fecha_inicio, fecha_fin, fac_nro } = req.body;
-    const usuario = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuario = req.user?.usu_cod || 'SYSTEM';
 
     // --- Validaciones ---
     if (!fecha_inicio || !fecha_fin) {
