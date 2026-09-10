@@ -20,8 +20,15 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 const DIR = path.join(__dirname, '..', 'logs');
-const LOG_EVENTOS = path.join(DIR, 'auth-audit.log');       // solo trafico anomalo
-const LOG_RESUMEN = path.join(DIR, 'auth-audit-resumen.json'); // agregado completo
+const LOG_EVENTOS = path.join(DIR, 'auth-audit.log');       // solo trafico anomalo (append)
+
+// Un archivo de resumen POR PROCESO. El agregado vive en memoria, asi que si
+// todos los procesos escribieran el mismo archivo, el ultimo en volcar pisaria
+// a los demas: en cluster mode se perderian workers enteros, y un simple
+// 'pm2 restart' arrancaria con el agregado vacio y borraria el historico.
+// analizar-auditoria.py consolida todos los auth-audit-resumen-*.json.
+const ID_PROCESO = `${process.pid}-${Date.now().toString(36)}`;
+const LOG_RESUMEN = path.join(DIR, `auth-audit-resumen-${ID_PROCESO}.json`);
 
 const INTERVALO_VOLCADO_MS = 5 * 60 * 1000;
 
@@ -98,6 +105,7 @@ const volcarResumen = () => {
     const salida = {
       generado: new Date().toISOString(),
       desde: arranque,
+      proceso: ID_PROCESO,
       endpoints: Array.from(resumen.entries())
         .map(([clave, v]) => ({
           endpoint: clave,
