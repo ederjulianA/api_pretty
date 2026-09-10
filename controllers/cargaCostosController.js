@@ -6,7 +6,6 @@
  */
 
 const { poolPromise, sql } = require('../db');
-const XLSX = require('xlsx');
 const ExcelJS = require('exceljs');
 
 /**
@@ -146,6 +145,63 @@ const exportarPlantillaCostos = async (req, res) => {
   }
 };
 
+
+/**
+ * Lee la primera hoja de un Excel y devuelve un array de objetos, usando la
+ * primera fila como nombres de campo.
+ *
+ * Reemplaza a XLSX.utils.sheet_to_json. Se dejo de usar 'xlsx' porque arrastra
+ * Prototype Pollution y ReDoS sin correccion publicada en npm, y aqui parsea
+ * archivos que sube el usuario — el peor sitio posible para eso. ExcelJS ya
+ * estaba en el proyecto para generar la plantilla.
+ *
+ * Replica el comportamiento de sheet_to_json en lo que este codigo depende:
+ * las celdas vacias no generan clave, de modo que las comprobaciones de
+ * undefined aguas abajo siguen siendo validas.
+ */
+const valorPlanoDeCelda = (v) => {
+  if (v === null || v === undefined) return v;
+  if (v instanceof Date) return v;
+  if (typeof v === 'object') {
+    if (Array.isArray(v.richText)) return v.richText.map((t) => t.text).join('');
+    if ('result' in v) return v.result;   // celda con formula
+    if ('text' in v) return v.text;       // hipervinculo
+    return null;
+  }
+  return v;
+};
+
+const leerFilasDeExcel = async (buffer) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+
+  const headers = [];
+  worksheet.getRow(1).eachCell({ includeEmpty: false }, (cell, col) => {
+    const nombre = valorPlanoDeCelda(cell.value);
+    if (nombre !== null && nombre !== undefined) headers[col] = String(nombre).trim();
+  });
+
+  const filas = [];
+  worksheet.eachRow({ includeEmpty: false }, (row, numero) => {
+    if (numero === 1) return;
+    const fila = {};
+    let tieneDatos = false;
+    row.eachCell({ includeEmpty: false }, (cell, col) => {
+      const clave = headers[col];
+      if (!clave) return;
+      const valor = valorPlanoDeCelda(cell.value);
+      if (valor === null || valor === undefined || valor === '') return;
+      fila[clave] = valor;
+      tieneDatos = true;
+    });
+    if (tieneDatos) filas.push(fila);
+  });
+
+  return filas;
+};
+
 /**
  * Importar costos desde archivo Excel
  * POST /api/carga-costos/importar
@@ -161,10 +217,7 @@ const importarCostosDesdeExcel = async (req, res) => {
 
     const usuarioCarga = req.user?.usu_cod || 'SYSTEM';
     const archivoExcel = req.files.archivo;
-    const workbook = XLSX.read(archivoExcel.data, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const datos = XLSX.utils.sheet_to_json(worksheet);
+    const datos = await leerFilasDeExcel(archivoExcel.data);
 
     if (datos.length === 0) {
       return res.status(400).json({
