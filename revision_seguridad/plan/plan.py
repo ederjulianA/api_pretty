@@ -16,6 +16,8 @@ Uso:
   plan.py bloquear SEC-04 "razon"
   plan.py desbloquear SEC-04
   plan.py nota SEC-04 "texto"
+  plan.py agregar SEC-30 --titulo ... --severidad alta --fase 2 --repos backend \
+                  --descripcion ... --gate ...        Tarea descubierta sobre la marcha
 """
 import json, sys, os, argparse
 from datetime import date
@@ -259,6 +261,47 @@ def cmd_nota(d, args):
     print(f"OK  nota agregada a {t['id']}")
 
 
+def cmd_agregar(d, args):
+    """Registra una tarea descubierta durante la ejecucion, no prevista en el plan original."""
+    if any(t['id'].upper() == args.id.upper() for t in d['tareas']):
+        sys.exit(f"ERROR: {args.id} ya existe.")
+    repos = [r.strip() for r in args.repos.split(',')]
+    for r in repos:
+        if r not in ('backend', 'frontend'):
+            sys.exit(f"ERROR: repo invalido '{r}' (usa backend y/o frontend)")
+    deps = [x.strip().upper() for x in args.depende_de.split(',')] if args.depende_de else []
+    for dep in deps:
+        buscar(d, dep)  # valida que exista
+
+    progreso = {}
+    for r in repos:
+        progreso[r] = {'estado': 'pendiente', 'rama': None, 'commit': None, 'merged': False}
+        if r == 'backend':
+            progreso[r]['desplegado'] = False
+
+    d['tareas'].append({
+        'id': args.id.upper(),
+        'titulo': args.titulo,
+        'severidad': args.severidad,
+        'fase': args.fase,
+        'hallazgo': args.hallazgo,
+        'estado': 'pendiente',
+        'repos': repos,
+        'secuencia': ['frontend', 'backend'] if len(repos) > 1 else repos,
+        'depende_de': deps,
+        'bloquea': [],
+        'archivos': {r: [] for r in repos},
+        'descripcion': args.descripcion,
+        'gate': args.gate,
+        'progreso': progreso,
+        'notas': [f"[{date.today().isoformat()}] Descubierta durante la ejecucion del plan, no estaba en el informe original."],
+    })
+    refrescar(d); guardar(d)
+    print(f"OK  {args.id.upper()} agregada al plan (fase {args.fase}, {args.severidad})")
+    print(f"    Repos: {', '.join(repos)}" + (f"   Depende de: {', '.join(deps)}" if deps else ""))
+
+
+
 def main():
     ap = argparse.ArgumentParser(description='Estado del plan de hardening')
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -273,6 +316,16 @@ def main():
     p = sub.add_parser('bloquear');    p.add_argument('id'); p.add_argument('razon')
     p = sub.add_parser('desbloquear'); p.add_argument('id')
     p = sub.add_parser('nota');        p.add_argument('id'); p.add_argument('texto')
+    p = sub.add_parser('agregar')
+    p.add_argument('id')
+    p.add_argument('--titulo', required=True)
+    p.add_argument('--severidad', required=True, choices=['critica','alta','media','baja','instrumentacion'])
+    p.add_argument('--fase', required=True, type=int)
+    p.add_argument('--repos', required=True, help='backend, frontend, o "frontend,backend"')
+    p.add_argument('--descripcion', required=True)
+    p.add_argument('--gate', required=True)
+    p.add_argument('--hallazgo', default='Descubierto durante la ejecucion')
+    p.add_argument('--depende-de', dest='depende_de', default='')
 
     args = ap.parse_args()
     d = cargar()
