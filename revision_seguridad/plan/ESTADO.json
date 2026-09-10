@@ -934,12 +934,13 @@
       "gate": "Por cada modulo: usuario CON el permiso opera normal; usuario SIN el permiso recibe 403. Validar con dos usuarios de prueba de roles distintos.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-21-require-permission",
           "commit": "eb19830",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "823a98f"
         }
       },
       "notas": [
