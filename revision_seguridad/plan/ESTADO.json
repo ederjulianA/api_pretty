@@ -159,7 +159,7 @@
       "severidad": "alta",
       "fase": 1,
       "hallazgo": "ALTA-7",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -178,16 +178,17 @@
       "gate": "6 intentos fallidos seguidos -> el 6o responde 429. Login correcto sigue funcionando. Probar con usuario de prueba.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-03-rate-limit-login",
+          "commit": "149d383",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
       "notas": [
-        "Ojo con Vercel/proxy: configurar trust proxy para que la IP no sea siempre la del proxy."
+        "Ojo con Vercel/proxy: configurar trust proxy para que la IP no sea siempre la del proxy.",
+        "[2026-09-10] Limite por usu_cod (no por IP) porque el rewrite de Vercel hace que todo el trafico legitimo comparta IP. Gate: 6o intento -> 429, aislamiento entre usuarios verificado, case-insensitive, cabeceras RateLimit presentes, logs LOGIN-FALLIDO/LOGIN-BLOQUEADO OK. NO se pudo ejercitar un login EXITOSO (no hay credenciales de prueba disponibles): falta confirmar en produccion que skipSuccessfulRequests no penaliza un acierto tras fallos."
       ]
     },
     {
@@ -1174,7 +1175,8 @@
       },
       "notas": [
         "Tarea de infraestructura, no de codigo. Puede requerir acceso al servidor o al panel de Vercel.",
-        "[2026-09-10] Severidad baja -> alta: Confirmado en pretty_front/vercel.json: el backend de produccion es http://154.53.62.220:3000 — HTTP plano sobre IP publica, sin dominio ni TLS. No es 'confirmar si hay reverse proxy': no lo hay. El x-access-token viaja en claro por internet en cada request entre Vercel y el backend, y es interceptable en cualquier salto intermedio."
+        "[2026-09-10] Severidad baja -> alta: Confirmado en pretty_front/vercel.json: el backend de produccion es http://154.53.62.220:3000 — HTTP plano sobre IP publica, sin dominio ni TLS. No es 'confirmar si hay reverse proxy': no lo hay. El x-access-token viaja en claro por internet en cada request entre Vercel y el backend, y es interceptable en cualquier salto intermedio.",
+        "[2026-09-10] Cuando este el reverse proxy con TLS y la IP real sea confiable, anadir un limite por IP encima del limite por usuario de SEC-03 (ver middlewares/rateLimits.js)."
       ]
     },
     {
