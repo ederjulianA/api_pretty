@@ -32,7 +32,7 @@
       "severidad": "instrumentacion",
       "fase": 0,
       "hallazgo": "Habilitador del plan",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -61,10 +61,10 @@
       "gate": "Servidor arranca. Peticion con y sin token responde igual que antes (nada bloqueado). Log escribe entrada con path, metodo, ip, tiene_token.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-00-auditoria-auth",
           "commit": "e3cf772",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true
         }
@@ -72,7 +72,8 @@
       "notas": [
         "[2026-09-10] Desplegado el <FECHA-PM2-RESTART>. Analizar a partir de 7 dias despues con analizar-auditoria.py. Ajustar esta nota con la fecha real al desplegar.",
         "[2026-09-10] Bug corregido antes de desplegar: el resumen se escribia a un unico archivo y cada proceso pisaba al anterior; un pm2 restart borraba el historico. Ahora es un archivo por proceso y analizar-auditoria.py consolida. Fix en develop, pendiente de pasar a main.",
-        "[2026-09-10] Fix del resumen multiproceso pasado a main el 2026-09-10 con visto bueno de Eder (commit 4c13567). main ya tiene la version corregida: seguro desplegar con pm2 restart."
+        "[2026-09-10] Fix del resumen multiproceso pasado a main el 2026-09-10 con visto bueno de Eder (commit 4c13567). main ya tiene la version corregida: seguro desplegar con pm2 restart.",
+        "[2026-09-10] Desplegado en produccion el 2026-09-10 (commit 8776f57). La ventana de observacion arranca hoy: analizar con analizar-auditoria.py a partir del 2026-09-17."
       ]
     },
     {
@@ -81,7 +82,7 @@
       "severidad": "critica",
       "fase": 1,
       "hallazgo": "CRITICO-1",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -99,10 +100,10 @@
       "gate": "Con token de usuario NO admin -> 403. Con token admin -> 200 y cambia la password. Verificar contra un usuario de prueba, nunca contra 'admin' real.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-01-rol-admin-change-password",
           "commit": "9d5bb33",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "855d455"
@@ -119,7 +120,7 @@
       "severidad": "alta",
       "fase": 1,
       "hallazgo": "ALTA-6",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -138,10 +139,10 @@
       "gate": "El front en produccion usa API_URL='/api' (proxy same-origin), asi que no depende de CORS. Verificar que el front local (vite dev) siga funcionando: incluir su origen en la lista.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-02-cors-restringido",
           "commit": "1db6922",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "855d455"
@@ -386,7 +387,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "Grupo C del informe de agosto",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "backend"
       ],
@@ -433,7 +434,7 @@
       "severidad": "critica",
       "fase": 2,
       "hallazgo": "CRITICO-3a",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "frontend",
         "backend"
@@ -487,7 +488,7 @@
       "severidad": "alta",
       "fase": 2,
       "hallazgo": "ALTA-4",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "frontend",
         "backend"
@@ -537,7 +538,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-12",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "frontend",
         "backend"
@@ -585,7 +586,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "Grupo B",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "frontend",
         "backend"
@@ -636,7 +637,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-15",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "frontend",
         "backend"
@@ -684,7 +685,7 @@
       "severidad": "baja",
       "fase": 2,
       "hallazgo": "Grupo B",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "frontend",
         "backend"
@@ -790,7 +791,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-15 / omitidos del informe de agosto",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "frontend",
         "backend"
@@ -890,7 +891,7 @@
       "severidad": "critica",
       "fase": 3,
       "hallazgo": "CRITICO-2",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "backend"
       ],
@@ -1173,6 +1174,40 @@
       "notas": [
         "Tarea de infraestructura, no de codigo. Puede requerir acceso al servidor o al panel de Vercel.",
         "[2026-09-10] Severidad baja -> alta: Confirmado en pretty_front/vercel.json: el backend de produccion es http://154.53.62.220:3000 — HTTP plano sobre IP publica, sin dominio ni TLS. No es 'confirmar si hay reverse proxy': no lo hay. El x-access-token viaja en claro por internet en cada request entre Vercel y el backend, y es interceptable en cualquier salto intermedio."
+      ]
+    },
+    {
+      "id": "SEC-28",
+      "titulo": "Corregir sql.VarChar(20) en usu_cod (la columna es VARCHAR(100))",
+      "severidad": "baja",
+      "fase": 3,
+      "hallazgo": "Descubierto en SEC-01",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": []
+      },
+      "descripcion": "dbo.Usuarios.usu_cod y dbo.UsuariosRoles.usu_cod son VARCHAR(100), pero el codigo los declara sql.VarChar(20) en 7 puntos: authController.js:24,159,214 y userRoleModel.js:7,36,53,70. SEC-01 ya corrigio solo los de changePasswordAdmin. Latente: los 4 usu_cod actuales tienen maximo 5 caracteres, pero un usuario con codigo largo se truncaria silenciosamente al comparar y no haria match.",
+      "gate": "Los 7 puntos usan sql.VarChar(100). Login, cambio de password y carga de permisos siguen funcionando con los usuarios existentes.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "en_develop": false,
+          "en_main": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "[2026-09-10] Descubierta durante la ejecucion del plan, no estaba en el informe original."
       ]
     }
   ],
