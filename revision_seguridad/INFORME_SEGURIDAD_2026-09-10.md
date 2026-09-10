@@ -245,7 +245,12 @@ res.status(500).json({ success: false, error: error.message });
 
 Filtra mensajes del driver `mssql` (nombres de tablas y columnas, violaciones de constraint), errores de la API de WooCommerce y rutas internas. Le entrega a un atacante el mapa del esquema gratis, y en endpoints sin auth es accesible para cualquiera.
 
-**Corrección:** un middleware de manejo de errores centralizado que registre el detalle en Winston y devuelva un mensaje genérico + un `requestId` correlacionable.
+**Corrección:** un middleware de manejo de errores centralizado que registre el detalle del lado del servidor y devuelva un mensaje genérico + un `requestId` correlacionable.
+
+> **Corrección al informe (2026-09-10, tras SEC-00):** la versión original de este párrafo decía "registre el
+> detalle en Winston". **Winston no está implementado**: figura en `package.json` pero ningún archivo lo importa
+> — todo el logging son 643 `console.*`. `CLAUDE.md` afirma lo contrario y también está equivocado. Antes de
+> SEC-22 hay que decidir si se implementa un logger de verdad o se centraliza de otra forma.
 
 ---
 
@@ -474,6 +479,11 @@ Excluye `POST /api/auth/login`, que debe ser público.
 | `routes/syncOrdersRoutes.js` | 7 | 1 |
 | `routes/syncWooOrdersRoutes.js` | 6 | 1 |
 | **Total** | | **53** |
+
+> **Aclaración (2026-09-10, tras SEC-00):** son **53 definiciones de ruta**, pero **58 paths efectivos**.
+> La diferencia son las 5 rutas de `orderRoutes.js`, que `index.js` monta dos veces (`/api/order` y
+> `/api/ordenes`) y por tanto responden en 10 URLs distintas. `analizar-auditoria.py` reporta 58 porque
+> cuenta paths; esta tabla cuenta definiciones. Ambas cifras son correctas — miden cosas distintas.
 
 ---
 

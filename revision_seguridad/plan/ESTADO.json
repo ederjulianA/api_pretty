@@ -68,7 +68,9 @@
           "desplegado": false
         }
       },
-      "notas": []
+      "notas": [
+        "[2026-09-10] Desplegado el <FECHA-PM2-RESTART>. Analizar a partir de 7 dias despues con analizar-auditoria.py. Ajustar esta nota con la fecha real al desplegar."
+      ]
     },
     {
       "id": "SEC-01",
@@ -404,7 +406,8 @@
         }
       },
       "notas": [
-        "Si la auditoria detecta trafico en alguno, sacarlo del lote e investigar el consumidor antes de tocarlo."
+        "Si la auditoria detecta trafico en alguno, sacarlo del lote e investigar el consumidor antes de tocarlo.",
+        "[2026-09-10] Usar 'python3 revision_seguridad/plan/analizar-auditoria.py' para el veredicto por endpoint. Cruza el trafico observado con las rutas sin verifyToken y clasifica en SEGURO PROTEGER / CORREGIR FRONT PRIMERO / HUERFANO. Avisa solo si el periodo de observacion es menor a 7 dias."
       ]
     },
     {
@@ -921,7 +924,8 @@
         }
       },
       "notas": [
-        "Migrar por lotes de archivos, no los 207 en un commit."
+        "Migrar por lotes de archivos, no los 207 en un commit.",
+        "[2026-09-10] Winston NO esta implementado (verificado 2026-09-10): esta en package.json pero 0 archivos lo importan, hay 643 console.*. La descripcion de esta tarea asume que se puede mandar el detalle 'a Winston' - decidir primero si se implementa winston de verdad o se centraliza de otra forma."
       ]
     },
     {
