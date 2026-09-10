@@ -71,7 +71,8 @@
       },
       "notas": [
         "[2026-09-10] Desplegado el <FECHA-PM2-RESTART>. Analizar a partir de 7 dias despues con analizar-auditoria.py. Ajustar esta nota con la fecha real al desplegar.",
-        "[2026-09-10] Bug corregido antes de desplegar: el resumen se escribia a un unico archivo y cada proceso pisaba al anterior; un pm2 restart borraba el historico. Ahora es un archivo por proceso y analizar-auditoria.py consolida. Fix en develop, pendiente de pasar a main."
+        "[2026-09-10] Bug corregido antes de desplegar: el resumen se escribia a un unico archivo y cada proceso pisaba al anterior; un pm2 restart borraba el historico. Ahora es un archivo por proceso y analizar-auditoria.py consolida. Fix en develop, pendiente de pasar a main.",
+        "[2026-09-10] Fix del resumen multiproceso pasado a main el 2026-09-10 con visto bueno de Eder (commit 4c13567). main ya tiene la version corregida: seguro desplegar con pm2 restart."
       ]
     },
     {
@@ -80,7 +81,7 @@
       "severidad": "critica",
       "fase": 1,
       "hallazgo": "CRITICO-1",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -98,16 +99,17 @@
       "gate": "Con token de usuario NO admin -> 403. Con token admin -> 200 y cambia la password. Verificar contra un usuario de prueba, nunca contra 'admin' real.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-01-rol-admin-change-password",
+          "commit": "9d5bb33",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
       "notas": [
-        "Requiere confirmar con db-explorer como se identifica el rol admin en dbo.Roles."
+        "Requiere confirmar con db-explorer como se identifica el rol admin en dbo.Roles.",
+        "[2026-09-10] Gate: no se ejercito el UPDATE final (200) porque exigiria cambiar la password de un usuario real y solo hay 4 en BD, todos en uso. Se verifico que un admin PASA el middleware llegando al 404 del controller con un usu_cod inexistente. El UPDATE no se modifico en esta tarea, solo se agregaron validaciones previas."
       ]
     },
     {
@@ -116,7 +118,7 @@
       "severidad": "alta",
       "fase": 1,
       "hallazgo": "ALTA-6",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -135,16 +137,17 @@
       "gate": "El front en produccion usa API_URL='/api' (proxy same-origin), asi que no depende de CORS. Verificar que el front local (vite dev) siga funcionando: incluir su origen en la lista.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-02-cors-restringido",
+          "commit": "1db6922",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
       "notas": [
-        "Riesgo bajo confirmado: src/config.js del front usa ruta relativa /api via proxy."
+        "Riesgo bajo confirmado: src/config.js del front usa ruta relativa /api via proxy.",
+        "[2026-09-10] El front no usa CORS en ningun entorno: vercel.json hace rewrite server-side de /api/* a http://154.53.62.220:3000 y vite.config.js hace proxy en dev. El navegador siempre ve same-origin. Por eso restringir CORS fue de riesgo nulo. Falta definir CORS_ORIGINS en el .env de PRODUCCION antes de desplegar; sin ella el default solo permite localhost."
       ]
     },
     {
@@ -919,7 +922,8 @@
       },
       "notas": [
         "PRIMERO validar con db-explorer los nombres reales de dbo.UsuariosRoles y dbo.RolesPermisosAcciones: la consulta propuesta en el informe se derivo de userRoleModel.js y no esta confirmada.",
-        "Aplicar por modulo en tareas separadas, no todo de golpe."
+        "Aplicar por modulo en tareas separadas, no todo de golpe.",
+        "[2026-09-10] CONFIRMADO contra BD 2026-09-10: la estructura real es dbo.UsuariosRoles(usurol_id, usu_cod VARCHAR(100), rol_id, fecha_asignacion) -> dbo.Roles(rol_id, rol_nombre, rol_descripcion, rol_activo). RolesPermisos usa rolperm_id + mod_id (NO mod_codigo como propuso el informe) y JOIN a dbo.Modulos; RolesPermisosAcciones usa rolperm_id + acc_id con JOIN a dbo.Acciones. Roles existentes: 1=Administrador, 2=Vendedor, 3=Supervisor. Ya existe middlewares/authorize.js creado en SEC-01 con requireAdmin: extender ahi requirePermission."
       ]
     },
     {
@@ -1133,7 +1137,7 @@
     {
       "id": "SEC-27",
       "titulo": "Confirmar terminacion TLS y anadir HSTS",
-      "severidad": "baja",
+      "severidad": "alta",
       "fase": 3,
       "hallazgo": "BAJA-18",
       "estado": "bloqueado",
@@ -1165,7 +1169,8 @@
         }
       },
       "notas": [
-        "Tarea de infraestructura, no de codigo. Puede requerir acceso al servidor o al panel de Vercel."
+        "Tarea de infraestructura, no de codigo. Puede requerir acceso al servidor o al panel de Vercel.",
+        "[2026-09-10] Severidad baja -> alta: Confirmado en pretty_front/vercel.json: el backend de produccion es http://154.53.62.220:3000 — HTTP plano sobre IP publica, sin dominio ni TLS. No es 'confirmar si hay reverse proxy': no lo hay. El x-access-token viaja en claro por internet en cada request entre Vercel y el backend, y es interceptable en cualquier salto intermedio."
       ]
     }
   ],

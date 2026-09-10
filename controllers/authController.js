@@ -246,11 +246,23 @@ const changePasswordAdmin = async (req, res) => {
             });
         }
 
+        // El rol de administrador ya lo verifico requireAdmin en la ruta.
+        // Aqui se impide ademas que un admin resetee su PROPIA password por
+        // esta via, que no pide la contrasena actual. Para la suya existe
+        // /change-password, que si la exige — y esa diferencia es lo que
+        // limita el dano si a un admin le roban el token.
+        if (req.user && req.user.usu_cod === usu_cod) {
+            return res.status(400).json({
+                success: false,
+                message: 'Para cambiar tu propia contrasena usa la opcion de cambio de contrasena, que solicita la contrasena actual'
+            });
+        }
+
         const pool = await poolPromise;
         
         // Verificar que el usuario existe
         const result = await pool.request()
-            .input('usu_cod', sql.VarChar(20), usu_cod)
+            .input('usu_cod', sql.VarChar(100), usu_cod)
             .query(`
                 SELECT usu_cod
                 FROM dbo.Usuarios
@@ -286,7 +298,7 @@ const changePasswordAdmin = async (req, res) => {
 
         // Actualizar la contraseña en la base de datos
         await pool.request()
-            .input('usu_cod', sql.VarChar(20), usu_cod)
+            .input('usu_cod', sql.VarChar(100), usu_cod)
             .input('usu_pass', sql.VarChar(255), hashedPassword)
             .query(`
                 UPDATE dbo.Usuarios
