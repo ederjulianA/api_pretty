@@ -2,6 +2,7 @@
 import express from 'express';
 import { loginUser, getCurrentPermissions, changePassword, changePasswordAdmin } from '../controllers/authController.js';
 import { verifyToken } from '../middlewares/authMiddleware.js';
+import { requireAdmin } from '../middlewares/authorize.js';
 
 const router = express.Router();
 
@@ -13,6 +14,7 @@ router.get('/permissions', verifyToken, getCurrentPermissions);
 
 router.post('/change-password', verifyToken, changePassword);
 
-router.post('/change-password-admin', verifyToken, changePasswordAdmin);
+// Resetea la password de OTRO usuario sin pedir la actual: solo administradores.
+router.post('/change-password-admin', verifyToken, requireAdmin, changePasswordAdmin);
 
 export default router;
