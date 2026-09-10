@@ -32,7 +32,7 @@
       "severidad": "instrumentacion",
       "fase": 0,
       "hallazgo": "Habilitador del plan",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -61,10 +61,10 @@
       "gate": "Servidor arranca. Peticion con y sin token responde igual que antes (nada bloqueado). Log escribe entrada con path, metodo, ip, tiene_token.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
-          "merged": false,
+          "estado": "merged",
+          "rama": "seguridad/SEC-00-auditoria-auth",
+          "commit": "e3cf772",
+          "merged": true,
           "desplegado": false
         }
       },
