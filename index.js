@@ -23,6 +23,7 @@ const ventasKpiRoutes = require('./routes/ventasKpiRoutes.js');
 const auditiaFacturasRoutes = require('./routes/auditiaFacturasRoutes.js');
 const cierreMesRoutes = require('./routes/cierreMesRoutes.js');
 const authAudit = require('./middlewares/authAudit.js');
+const helmet = require('helmet');
 // const aiRoutes = require('./routes/aiRoutes.js'); // Comentado temporalmente - archivos no en repo
 
 const app = express();
@@ -57,6 +58,22 @@ import eventoPromocionalRoutes from './routes/eventoPromocionalRoutes.js';
 import variableProductRoutes from './routes/variableProductRoutes.js';
 
 // Middleware
+
+// Cabeceras de seguridad (SEC-04). Va lo primero para que cubra tambien las
+// respuestas de error de los middlewares que vienen despues.
+app.use(helmet({
+  // La API solo devuelve JSON y un texto plano en '/': no sirve HTML ni
+  // estaticos, asi que una CSP no protege de nada aqui y solo puede estorbar.
+  contentSecurityPolicy: false,
+  // HSTS sobre HTTP es ruido: los navegadores lo ignoran si no hay TLS, y
+  // anunciarlo da una falsa sensacion de seguridad en una auditoria. Activar
+  // cuando SEC-27 ponga el reverse proxy con certificado delante.
+  strictTransportSecurity: false,
+}));
+// helmet ya elimina X-Powered-By, pero se deja explicito por si algun dia se
+// cambia su configuracion: la cabecera revela el stack sin ninguna necesidad.
+app.disable('x-powered-by');
+
 app.use(express.json());
 
 // CORS restringido (SEC-02). Antes era app.use(cors()), que emite
