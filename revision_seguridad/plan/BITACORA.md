@@ -6,6 +6,35 @@ Formato: fecha, tarea, repo, qué se hizo, cómo se validó, qué quedó abierto
 
 ---
 
+## 2026-09-10 — FASE 1 COMPLETA (SEC-04 a SEC-08)
+
+**Repos:** backend (`main` = `c44fc70`) + frontend (`main` = `83039b4`, desplegado por Vercel)
+**Estado:** las 8 tareas de Fase 1 desplegadas y verificadas por Eder. Avance total **9/28**.
+
+| Tarea | Qué quedó |
+|---|---|
+| SEC-04 | helmet activo, sin `X-Powered-By`. CSP y HSTS desactivados a propósito |
+| SEC-05 | 6 puntos toman la identidad del token; el front deja de enviar `usu_cod` |
+| SEC-06 | 3 volcados de `req.body`/`req.files` reemplazados por líneas acotadas |
+| SEC-07 | 38 → 10 vulnerabilidades, **0 críticas**. `xlsx` fuera, `bcrypt` 5→6 |
+| SEC-08 | `Authorization: Bearer` aceptado; extracción centralizada en `tokenHeader.js` |
+
+**Validado:** Eder probó en local con ambos repos en `develop` antes de mergear, y confirmó en producción tras desplegar. Gates propios: helmet sin romper CORS ni el rate limit; equivalencia `xlsx` vs ExcelJS en 6 casos límite (celdas vacías, ceros, filas vacías, sin `art_cod`, fórmula) → **idéntico**; hashes de bcrypt 5 validados por bcrypt 6; Bearer y `x-access-token` funcionando en rutas ESM y CommonJS.
+
+**Aprendido:**
+1. **`req.usuario` no existe** — el middleware expone `req.user`. Cuatro controladores (`registrarCostoIndividual`, `aprobarCostoIndividual`, `aprobarCostosMasivo`, `modificarCompra`) lo leían y registraban siempre `'sistema'`. No era que la auditoría fuera falsificable: **no registraba a nadie**. El informe solo señalaba 5 puntos de precedencia; eran 6, y 4 estaban además rotos. → memoria (`Codebase Patterns`).
+2. **`req.files` serializado escribía megabytes al log** por cada artículo con foto (`articulosController:91`). No estaba en el informe; apareció al corregir SEC-06.
+3. **La lectura de Excel ya no usa `xlsx`** → memoria, para que no se reintroduzca.
+4. **Fallo de proceso propio:** el primer `git checkout main` abortó por tener `ESTADO.json` sin commitear, y como no se leyó su salida, el CLI registró un merge que **nunca ocurrió**, apuntando al commit viejo. Se detectó verificando `git show main:index.js | grep helmet` → 0. Corregido el estado y **endurecida la skill `plan-seguridad`**: ahora exige árbol limpio antes del checkout y comprobar que el código llegó de verdad. Lección: encadenar con `&&` y leer la salida, no asumir que un comando hizo lo que se pedía.
+
+**Abierto:**
+- **Ventana de observación de SEC-00 corriendo.** Analizar a partir del **2026-09-17** con `analizar-auditoria.py`. Los logs están en `C:\api_pretty\logs\` del servidor Windows: hay que traerlos o correr el análisis allá. Sin esos datos la Fase 2 se haría a ciegas.
+- **Fase 2 (9 tareas) desbloqueada** técnicamente, pero conviene esperar los datos.
+- Disponible sin esperar: **SEC-21** (`requirePermission`, cierra el CRÍTICO-2), SEC-22, SEC-24, SEC-25, SEC-28, SEC-29.
+- SEC-21 ya tiene la estructura del RBAC confirmada contra la BD (nota en la tarea) y la primera piedra puesta: `middlewares/authorize.js` con `requireAdmin`.
+
+---
+
 ## 2026-09-10 — SEC-03 + despliegue con verificación
 
 **Repo:** backend

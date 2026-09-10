@@ -200,7 +200,7 @@
       "severidad": "baja",
       "fase": 1,
       "hallazgo": "BAJA-16",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -219,16 +219,18 @@
       "gate": "curl -I muestra X-Content-Type-Options y no muestra X-Powered-By. El front sigue cargando.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-04-helmet",
           "commit": "ab8a331",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         }
       },
-      "notas": []
+      "notas": [
+        "[2026-09-10] Correccion de registro: el primer intento de merge a main fallo porque ESTADO.json tenia cambios sin commitear, y el CLI registro el commit del main VIEJO (766ba56). El merge real es c44fc70."
+      ]
     },
     {
       "id": "SEC-05",
@@ -236,7 +238,7 @@
       "severidad": "alta",
       "fase": 1,
       "hallazgo": "ALTA-5",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend",
         "frontend"
@@ -259,13 +261,13 @@
       "gate": "Aprobar un costo y verificar en BD que el usuario registrado es el del token, no el del body. Revisar antes si el front depende de mandar usu_cod.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-05-identidad-auditoria",
           "commit": "7e7ad60",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         },
         "frontend": {
           "estado": "en_main",
@@ -287,7 +289,7 @@
       "severidad": "baja",
       "fase": 1,
       "hallazgo": "BAJA-17",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -305,13 +307,13 @@
       "gate": "Crear un pedido y confirmar que el log ya no contiene el body.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-06-logs-sin-datos",
           "commit": "9bb073f",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         }
       },
       "notas": [
@@ -324,7 +326,7 @@
       "severidad": "media",
       "fase": 1,
       "hallazgo": "MEDIA-13",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -343,13 +345,13 @@
       "gate": "npm audit sin criticas. Importar un Excel de costos real y verificar que el parseo da el mismo resultado que antes.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-07-quitar-xlsx",
           "commit": "84fd694",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         }
       },
       "notas": [
@@ -363,7 +365,7 @@
       "severidad": "media",
       "fase": 1,
       "hallazgo": "Caso especial 3 del informe de agosto",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -384,13 +386,13 @@
       "gate": "Mismo token funciona por x-access-token y por Authorization: Bearer. Sin token sigue dando 401.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-08-aceptar-bearer",
           "commit": "753af39",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
-          "commit_main": "766ba56"
+          "commit_main": "c44fc70"
         }
       },
       "notas": []
@@ -752,7 +754,7 @@
       "severidad": "alta",
       "fase": 2,
       "hallazgo": "ALTA-8",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "frontend",
         "backend"
@@ -908,7 +910,7 @@
       "severidad": "critica",
       "fase": 3,
       "hallazgo": "CRITICO-2",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -932,11 +934,11 @@
       "gate": "Por cada modulo: usuario CON el permiso opera normal; usuario SIN el permiso recibe 403. Validar con dos usuarios de prueba de roles distintos.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-21-require-permission",
+          "commit": "eb19830",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -1038,7 +1040,7 @@
       "severidad": "baja",
       "fase": 3,
       "hallazgo": "Seccion 4.3",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "backend"
       ],
@@ -1155,7 +1157,8 @@
         }
       },
       "notas": [
-        "Requiere migracion de BD. Usar db-explorer para el script de impacto."
+        "Requiere migracion de BD. Usar db-explorer para el script de impacto.",
+        "[2026-09-10] requirePermission ya consulta el RBAC en cada request, asi que retirar un permiso surte efecto de inmediato sin esperar a que expire el token. Lo que sigue faltando de SEC-26 es invalidar la SESION al cambiar la password."
       ]
     },
     {
@@ -1164,7 +1167,7 @@
       "severidad": "alta",
       "fase": 3,
       "hallazgo": "BAJA-18",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "backend"
       ],
@@ -1254,6 +1257,76 @@
       },
       "descripcion": "Quedan 5 vulnerabilidades altas en sharp@0.33.5 y puppeteer@24.43.1, ambas del generador de catalogo PDF (poc-catalogo-pdf), no del runtime de la API. Sus fixes son saltos de version mayor: sharp@0.35.4 y puppeteer@25.10.0. Riesgo acotado porque no procesan entrada de usuario en la API, pero conviene cerrarlo.",
       "gate": "npm audit sin altas. 'npm run catalog:generate' produce el PDF igual que antes: mismo numero de paginas y las imagenes se ven correctamente.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "en_develop": false,
+          "en_main": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "[2026-09-10] Descubierta durante la ejecucion del plan, no estaba en el informe original."
+      ]
+    },
+    {
+      "id": "SEC-30",
+      "titulo": "Autorizacion en /api/parametros (no tiene modulo propio en el RBAC)",
+      "severidad": "media",
+      "fase": 3,
+      "hallazgo": "Detectado en SEC-21",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": []
+      },
+      "descripcion": "GET /api/parametros/* lo consumen el POS (usePedidoMinimo), las cotizaciones (usePrintCotizacion) y el cierre de mes, o sea TODOS los roles. PUT /api/parametros/:par_cod solo lo usa cierreMesService. No existe un modulo 'parametros' en dbo.Modulos, asi que hay que decidir: crear el modulo con sus acciones, o mapear la lectura a un modulo comun y la escritura a 'admin'. Aplicar 'admin' a todo romperia el POS para vendedores.",
+      "gate": "Un Vendedor puede leer pedido-minimo y datos-pago-cotizacion. Solo quien administre parametros puede hacer PUT. Verificado con dos usuarios de roles distintos.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "en_develop": false,
+          "en_main": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "[2026-09-10] Descubierta durante la ejecucion del plan, no estaba en el informe original."
+      ]
+    },
+    {
+      "id": "SEC-31",
+      "titulo": "Autorizacion en el resto de modulos del RBAC",
+      "severidad": "alta",
+      "fase": 3,
+      "hallazgo": "Continuacion de CRITICO-2",
+      "estado": "bloqueado",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [
+        "SEC-21"
+      ],
+      "bloquea": [],
+      "archivos": {
+        "backend": []
+      },
+      "descripcion": "SEC-21 dejo requirePermission funcionando y aplicado a users y roles. Faltan los modulos restantes de dbo.Modulos: products, clients, orders, pos, ajustes, conteos, promociones, cierre_mes, dashboard. Aplicar de a un modulo por vez, verificando antes contra la BD que roles lo tienen — Supervisor NO tiene 'conteos' ni 'admin', y Vendedor solo tiene 'orders' y 'pos'.",
+      "gate": "Por cada modulo: usuario CON el permiso opera normal, usuario SIN el permiso recibe 403, y ningun otro modulo cambia de comportamiento.",
       "progreso": {
         "backend": {
           "estado": "pendiente",
