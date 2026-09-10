@@ -5,6 +5,16 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { getUserPermissions } from "../models/userRoleModel.js";
 
+// Registra los intentos de login fallidos. Sin esto un ataque de fuerza
+// bruta no deja rastro: el rate limit lo frena, pero nadie se entera.
+// No se registra nunca la contrasena probada.
+const logLoginFallido = (usu_cod, motivo, req) => {
+  console.warn(
+    `[LOGIN-FALLIDO] usuario=${usu_cod || '(vacio)'} motivo=${motivo} ` +
+    `ip=${req.ip} ts=${new Date().toISOString()}`
+  );
+};
+
 const loginUser = async (req, res) => {
   try {
     const { usu_cod, usu_pass } = req.body;
@@ -33,6 +43,7 @@ const loginUser = async (req, res) => {
       `);
 
     if (result.recordset.length === 0) {
+      logLoginFallido(usu_cod, 'usuario-inexistente-o-rol-inactivo', req);
       return res.status(401).json({
         success: false,
         message: "Credenciales inválidas"
@@ -44,6 +55,7 @@ const loginUser = async (req, res) => {
     // Verificar la contraseña
     const validPassword = await bcrypt.compare(usu_pass, user.usu_pass);
     if (!validPassword) {
+      logLoginFallido(usu_cod, 'password-incorrecta', req);
       return res.status(401).json({
         success: false,
         message: "Credenciales inválidas"
