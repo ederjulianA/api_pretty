@@ -58,7 +58,38 @@ import variableProductRoutes from './routes/variableProductRoutes.js';
 
 // Middleware
 app.use(express.json());
-app.use(cors());
+
+// CORS restringido (SEC-02). Antes era app.use(cors()), que emite
+// Access-Control-Allow-Origin: * y deja que cualquier web haga peticiones a
+// esta API desde el navegador de un empleado.
+//
+// El frontend NO depende de esto: tanto en produccion (rewrite de Vercel)
+// como en desarrollo (proxy de Vite) las peticiones a /api las reenvia el
+// servidor, no el navegador, asi que nunca son cross-origin.
+//
+// Las peticiones SIN cabecera Origin (server-to-server, curl, Postman, jobs,
+// health checks) se dejan pasar: CORS es una proteccion del navegador y no
+// aplica ahi. Bloquearlas romperia integraciones sin aportar seguridad, ya
+// que un atacante no puede omitir el Origin desde un navegador.
+const CORS_ORIGINS_DEFAULT = 'http://localhost:5173,http://localhost:5174';
+const origenesPermitidos = (process.env.CORS_ORIGINS || CORS_ORIGINS_DEFAULT)
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (origenesPermitidos.includes(origin)) return callback(null, true);
+    // Se rechaza sin lanzar error: no se emiten las cabeceras CORS y el
+    // navegador bloquea. Devolver un error aqui convertiria cada sonda en
+    // un 500. Se registra para que un bloqueo inesperado sea diagnosticable.
+    console.warn(`[CORS] Origen no permitido: ${origin}`);
+    return callback(null, false);
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-access-token', 'Authorization', 'Accept'],
+}));
 app.use(fileUpload({
   createParentPath: true,
   limits: {
