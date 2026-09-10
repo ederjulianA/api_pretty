@@ -13,6 +13,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - WooCommerce REST API integration
 - Cloudinary for image management
 
+## Security Hardening — in progress
+
+An active remediation plan lives in `revision_seguridad/`. Before touching auth, routes, or CORS, read `revision_seguridad/plan/PLAN.md` and check `ESTADO.json`.
+
+- Work goes on `develop`; it reaches `main` only with Eder's explicit approval.
+- Operate it with the `/plan-seguridad` skill; never edit `ESTADO.json` by hand.
+- As of 2026-09-10 there are still **~53 endpoints without authentication** — see `revision_seguridad/INFORME_SEGURIDAD_2026-09-10.md`.
+
 ## Common Commands
 
 ### Development
@@ -94,8 +102,9 @@ try {
 2. bcrypt verifies password against `dbo.Usuarios` table
 3. JWT token generated with 24-hour expiration
 4. Token sent in `x-access-token` header for protected routes
-5. Middleware (`middlewares/authMiddleware.js`) validates JWT
-6. Permissions loaded from role-based system (`dbo.RolesPermisos`)
+5. Middleware (`middlewares/auth.js` for CommonJS routes, `middlewares/authMiddleware.js` for ESM ones — two duplicate implementations) validates the JWT. It answers *"is this token valid?"*, never *"is this user allowed?"*
+6. Permissions are read from `dbo.RolesPermisos` **only at login**, to build the JSON the frontend uses to show or hide buttons. ⚠️ **The backend does not enforce them** — any valid token reaches any endpoint that only has `verifyToken`.
+7. Role enforcement is being introduced in `middlewares/authorize.js` (`requireAdmin`, added by SEC-01). It queries the role against the DB on every request rather than reading it from the JWT, because the token lasts 24h and carries the role frozen at login.
 
 ### Key Database Tables
 - `dbo.Usuarios` - User accounts with hashed passwords
@@ -262,13 +271,14 @@ Event-based discounts (`eventos_promocionales`):
 - `GET /api/woo/test` - WooCommerce connection test
 
 ### Logging
-Winston configured with Loki integration:
-- Request/response timing
-- Error stack traces
-- Query performance tracking
+⚠️ **There is no logger.** `winston` and `winston-loki` are in `package.json` but **no file imports them** — all logging is ~643 `console.log`/`console.error` calls captured by PM2 stdout. Verified 2026-09-10.
+
+Do not assume a logger exists when implementing something that needs logs: either create one or write directly. `middlewares/authAudit.js` is an example — it writes JSON-lines to `logs/` with a `console.log` fallback.
+
+The only structured log today is the auth audit (`logs/auth-audit*.json`), added by SEC-00 of the security plan.
 
 ### Common Issues
-1. **Port already in use**: `lsof -ti:3000 | xargs kill -9`
+1. **Port already in use**: on Eder's machine port 3000 is taken by **Docker** (`com.docker.backend`), so a blind `lsof -ti:3000 | xargs kill -9` would kill Docker, not a stale server. Check first with `ps -p <pid>`, and run the API on another port instead: `PORT=3001 node index.js`. Also use `nvm use 23` — Node 25 breaks `jsonwebtoken`.
 2. **SQL connection timeout**: Check firewall and DB credentials
 3. **WooCommerce sync fails**: Verify `WC_*` env variables and API permissions
 4. **JWT invalid**: Ensure `JWT_SECRET` is set and token not expired (24h limit)
@@ -289,6 +299,6 @@ Key documentation files:
 2. **Wrap multi-table operations in transactions** - Ensure atomicity
 3. **Validate pricing logic** - Offers must be less than both base prices
 4. **Normalize WooCommerce states** - Replace hyphens with underscores
-5. **Only sync active articles** - Check `art_est = 'A'` and stock > 0
-6. **Test permission checks** - Verify role-based access before operations
+5. **Only sync articles with stock** - ⚠️ `art_est` **does not exist** in `dbo.articulos` (verified 2026-09-10: no column matching `%est%`). Filter by stock via `dbo.vwExistencias` instead
+6. **Protect every new endpoint** - A route without `verifyToken` is public to the internet. Add it when you create the route, not later. For operations that not every user should perform, add `requireAdmin` from `middlewares/authorize.js` as well
 7. **Handle concurrent order creation** - Use UPDLOCK when generating document numbers
