@@ -235,7 +235,7 @@
       "severidad": "alta",
       "fase": 1,
       "hallazgo": "ALTA-5",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend",
         "frontend"
@@ -258,23 +258,24 @@
       "gate": "Aprobar un costo y verificar en BD que el usuario registrado es el del token, no el del body. Revisar antes si el front depende de mandar usu_cod.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-05-identidad-auditoria",
+          "commit": "7e7ad60",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         },
         "frontend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-05-no-enviar-usu-cod",
+          "commit": "582b825",
+          "en_develop": true,
           "en_main": false
         }
       },
       "notas": [
-        "fac_usu_cod_cre en createCompleteOrder no puede migrarse hasta que ese endpoint tenga auth (SEC-11): hoy no hay req.user."
+        "fac_usu_cod_cre en createCompleteOrder no puede migrarse hasta que ese endpoint tenga auth (SEC-11): hoy no hay req.user.",
+        "[2026-09-10] Se encontraron 6 puntos, no 5: el informe omitio aprobarCostosMasivo (cargaCostos:888). Y 4 de ellos leian req.usuario, que ningun middleware define — registraban SIEMPRE 'sistema'. Afectaba a registrarCostoIndividual, aprobarCostoIndividual, aprobarCostosMasivo y modificarCompra. Falta la parte de frontend (dejar de enviar usu_cod) y la de orderController (depende de SEC-11)."
       ]
     },
     {
@@ -319,7 +320,7 @@
       "severidad": "media",
       "fase": 1,
       "hallazgo": "MEDIA-13",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -338,16 +339,17 @@
       "gate": "npm audit sin criticas. Importar un Excel de costos real y verificar que el parseo da el mismo resultado que antes.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-07-quitar-xlsx",
+          "commit": "84fd694",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
       "notas": [
-        "El fix de uuid quiere bajar exceljs a 3.4.0 (breaking). Evaluar por separado, no forzar."
+        "El fix de uuid quiere bajar exceljs a 3.4.0 (breaking). Evaluar por separado, no forzar.",
+        "[2026-09-10] Resuelto: 38 -> 10 vulnerabilidades, 0 criticas. xlsx eliminado (lectura migrada a ExcelJS con equivalencia verificada en 6 casos limite) y bcrypt 5.1.1 -> 6.0.0 (hashes viejos siguen validando). Lo que queda son sharp y puppeteer, movidos a SEC-29."
       ]
     },
     {
@@ -356,7 +358,7 @@
       "severidad": "media",
       "fase": 1,
       "hallazgo": "Caso especial 3 del informe de agosto",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -377,11 +379,11 @@
       "gate": "Mismo token funciona por x-access-token y por Authorization: Bearer. Sin token sigue dando 401.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-08-aceptar-bearer",
+          "commit": "753af39",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -485,7 +487,8 @@
         }
       },
       "notas": [
-        "POS2.jsx es inconsistente: linea 731 manda token y 497 no. Revisar las 4 llamadas."
+        "POS2.jsx es inconsistente: linea 731 manda token y 497 no. Revisar las 4 llamadas.",
+        "[2026-09-10] Al proteger /api/order/, completar SEC-05: cambiar fac_usu_cod_cre para que salga de req.user.usu_cod y no del body (orderController.js:101,117). Hoy no se puede porque el endpoint no tiene auth."
       ]
     },
     {
@@ -789,7 +792,9 @@
           "en_main": false
         }
       },
-      "notas": []
+      "notas": [
+        "[2026-09-10] SEC-08 desplegado: el Bearer de DiferenciaInventario.jsx ya lo reconoce el backend, asi que ese endpoint no requiere tocar el frontend para protegerlo."
+      ]
     },
     {
       "id": "SEC-18",
@@ -1056,7 +1061,9 @@
           "en_main": false
         }
       },
-      "notas": []
+      "notas": [
+        "[2026-09-10] SEC-08 ya extrajo la lectura del token a middlewares/tokenHeader.js, compartido por auth.js (CJS), authMiddleware.js (ESM) y authAudit.js. La unificacion pendiente es solo la del cuerpo de verifyToken, que sigue duplicado."
+      ]
     },
     {
       "id": "SEC-25",
@@ -1207,6 +1214,40 @@
       },
       "descripcion": "dbo.Usuarios.usu_cod y dbo.UsuariosRoles.usu_cod son VARCHAR(100), pero el codigo los declara sql.VarChar(20) en 7 puntos: authController.js:24,159,214 y userRoleModel.js:7,36,53,70. SEC-01 ya corrigio solo los de changePasswordAdmin. Latente: los 4 usu_cod actuales tienen maximo 5 caracteres, pero un usuario con codigo largo se truncaria silenciosamente al comparar y no haria match.",
       "gate": "Los 7 puntos usan sql.VarChar(100). Login, cambio de password y carga de permisos siguen funcionando con los usuarios existentes.",
+      "progreso": {
+        "backend": {
+          "estado": "pendiente",
+          "rama": null,
+          "commit": null,
+          "en_develop": false,
+          "en_main": false,
+          "desplegado": false
+        }
+      },
+      "notas": [
+        "[2026-09-10] Descubierta durante la ejecucion del plan, no estaba en el informe original."
+      ]
+    },
+    {
+      "id": "SEC-29",
+      "titulo": "Actualizar sharp y puppeteer (5 vulnerabilidades altas)",
+      "severidad": "media",
+      "fase": 3,
+      "hallazgo": "Resto de MEDIA-13, separado en SEC-07",
+      "estado": "pendiente",
+      "repos": [
+        "backend"
+      ],
+      "secuencia": [
+        "backend"
+      ],
+      "depende_de": [],
+      "bloquea": [],
+      "archivos": {
+        "backend": []
+      },
+      "descripcion": "Quedan 5 vulnerabilidades altas en sharp@0.33.5 y puppeteer@24.43.1, ambas del generador de catalogo PDF (poc-catalogo-pdf), no del runtime de la API. Sus fixes son saltos de version mayor: sharp@0.35.4 y puppeteer@25.10.0. Riesgo acotado porque no procesan entrada de usuario en la API, pero conviene cerrarlo.",
+      "gate": "npm audit sin altas. 'npm run catalog:generate' produce el PDF igual que antes: mismo numero de paginas y las imagenes se ven correctamente.",
       "progreso": {
         "backend": {
           "estado": "pendiente",
