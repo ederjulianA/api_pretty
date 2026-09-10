@@ -159,7 +159,7 @@ const importarCostosDesdeExcel = async (req, res) => {
       });
     }
 
-    const usuarioCarga = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuarioCarga = req.user?.usu_cod || 'SYSTEM';
     const archivoExcel = req.files.archivo;
     const workbook = XLSX.read(archivoExcel.data, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
@@ -427,7 +427,7 @@ const obtenerProductosConAlertas = async (req, res) => {
  */
 const calcularCostosAutomatico = async (req, res) => {
   try {
-    const usuario = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuario = req.user?.usu_cod || 'SYSTEM';
     const margen_mayor = parseFloat(req.body.margen_mayor) || 20;
     const margen_detal = parseFloat(req.body.margen_detal) || margen_mayor; // Por defecto usa el mismo margen
     const divisor_mayor = 1 + (margen_mayor / 100);
@@ -593,7 +593,7 @@ const calcularCostosAutomatico = async (req, res) => {
  */
 const aplicarCostosValidados = async (req, res) => {
   try {
-    const usuario = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuario = req.user?.usu_cod || 'SYSTEM';
     const pool = await poolPromise;
     const result = await pool.request()
       .input('usuario', sql.VarChar(100), usuario)
@@ -620,7 +620,7 @@ const aplicarCostosValidados = async (req, res) => {
 const registrarCostoIndividual = async (req, res) => {
   try {
     const { art_sec, art_cod, costo_inicial, cantidad, metodo, observaciones } = req.body;
-    const usu_cod = req.usuario?.usu_cod || 'sistema';
+    const usu_cod = req.user?.usu_cod || 'sistema';
 
     // Validaciones
     if (!art_sec && !art_cod) {
@@ -789,7 +789,7 @@ const aprobarCostoIndividual = async (req, res) => {
   try {
     const { art_cod } = req.params;
     const { observaciones } = req.body;
-    const usu_cod = req.usuario?.usu_cod || 'sistema';
+    const usu_cod = req.user?.usu_cod || 'sistema';
 
     if (!art_cod) {
       return res.status(400).json({
@@ -885,7 +885,7 @@ const aprobarCostoIndividual = async (req, res) => {
 const aprobarCostosMasivo = async (req, res) => {
   try {
     const { estado_actual, nuevo_estado, art_cods, observaciones } = req.body;
-    const usu_cod = req.body.usu_cod || req.usuario?.usu_cod || 'sistema';
+    const usu_cod = req.user?.usu_cod || 'sistema';
 
     // Validar que se indicó al menos un modo de selección
     const porEstado = estado_actual && nuevo_estado;
@@ -1002,7 +1002,7 @@ const aprobarCostosMasivo = async (req, res) => {
  */
 const actualizarCostosMasivo = async (req, res) => {
   try {
-    const usuario      = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuario      = req.user?.usu_cod || 'SYSTEM';
     const margen_mayor = parseFloat(req.body.margen_mayor) || 20;
     const margen_detal = parseFloat(req.body.margen_detal) || margen_mayor;
     const forzar       = req.body.forzar === true || req.body.forzar === 'true';
@@ -1241,7 +1241,7 @@ const actualizarCostosMasivo = async (req, res) => {
 const reprocesarCostosDocumentos = async (req, res) => {
   try {
     const { fecha_inicio, fecha_fin, fac_nro } = req.body;
-    const usuario = req.body.usu_cod || req.user?.usu_cod || 'SYSTEM';
+    const usuario = req.user?.usu_cod || 'SYSTEM';
 
     // --- Validaciones ---
     if (!fecha_inicio || !fecha_fin) {
