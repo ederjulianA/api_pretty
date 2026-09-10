@@ -1119,7 +1119,7 @@ const modificarCompra = async (req, res) => {
     }
 
     // Agregar usuario que modifica
-    datosActualizacion.usu_cod = req.usuario?.usu_cod || 'SYSTEM';
+    datosActualizacion.usu_cod = req.user?.usu_cod || 'SYSTEM';
 
     // Llamar al modelo
     const resultado = await actualizarCompra(fac_nro, datosActualizacion);
