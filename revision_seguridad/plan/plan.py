@@ -11,7 +11,8 @@ Uso:
   plan.py ver SEC-04                  Detalle de una tarea
   plan.py iniciar SEC-04 --repo backend --rama seguridad/SEC-04-helmet
   plan.py validado SEC-04 --repo backend
-  plan.py merged SEC-04 --repo backend --commit abc1234
+  plan.py a-develop SEC-04 --repo backend --commit abc1234
+  plan.py a-main SEC-04 --repo backend --commit def5678   (requiere visto bueno de Eder)
   plan.py desplegado SEC-04
   plan.py bloquear SEC-04 "razon"
   plan.py desbloquear SEC-04
@@ -49,11 +50,11 @@ def buscar(d, tid):
 
 
 def repo_completo(t, repo):
-    """Un repo esta cerrado cuando esta merged; backend ademas requiere deploy."""
+    """Cerrado = llego a main; backend ademas requiere el deploy con pm2."""
     p = t['progreso'].get(repo)
     if not p:
         return True
-    if not p.get('merged'):
+    if not p.get('en_main'):
         return False
     if repo == 'backend' and not p.get('desplegado'):
         return False
@@ -77,7 +78,7 @@ def derivar_estado(d, t):
         return 'bloqueado'
 
     estados = [t['progreso'][r].get('estado') for r in t['repos']]
-    if any(e in ('en_curso', 'validado', 'merged') for e in estados):
+    if any(e in ('en_curso', 'validado', 'en_develop', 'en_main') for e in estados):
         return 'en_curso'
     return 'pendiente'
 
@@ -94,8 +95,10 @@ def linea_progreso(t):
         p = t['progreso'][r]
         if repo_completo(t, r):
             m = 'OK'
-        elif p.get('merged'):
-            m = 'merged, falta deploy'
+        elif p.get('en_main'):
+            m = 'en main, falta pm2 restart'
+        elif p.get('en_develop'):
+            m = 'en develop, esperando visto bueno'
         else:
             m = p.get('estado', 'pendiente')
         partes.append(f"{r}:{m}")
@@ -186,13 +189,9 @@ def cmd_iniciar(d, args):
     if t['estado'] == 'bloqueado':
         falta = [x for x in t.get('depende_de', []) if not completada(buscar(d, x))]
         sys.exit(f"ERROR: {t['id']} esta bloqueada, espera {', '.join(falta)}")
-    # Regla 1: respetar la secuencia entre repos
-    seq = t['secuencia']
-    idx = seq.index(args.repo)
-    for previo in seq[:idx]:
-        if not t['progreso'][previo].get('merged'):
-            sys.exit(f"ERROR (Regla 1): antes de '{args.repo}' hay que mergear '{previo}'. "
-                     f"Invertir el orden tumba produccion.")
+    # En develop no se fuerza el orden entre repos: develop no despliega, asi
+    # que trabajar backend antes que frontend ahi no tiene ningun riesgo.
+    # La Regla 1 se aplica al pasar a main, que es donde si sale en vivo.
     t['progreso'][args.repo].update({'estado': 'en_curso', 'rama': args.rama})
     refrescar(d); guardar(d)
     print(f"OK  {t['id']} / {args.repo} -> en_curso   rama: {args.rama}")
@@ -205,16 +204,43 @@ def cmd_validado(d, args):
     print(f"OK  {t['id']} / {args.repo} -> validado (gate superado, listo para merge)")
 
 
-def cmd_merged(d, args):
+def cmd_a_develop(d, args):
     t = buscar(d, args.id)
     p = t['progreso'][args.repo]
     if p.get('estado') != 'validado':
         sys.exit(f"ERROR: {t['id']}/{args.repo} no esta validado. Corre el gate primero.")
-    p.update({'estado': 'merged', 'merged': True, 'commit': args.commit})
+    p.update({'estado': 'en_develop', 'en_develop': True, 'commit': args.commit})
     refrescar(d); guardar(d)
-    print(f"OK  {t['id']} / {args.repo} -> merged a main ({args.commit})")
+    print(f"OK  {t['id']} / {args.repo} -> en develop ({args.commit})")
+    print("    develop NO despliega. Queda esperando el visto bueno de Eder para pasar a main.")
+
+
+def cmd_a_main(d, args):
+    """develop -> main. Solo con visto bueno explicito del usuario."""
+    t = buscar(d, args.id)
+    p = t['progreso'][args.repo]
+    if not p.get('en_develop'):
+        sys.exit(f"ERROR: {t['id']}/{args.repo} todavia no esta en develop.")
+    if not args.confirmado:
+        sys.exit(f"ERROR: pasar a main requiere el visto bueno de Eder.\n"
+                 f"       Cuando lo confirme: --confirmado")
+
+    # Regla 1: en main si importa el orden. El front sale en vivo al instante
+    # (Vercel) y el backend espera un pm2 restart manual. Si el backend llega a
+    # main y se despliega antes de que el front mande el token, se rompe.
+    seq = t['secuencia']
+    if args.repo in seq:
+        idx = seq.index(args.repo)
+        for previo in seq[:idx]:
+            if not t['progreso'][previo].get('en_main'):
+                sys.exit(f"ERROR (Regla 1): '{previo}' tiene que llegar a main antes que "
+                         f"'{args.repo}'. Invertir el orden tumba produccion.")
+
+    p.update({'estado': 'en_main', 'en_main': True, 'commit_main': args.commit})
+    refrescar(d); guardar(d)
+    print(f"OK  {t['id']} / {args.repo} -> en main ({args.commit})")
     if args.repo == 'frontend':
-        print("    Vercel esta desplegando. Verifica EN VIVO antes de tocar el backend.")
+        print("    Vercel esta desplegando. Verifica EN VIVO antes de pasar el backend a main.")
     if args.repo == 'backend':
         print("    Falta desplegar: pm2 restart api_pretty   (luego: plan.py desplegado " + t['id'] + ")")
 
@@ -224,8 +250,8 @@ def cmd_desplegado(d, args):
     p = t['progreso'].get('backend')
     if not p:
         sys.exit(f"ERROR: {t['id']} no tiene parte de backend.")
-    if not p.get('merged'):
-        sys.exit(f"ERROR: {t['id']} backend aun no esta mergeado.")
+    if not p.get('en_main'):
+        sys.exit(f"ERROR: {t['id']} backend aun no esta en main.")
     p['estado'] = 'desplegado'
     p['desplegado'] = True
     refrescar(d); guardar(d)
@@ -275,7 +301,8 @@ def cmd_agregar(d, args):
 
     progreso = {}
     for r in repos:
-        progreso[r] = {'estado': 'pendiente', 'rama': None, 'commit': None, 'merged': False}
+        progreso[r] = {'estado': 'pendiente', 'rama': None, 'commit': None,
+                       'en_develop': False, 'en_main': False}
         if r == 'backend':
             progreso[r]['desplegado'] = False
 
@@ -311,7 +338,8 @@ def main():
     p = sub.add_parser('ver');         p.add_argument('id')
     p = sub.add_parser('iniciar');     p.add_argument('id'); p.add_argument('--repo', required=True); p.add_argument('--rama', required=True)
     p = sub.add_parser('validado');    p.add_argument('id'); p.add_argument('--repo', required=True)
-    p = sub.add_parser('merged');      p.add_argument('id'); p.add_argument('--repo', required=True); p.add_argument('--commit', required=True)
+    p = sub.add_parser('a-develop');   p.add_argument('id'); p.add_argument('--repo', required=True); p.add_argument('--commit', required=True)
+    p = sub.add_parser('a-main');      p.add_argument('id'); p.add_argument('--repo', required=True); p.add_argument('--commit', required=True); p.add_argument('--confirmado', action='store_true', help='Eder dio el visto bueno')
     p = sub.add_parser('desplegado');  p.add_argument('id')
     p = sub.add_parser('bloquear');    p.add_argument('id'); p.add_argument('razon')
     p = sub.add_parser('desbloquear'); p.add_argument('id')
@@ -329,7 +357,7 @@ def main():
 
     args = ap.parse_args()
     d = cargar()
-    globals()[f'cmd_{args.cmd}'](d, args)
+    globals()[f"cmd_{args.cmd.replace('-', '_')}"](d, args)
 
 
 if __name__ == '__main__':

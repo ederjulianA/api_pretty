@@ -8,23 +8,23 @@
     "backend": {
       "nombre": "api_pretty",
       "path": "/Users/eder/Developer/GitHub/api_pretty",
-      "rama_base": "main",
+      "rama_base": "develop",
       "deploy": "manual-pm2",
-      "deploy_nota": "Mergear a main NO despliega. Requiere 'pm2 restart api_pretty' explicito."
+      "deploy_nota": "Se trabaja SOBRE develop. develop NO despliega. Pasar a main solo con visto bueno de Eder, y ni siquiera main despliega: requiere 'pm2 restart api_pretty' explicito."
     },
     "frontend": {
       "nombre": "pretty_front",
       "path": "/Users/eder/Developer/GitHub/pretty_front",
-      "rama_base": "main",
+      "rama_base": "develop",
       "deploy": "auto-vercel",
-      "deploy_nota": "Mergear a main SALE EN VIVO de inmediato. Punto de no retorno."
+      "deploy_nota": "Se trabaja SOBRE develop. develop NO despliega. Al pasar a main con visto bueno de Eder, Vercel despliega de inmediato: ese es el punto de no retorno."
     }
   },
   "validacion": {
     "modo": "local-contra-bd-produccion",
     "nota": "Sin staging. Priorizar pruebas de LECTURA y de codigo de respuesta (401/200). NUNCA crear facturas, anular documentos ni escribir datos reales como prueba."
   },
-  "regla_de_orden": "En toda tarea de dos repos: PRIMERO frontend (empieza a mandar token; el backend aun lo ignora, es inofensivo), verificar en vivo, DESPUES backend, y de ultimo desplegar backend con PM2. Invertir este orden tumba produccion.",
+  "regla_de_orden": "En develop el orden entre repos da igual: no despliega. Al pasar a MAIN si importa: primero frontend (Vercel despliega y el front empieza a mandar token, inofensivo porque el backend aun lo ignora), verificar en vivo, despues backend, y de ultimo pm2 restart. Invertir ese orden tumba produccion.",
   "tareas": [
     {
       "id": "SEC-00",
@@ -61,11 +61,12 @@
       "gate": "Servidor arranca. Peticion con y sin token responde igual que antes (nada bloqueado). Log escribe entrada con path, metodo, ip, tiene_token.",
       "progreso": {
         "backend": {
-          "estado": "merged",
+          "estado": "en_main",
           "rama": "seguridad/SEC-00-auditoria-auth",
           "commit": "e3cf772",
-          "merged": true,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": true,
+          "en_main": true
         }
       },
       "notas": [
@@ -99,8 +100,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -135,8 +137,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -171,8 +174,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -207,8 +211,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": []
@@ -245,14 +250,16 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         },
         "frontend": {
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -286,8 +293,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": []
@@ -320,8 +328,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -358,8 +367,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": []
@@ -401,8 +411,9 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -448,14 +459,16 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         },
         "backend": {
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -496,14 +509,16 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         },
         "backend": {
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -544,14 +559,16 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         },
         "backend": {
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": []
@@ -591,14 +608,16 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         },
         "backend": {
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -639,14 +658,16 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         },
         "backend": {
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": []
@@ -687,14 +708,16 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         },
         "backend": {
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -741,14 +764,16 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         },
         "backend": {
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": []
@@ -789,14 +814,16 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         },
         "backend": {
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": []
@@ -835,14 +862,16 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         },
         "frontend": {
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -882,8 +911,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -919,8 +949,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -965,8 +996,9 @@
           "estado": "bloqueado",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -1003,8 +1035,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": []
@@ -1036,8 +1069,9 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -1079,14 +1113,16 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         },
         "frontend": {
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
@@ -1122,13 +1158,15 @@
           "estado": "pendiente",
           "rama": null,
           "commit": null,
-          "merged": false,
-          "desplegado": false
+          "desplegado": false,
+          "en_develop": false,
+          "en_main": false
         }
       },
       "notas": [
         "Tarea de infraestructura, no de codigo. Puede requerir acceso al servidor o al panel de Vercel."
       ]
     }
-  ]
+  ],
+  "flujo": "rama de tarea -> develop (Claude, tras pasar el gate) -> Eder valida -> Eder confirma -> develop a main -> (backend) pm2 restart. Claude NUNCA pasa a main sin confirmacion explicita."
 }

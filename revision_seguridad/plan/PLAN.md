@@ -29,33 +29,47 @@ La skill vive en ambos repos y lee y escribe **el mismo** `ESTADO.json`.
 
 ## Las dos reglas que no se rompen
 
-### Regla 1 — Orden de merge en tareas de dos repos
+### Regla 1 — Todo se trabaja en `develop`; a `main` solo con tu visto bueno
 
-Tu despliegue es asimétrico y eso manda:
+```
+rama de tarea  ->  develop        Claude, tras pasar el gate
+                      |
+                      v
+                   Eder valida
+                      |
+                   Eder confirma
+                      v
+                    main          Claude, con --confirmado
+                      |
+                      v
+              pm2 restart         Eder (solo backend)
+```
 
-| Repo | Merge a main | Efecto |
+**Claude nunca pasa nada a `main` por su cuenta.** El CLI lo rechaza sin el flag `--confirmado`, que solo se usa cuando tú lo has dicho explícitamente.
+
+Que todo pase por `develop` cambia el riesgo del pipeline: **`develop` no despliega en ningún repo**, así que dentro de `develop` el orden entre frontend y backend da igual y se puede trabajar cualquiera primero.
+
+Donde el orden sí importa es al pasar a `main`, porque el despliegue es asimétrico:
+
+| Repo | `develop` | `main` |
 |---|---|---|
-| `pretty_front` | → Vercel | **Sale en vivo de inmediato.** Punto de no retorno |
-| `api_pretty` | → nada | Espera a `pm2 restart api_pretty`, que tú controlas |
+| `pretty_front` | nada | **Vercel despliega al instante.** Punto de no retorno |
+| `api_pretty` | nada | nada, hasta `pm2 restart api_pretty` |
 
-Por eso la secuencia de toda tarea que toca ambos repos es:
+Por eso, al pasar una tarea de dos repos a `main`:
 
 ```
-1. FRONT    → rama, cambio, merge a main, push
-              Vercel despliega. El front ya manda el token.
-              El backend todavía lo ignora → inofensivo, nada se rompe.
-2. VERIFICAR en vivo que la función sigue andando
-3. BACKEND  → rama, verifyToken, merge a main, push
-              Todavía no pasa nada: main no despliega.
-4. DESPLEGAR pm2 restart api_pretty
-              Recién aquí el endpoint empieza a exigir token.
-              Y el front lleva rato mandándolo.
-5. VERIFICAR de nuevo en vivo
+1. FRONT a main    -> Vercel despliega. El front ya manda el token.
+                      El backend todavía lo ignora -> inofensivo.
+2. VERIFICAR en vivo
+3. BACKEND a main  -> todavía no pasa nada
+4. pm2 restart api_pretty
+                   -> recién aquí el endpoint exige token,
+                      y el front lleva rato mandándolo.
+5. VERIFICAR en vivo
 ```
 
-**Invertir esto tumba producción**: si el backend exige token antes de que el front lo mande, la función devuelve 401 para todos los usuarios.
-
-El paso 1 es seguro precisamente porque mandar un header que el servidor ignora no tiene ningún efecto. Esa asimetría es la que hace que el plan no necesite ventana de mantenimiento.
+**Invertir esto tumba producción**: si el backend exige token antes de que el front lo mande, la función devuelve 401 a todos los usuarios. El CLI rechaza el orden invertido en el paso a `main`.
 
 ### Regla 2 — Nunca escribir datos reales como prueba
 
@@ -63,14 +77,15 @@ Validas en local contra la **BD de producción**. El gate de cada tarea está re
 
 Prohibido como prueba: crear facturas, anular documentos, aplicar costos, cambiar la contraseña de `admin`. Donde haga falta probar escritura, usar un usuario y un cliente de prueba dedicados, y decirlo en la bitácora.
 
----
+> **Levantar el backend en local:** `nvm use 20.20.0` (Node 25 rompe `jsonwebtoken`) y `PORT=3999`, porque el 3000 lo ocupa Docker en esta máquina. No correr el `lsof -ti:3000 | xargs kill -9` que sugiere `CLAUDE.md`: mataría Docker.
 
 ## Ramas
 
 - **Una rama por tarea:** `seguridad/SEC-XX-slug-corto`
-- Sale de `main`, se mergea a `main` al pasar el gate, y se borra.
+- Sale de `develop`, se mergea a `develop` al pasar el gate, y se borra.
+- `develop` llega a `main` solo cuando tú lo confirmas, tarea por tarea.
 - Nunca dos tareas en la misma rama: cada corrección entra a main por separado para poder revertirla sola.
-- **`ESTADO.json` se commitea siempre directo a `main`**, nunca dentro de la rama de tarea. Así dos sesiones trabajando en paralelo no chocan en un conflicto de merge sobre el estado.
+- **`ESTADO.json` se commitea siempre directo a `develop`**, nunca dentro de la rama de tarea. Así dos sesiones trabajando en paralelo no chocan en un conflicto de merge sobre el estado.
 
 ---
 
@@ -80,7 +95,7 @@ Prohibido como prueba: crear facturas, anular documentos, aplicar costos, cambia
 |---|---|---|---|
 | **0** | Instrumentación | SEC-00 | Ninguno — no bloquea nada |
 | **1** | Backend puro | SEC-01 … SEC-08 | Ninguno — el front no se entera |
-| **2** | Cierre de endpoints abiertos | SEC-10 … SEC-18 | Real — requiere la Regla 1 |
+| **2** | Cierre de endpoints abiertos | SEC-10 … SEC-18 | Real, pero solo al pasar a `main` |
 | **3** | Estructural | SEC-20 … SEC-27 | Variable — SEC-20 y SEC-21 son los delicados |
 
 ### Fase 0 — SEC-00 primero, y sola
