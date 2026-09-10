@@ -70,7 +70,8 @@
         }
       },
       "notas": [
-        "[2026-09-10] Desplegado el <FECHA-PM2-RESTART>. Analizar a partir de 7 dias despues con analizar-auditoria.py. Ajustar esta nota con la fecha real al desplegar."
+        "[2026-09-10] Desplegado el <FECHA-PM2-RESTART>. Analizar a partir de 7 dias despues con analizar-auditoria.py. Ajustar esta nota con la fecha real al desplegar.",
+        "[2026-09-10] Bug corregido antes de desplegar: el resumen se escribia a un unico archivo y cada proceso pisaba al anterior; un pm2 restart borraba el historico. Ahora es un archivo por proceso y analizar-auditoria.py consolida. Fix en develop, pendiente de pasar a main."
       ]
     },
     {

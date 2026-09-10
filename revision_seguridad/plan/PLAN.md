@@ -77,7 +77,7 @@ Validas en local contra la **BD de producción**. El gate de cada tarea está re
 
 Prohibido como prueba: crear facturas, anular documentos, aplicar costos, cambiar la contraseña de `admin`. Donde haga falta probar escritura, usar un usuario y un cliente de prueba dedicados, y decirlo en la bitácora.
 
-> **Levantar el backend en local:** `nvm use 20.20.0` (Node 25 rompe `jsonwebtoken`) y `PORT=3999`, porque el 3000 lo ocupa Docker en esta máquina. No correr el `lsof -ti:3000 | xargs kill -9` que sugiere `CLAUDE.md`: mataría Docker.
+> **Levantar el backend en local:** `nvm use 23` (Node 25 rompe `jsonwebtoken`; 20 y 23 funcionan) y `PORT=3001`, porque el 3000 lo ocupa Docker en esta máquina. Para validar un gate sin pisar tu instancia, usar otro puerto libre y matar el proceso al terminar. No correr el `lsof -ti:3000 | xargs kill -9` que sugiere `CLAUDE.md`: mataría Docker.
 
 ## Ramas
 
