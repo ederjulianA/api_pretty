@@ -71,7 +71,10 @@ app.use(express.json());
 // health checks) se dejan pasar: CORS es una proteccion del navegador y no
 // aplica ahi. Bloquearlas romperia integraciones sin aportar seguridad, ya
 // que un atacante no puede omitir el Origin desde un navegador.
-const CORS_ORIGINS_DEFAULT = 'http://localhost:5173,http://localhost:5174';
+// Incluye el dominio real del frontend para que la API siga sirviendo al
+// front aunque falte CORS_ORIGINS en el .env del servidor. La variable
+// sigue mandando cuando esta definida.
+const CORS_ORIGINS_DEFAULT = 'https://pretty-front.vercel.app,http://localhost:5173,http://localhost:5174';
 const origenesPermitidos = (process.env.CORS_ORIGINS || CORS_ORIGINS_DEFAULT)
   .split(',')
   .map((o) => o.trim())
