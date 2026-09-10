@@ -87,8 +87,10 @@ const updateArticuloEndpoint = async (req, res) => {
 
 const createArticuloEndpoint = async (req, res) => {
   try {
-    console.log('Request body:', JSON.stringify(req.body, null, 2));
-    console.log('Request files:', JSON.stringify(req.files, null, 2));
+    // No se serializa req.files: contiene el buffer binario de cada imagen,
+    // asi que un JSON.stringify escribia megabytes por articulo en el log.
+    const nombresArchivos = req.files ? Object.keys(req.files) : [];
+    console.log(`[ARTICULO] crear art_cod=${req.body?.art_cod || 'N/D'} archivos=${nombresArchivos.length}`);
 
     const { art_cod, art_nom, categoria, subcategoria, precio_detal, precio_mayor, art_max_unidades_pedido, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente } = req.body;
 
