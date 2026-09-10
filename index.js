@@ -21,6 +21,7 @@ const bundleRoutes = require('./routes/bundleRoutes.js');
 const rentabilidadRoutes = require('./routes/rentabilidadRoutes.js');
 const ventasKpiRoutes = require('./routes/ventasKpiRoutes.js');
 const auditiaFacturasRoutes = require('./routes/auditiaFacturasRoutes.js');
+const cierreMesRoutes = require('./routes/cierreMesRoutes.js');
 // const aiRoutes = require('./routes/aiRoutes.js'); // Comentado temporalmente - archivos no en repo
 
 const app = express();
@@ -110,6 +111,7 @@ app.use("/api/bundles", bundleRoutes);
 app.use("/api/reportes", rentabilidadRoutes);
 app.use("/api/dashboard/ventas", ventasKpiRoutes);
 app.use("/api/auditoria/facturas", auditiaFacturasRoutes);
+app.use("/api/cierre-mes", cierreMesRoutes);
 // app.use("/api", aiRoutes); // Comentado temporalmente - archivos no en repo
 app.get("/", (req, res) => {
   res.send("API Working");

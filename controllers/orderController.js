@@ -229,4 +229,7 @@ const anularDocumentoEndpoint = async (req, res) => {
   }
 };
 
-module.exports = { createCompleteOrder, getOrder, getOrdenesEndpoint, updateOrderEndpoint, anularDocumentoEndpoint };
+// validarBundles y validarExistenciasVTA se exportan para que el cierre de mes
+// pueda facturar cotizaciones en bloque aplicando exactamente las mismas
+// validaciones de stock que el POS, sin duplicar la logica.
+module.exports = { createCompleteOrder, getOrder, getOrdenesEndpoint, updateOrderEndpoint, anularDocumentoEndpoint, validarBundles, validarExistenciasVTA };
