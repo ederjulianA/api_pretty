@@ -1,8 +1,12 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import tokenHeader from './tokenHeader.js';
+
+const { extraerToken } = tokenHeader;
 
 const verifyToken = (req, res, next) => {
-  const token = req.headers['x-access-token'];
+  // Acepta "x-access-token" (historico) y "Authorization: Bearer" (estandar)
+  const token = extraerToken(req);
 
   if (!token) {
     return res.status(401).json({
