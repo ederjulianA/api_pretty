@@ -964,7 +964,8 @@
       },
       "notas": [
         "Migrar por lotes de archivos, no los 207 en un commit.",
-        "[2026-09-10] Winston NO esta implementado (verificado 2026-09-10): esta en package.json pero 0 archivos lo importan, hay 643 console.*. La descripcion de esta tarea asume que se puede mandar el detalle 'a Winston' - decidir primero si se implementa winston de verdad o se centraliza de otra forma."
+        "[2026-09-10] Winston NO esta implementado (verificado 2026-09-10): esta en package.json pero 0 archivos lo importan, hay 643 console.*. La descripcion de esta tarea asume que se puede mandar el detalle 'a Winston' - decidir primero si se implementa winston de verdad o se centraliza de otra forma.",
+        "[2026-09-10] CLAUDE.md ya corregido (2026-09-10): la seccion Logging ahora dice la verdad, que no hay logger. Esta tarea sigue necesitando decidir si se implementa winston de verdad o se centraliza de otra forma."
       ]
     },
     {
