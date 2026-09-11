@@ -6,6 +6,36 @@ Formato: fecha, tarea, repo, qué se hizo, cómo se validó, qué quedó abierto
 
 ---
 
+## 2026-09-10 — SEC-21 requirePermission (CRÍTICO-2) + ajustes al despliegue
+
+**Repo:** backend (`main` = `823a98f`, desplegado 18:09)
+**Estado:** SEC-21 desplegada. Avance **10/30**.
+
+**Hecho:**
+- `middlewares/authorize.js`: `requirePermission(mod_codigo, acc_codigo)` consulta el RBAC en cada request (no el JWT), falla cerrado ante error de BD, y registra cada denegación como `[PERMISO-DENEGADO]`.
+- `routes/userRoutes.js` (3 rutas) y `routes/roleRoutes.js` (5 rutas): `requirePermission('admin', 'manage_users' | 'manage_roles')`.
+- `update-app.ps1`: health check de 30s → 60s; parseo de `pm2 jlist` recortando los avisos que PM2 antepone al JSON; las advertencias incluyen ahora el mensaje de la excepción. **En `develop`, aún no en `main`.**
+
+**Validado:** simulación de la consulta contra la BD con usuarios reales antes de tocar rutas (EDER permite, LADY deniega en admin, LADY permite en products). Gate: Admin 200 / Supervisor 403 / sin token 401 en users y roles; supervisor sigue con 200 en artículos, parámetros, compras, costos y cierre de mes. Despliegue: health check OK al primer intento del segundo run.
+
+⚠️ **Pendiente de confirmar funcionalmente en producción** que un Supervisor recibe 403 en Gestión de Usuarios. Eder dijo "avancemos" sin reportar esa prueba.
+
+**Aprendido:**
+1. **Estructura real del RBAC** — cada acción pertenece a un módulo (`Acciones.mod_id`), hay 9 `view` distintos; `RolesPermisos` enlaza por `mod_id`, no por `mod_codigo`. El informe lo tenía mal. → memoria `rbac-estructura-real` (con la tabla de qué roles tienen qué módulos).
+2. **Supervisor NO tiene `admin` ni `conteos`; Vendedor solo `orders` y `pos`.** Cualquier aplicación futura de permisos debe simularse contra la BD primero. → memoria.
+3. **`/api/parametros` no tiene módulo en el RBAC** y lo consumen todos los roles vía POS y cotizaciones. Aplicarle `admin` rompería a los vendedores. → **SEC-30**.
+4. **Rollback falso en el primer despliegue:** el arranque tardó más de 30s, el segundo intento idéntico pasó en 7s. → script corregido (60s), memoria del despliegue.
+5. **`pm2 jlist` antepone avisos al JSON** en el servidor, así que el parseo fallaba y el script caía al nombre por defecto `index` — que coincide con el real **por casualidad**. La comprobación de `online` estaba ciega. → script corregido, memoria. La app en PM2 se llama `index`.
+
+**Abierto:**
+- Confirmar el 403 del supervisor en producción.
+- Las mejoras al script están en `develop`: pasarlas a `main` con la próxima tanda para que el servidor las tome.
+- **SEC-31** (9 módulos restantes) desbloqueada. Aplicar de a uno, simulando cada consulta contra la BD.
+- **SEC-30** (`/api/parametros`) requiere decidir si se crea un módulo nuevo o se mapea la lectura a uno común.
+- Ventana de SEC-00: analizar a partir del **2026-09-17**.
+
+---
+
 ## 2026-09-10 — FASE 1 COMPLETA (SEC-04 a SEC-08)
 
 **Repos:** backend (`main` = `c44fc70`) + frontend (`main` = `83039b4`, desplegado por Vercel)

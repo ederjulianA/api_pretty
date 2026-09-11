@@ -343,7 +343,8 @@ const updateVariation = async (req, res) => {
       art_largo,
       art_ancho,
       art_alto,
-      art_peso_fuente
+      art_peso_fuente,
+      usuario: req.user?.usu_cod || null
     });
 
     res.json(result);

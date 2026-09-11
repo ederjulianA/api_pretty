@@ -36,6 +36,109 @@ const wcApi = new WooCommerceRestApi({
 // Meta key pendiente de confirmar contra el plugin/theme real de la tienda (ver SOLICITUD-5)
 const WOO_META_MAX_UNIDADES = '_max_unidades_pedido';
 
+// precioUtils es ESM; se carga con import() dinámico (igual que promocionController)
+// para no depender de que la versión de Node soporte require(esm).
+let precioUtilsPromise = null;
+const getPrecioUtils = () => {
+  if (!precioUtilsPromise) {
+    precioUtilsPromise = import('../utils/precioUtils.js');
+  }
+  return precioUtilsPromise;
+};
+
+/**
+ * Error de validación de negocio que el controlador debe traducir a 400.
+ */
+class PrecioBaseInvalidoError extends Error {
+  constructor(mensaje) {
+    super(mensaje);
+    this.name = 'PrecioBaseInvalidoError';
+    this.code = 'PRECIO_BASE_MENOR_OFERTA';
+  }
+}
+
+/**
+ * Rechaza precios base menores o iguales al precio de oferta fijo de la promoción activa.
+ * Ver validarPreciosBaseContraOferta en utils/precioUtils.js (incidente 2026-08-12).
+ * @throws {PrecioBaseInvalidoError}
+ */
+const asegurarPreciosBaseValidos = async (art_sec, { precio_detal, precio_mayor }) => {
+  const { validarPreciosBaseContraOferta } = await getPrecioUtils();
+  const resultado = await validarPreciosBaseContraOferta(String(art_sec), { precio_detal, precio_mayor });
+  if (!resultado.valido) {
+    throw new PrecioBaseInvalidoError(resultado.mensaje);
+  }
+};
+
+/**
+ * Deja el usuario de la app en SESSION_CONTEXT de la conexión de la transacción, para que el
+ * trigger de historial de precios (EstructuraDatos/05_historial_precios.sql) lo registre.
+ * Es inofensivo si el trigger aún no existe. Se limpia antes del commit porque la conexión
+ * vuelve al pool.
+ */
+const setUsuarioSessionContext = (request, usuario) =>
+  request
+    .input('usu_ctx', sql.NVarChar(100), usuario || null)
+    .query("EXEC sp_set_session_context @key = N'usu_cod', @value = @usu_ctx");
+
+/**
+ * Mismo formato que formatDateToISO8601 de jobs/updateWooProductPrices.js:
+ * 'YYYY-MM-DDT00:00:00' para inicio, 'YYYY-MM-DDT23:59:59' para fin, en UTC.
+ */
+const formatearFechaWoo = (fecha, esFin = false) => {
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}${esFin ? 'T23:59:59' : 'T00:00:00'}`;
+};
+
+// Slugs de la categoría por defecto de WooCommerce; no vale la pena conservarla al fusionar.
+const SLUGS_CATEGORIA_DEFECTO = new Set(['uncategorized', 'sin-categoria', 'sin-categorizar']);
+
+/**
+ * Fusiona las categorías que gestiona el ERP (grupo/subgrupo) con las que el producto ya tiene
+ * en WooCommerce y que NO gestiona el ERP (ej. 769 "Mercadillo virtual", asignada por
+ * scripts/asignar-categoria-woo-promo.js). Antes se enviaba solo [grupo, subgrupo] y Woo lo
+ * tomaba como lista completa, borrando las demás en cada edición del artículo (incidente 2026-08-12).
+ *
+ * @param {number} art_woo_id
+ * @param {Array<{id:number}>} categoriasErp - grupo/subgrupo nuevos según el ERP
+ * @returns {Promise<Array<{id:number}>|null>} lista a enviar, o null si no se pudo leer Woo (no tocar)
+ */
+const fusionarCategoriasWoo = async (art_woo_id, categoriasErp) => {
+  let actuales;
+  try {
+    const { data } = await wcApi.get(`products/${art_woo_id}`);
+    actuales = Array.isArray(data?.categories) ? data.categories : [];
+  } catch (error) {
+    console.warn(`[UPDATE_WOO_PRODUCT] No se pudieron leer las categorías actuales de ${art_woo_id}; se omite el campo categories:`, error.message);
+    return null;
+  }
+
+  // Todas las categorías de Woo que el ERP administra (cualquier grupo/subgrupo), para reemplazar
+  // solo esas y conservar el resto.
+  const pool = await poolPromise;
+  const gestionadas = await pool.request().query(`
+    SELECT inv_gru_woo_id AS woo_id FROM dbo.inventario_grupo WHERE inv_gru_woo_id IS NOT NULL
+    UNION
+    SELECT inv_sub_gru_woo_id FROM dbo.inventario_subgrupo WHERE inv_sub_gru_woo_id IS NOT NULL
+  `);
+  const idsGestionados = new Set(gestionadas.recordset.map(r => parseInt(r.woo_id, 10)).filter(Number.isInteger));
+
+  const conservadas = actuales
+    .filter(c => !idsGestionados.has(c.id) && !SLUGS_CATEGORIA_DEFECTO.has(c.slug))
+    .map(c => ({ id: c.id }));
+
+  const vistos = new Set();
+  return [...categoriasErp, ...conservadas].filter(c => {
+    if (vistos.has(c.id)) return false;
+    vistos.add(c.id);
+    return true;
+  });
+};
+
 /**
  * Valida que un valor sea un entero positivo o null
  * @param {*} valor
@@ -283,8 +386,37 @@ const updateWooCommerceProduct = async (art_woo_id, art_nom, art_cod, precio_det
       }
 
       if (categories.length > 0) {
-        data.categories = categories;
-        console.log('[UPDATE_WOO_PRODUCT] Categorías WooCommerce:', JSON.stringify(categories, null, 2));
+        const fusionadas = await fusionarCategoriasWoo(art_woo_id, categories);
+        if (fusionadas) {
+          data.categories = fusionadas;
+          console.log('[UPDATE_WOO_PRODUCT] Categorías WooCommerce (ERP + conservadas):', JSON.stringify(fusionadas));
+        }
+      }
+    }
+
+    // Si el artículo tiene una promoción activa en el ERP, enviar también la oferta para que Woo
+    // quede coherente con el nuevo regular_price. Sin esto, un regular_price <= sale_price hace que
+    // WooCommerce descarte la oferta en silencio (incidente 2026-08-12). Si el ERP no tiene promo
+    // activa no se toca sale_price: una oferta puesta a mano en Woo sigue siendo decisión de la tienda.
+    if (!esVariable && art_sec && precio_detal != null) {
+      try {
+        const { obtenerPreciosConOferta } = await getPrecioUtils();
+        const precios = await obtenerPreciosConOferta(String(art_sec));
+        if (precios.tiene_oferta && precios.oferta_info) {
+          const { precio_oferta, descuento_porcentaje, fecha_inicio, fecha_fin, permanente } = precios.oferta_info;
+          if (Number(precio_oferta) > 0) {
+            data.sale_price = String(precio_oferta);
+          } else if (Number(descuento_porcentaje) > 0) {
+            data.sale_price = String(Number(precio_detal) * (1 - Number(descuento_porcentaje) / 100));
+          }
+          if (data.sale_price !== undefined && fecha_inicio) {
+            data.date_on_sale_from = formatearFechaWoo(fecha_inicio, false);
+            // Permanente: cadena vacía, no omitir la key (Woo dejaría una fecha vieja intacta)
+            data.date_on_sale_to = permanente ? '' : formatearFechaWoo(fecha_fin, true);
+          }
+        }
+      } catch (error) {
+        console.warn(`[UPDATE_WOO_PRODUCT] No se pudo resolver la oferta activa de ${art_cod}; se envía sin sale_price:`, error.message);
       }
     }
 
@@ -1143,26 +1275,47 @@ const getArticulo = async (art_sec) => {
   }
 };
 
-const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, fac_fec = null, art_max_unidades_pedido, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente }) => {
+/**
+ * Actualiza un artículo y lo sincroniza a WooCommerce.
+ *
+ * Precios: si precio_detal y precio_mayor vienen ambos, se validan contra la oferta activa
+ * (PrecioBaseInvalidoError si son <= precio oferta) y se escriben. Si NO vienen, no se toca
+ * articulosdetalle y a Woo se le envían los precios vigentes en BD. Esto permite que un
+ * consumidor que solo quiere cambiar peso/nombre/categoría no tenga que devolver precios
+ * (el round-trip GET → PUT fue la causa del incidente 2026-08-12).
+ *
+ * usuario: usu_cod del token; se deja en SESSION_CONTEXT para el trigger de historial de precios.
+ */
+const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, fac_fec = null, art_max_unidades_pedido, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente, usuario = null }) => {
   let transaction;
-  
+  const actualizarPrecios = precio_detal != null && precio_mayor != null;
+
   console.log(`[UPDATE_ARTICULO] Iniciando actualización para artículo ${id_articulo}`, {
     art_cod,
     art_nom,
     art_woo_id,
     precio_detal,
     precio_mayor,
+    actualizarPrecios,
+    usuario,
     timestamp: new Date().toISOString()
   });
-  
+
   try {
     const pool = await poolPromise;
+
+    // Validar antes de abrir la transacción: si el precio base no supera la oferta activa, no se escribe nada.
+    if (actualizarPrecios) {
+      await asegurarPreciosBaseValidos(id_articulo, { precio_detal, precio_mayor });
+    }
+
     transaction = new sql.Transaction(pool);
     await transaction.begin();
-    
+
     console.log(`[UPDATE_ARTICULO] Transacción iniciada para artículo ${id_articulo}`);
 
     const request = new sql.Request(transaction);
+    await setUsuarioSessionContext(request, usuario);
 
     const maxUnidadesPedido = validarMaxUnidadesPedido(art_max_unidades_pedido);
     const pesoDimensiones = validarPesoDimensiones({ art_peso, art_largo, art_ancho, art_alto });
@@ -1198,45 +1351,63 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
       .input('id_articulo', sql.VarChar(30), id_articulo.toString())
       .query(updateArticuloQuery);
 
-    // Actualizar el precio detall en articulosdetalle (lista 1)
-    const updateDetalle1Query = `
-      UPDATE dbo.articulosdetalle
-      SET art_bod_pre = @precio_detal
-      WHERE art_sec = @id_articulo AND lis_pre_cod = 1
-    `;
-    await request
-      .input('precio_detal', sql.Decimal(17, 2), precio_detal)
-      .query(updateDetalle1Query);
+    // Precios que se enviarán a WooCommerce: los nuevos si vienen, si no los vigentes en BD.
+    let precioDetalWoo = precio_detal;
+    let precioMayorWoo = precio_mayor;
 
-    // Verificar si existe el registro de precio mayor
-    const checkPrecioMayorQuery = `
-      SELECT COUNT(*) as count 
-      FROM dbo.articulosdetalle 
-      WHERE art_sec = @id_articulo AND lis_pre_cod = 2
-    `;
-    const precioMayorResult = await request.query(checkPrecioMayorQuery);
-    const precioMayorExists = precioMayorResult.recordset[0].count > 0;
-
-    if (precioMayorExists) {
-      // Si existe, actualizar
-      const updateDetalle2Query = `
+    if (actualizarPrecios) {
+      // Actualizar el precio detall en articulosdetalle (lista 1)
+      const updateDetalle1Query = `
         UPDATE dbo.articulosdetalle
-        SET art_bod_pre = @precio_mayor
+        SET art_bod_pre = @precio_detal
+        WHERE art_sec = @id_articulo AND lis_pre_cod = 1
+      `;
+      await request
+        .input('precio_detal', sql.Decimal(17, 2), precio_detal)
+        .query(updateDetalle1Query);
+
+      // Verificar si existe el registro de precio mayor
+      const checkPrecioMayorQuery = `
+        SELECT COUNT(*) as count
+        FROM dbo.articulosdetalle
         WHERE art_sec = @id_articulo AND lis_pre_cod = 2
       `;
-      await request
-        .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
-        .query(updateDetalle2Query);
+      const precioMayorResult = await request.query(checkPrecioMayorQuery);
+      const precioMayorExists = precioMayorResult.recordset[0].count > 0;
+
+      if (precioMayorExists) {
+        // Si existe, actualizar
+        const updateDetalle2Query = `
+          UPDATE dbo.articulosdetalle
+          SET art_bod_pre = @precio_mayor
+          WHERE art_sec = @id_articulo AND lis_pre_cod = 2
+        `;
+        await request
+          .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
+          .query(updateDetalle2Query);
+      } else {
+        // Si no existe, insertar
+        const insertDetalle2Query = `
+          INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
+          VALUES (@id_articulo, '1', 2, @precio_mayor)
+        `;
+        await request
+          .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
+          .query(insertDetalle2Query);
+      }
     } else {
-      // Si no existe, insertar
-      const insertDetalle2Query = `
-        INSERT INTO dbo.articulosdetalle (art_sec, bod_sec, lis_pre_cod, art_bod_pre)
-        VALUES (@id_articulo, '1', 2, @precio_mayor)
-      `;
-      await request
-        .input('precio_mayor', sql.Decimal(17, 2), precio_mayor)
-        .query(insertDetalle2Query);
+      console.log(`[UPDATE_ARTICULO] Sin precios en el body: no se toca articulosdetalle para ${id_articulo}`);
+      const preciosActuales = await request.query(`
+        SELECT lis_pre_cod, art_bod_pre
+        FROM dbo.articulosdetalle
+        WHERE art_sec = @id_articulo AND bod_sec = '1' AND lis_pre_cod IN (1, 2)
+      `);
+      precioDetalWoo = preciosActuales.recordset.find(r => r.lis_pre_cod === 1)?.art_bod_pre ?? 0;
+      precioMayorWoo = preciosActuales.recordset.find(r => r.lis_pre_cod === 2)?.art_bod_pre ?? 0;
     }
+
+    // Limpiar el contexto antes de devolver la conexión al pool
+    await setUsuarioSessionContext(new sql.Request(transaction), null);
 
     await transaction.commit();
     console.log(`[UPDATE_ARTICULO] Transacción confirmada para artículo ${id_articulo}`);
@@ -1265,8 +1436,8 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
             art_sec: String(id_articulo),
             art_nom,
             art_cod,
-            precio_detal,
-            precio_mayor,
+            precio_detal: precioDetalWoo,
+            precio_mayor: precioMayorWoo,
             componentes: bundleData.componentes.map(c => ({
               art_nom: c.art_nom,
               art_cod: c.art_cod,
@@ -1284,12 +1455,12 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
         } else {
           // Bundle sin componentes: usar updateWooCommerceProduct normal
           console.log(`[UPDATE_ARTICULO] Bundle sin componentes, usando updateWooCommerceProduct normal`);
-          wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido, false, pesoDimensiones);
+          wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precioDetalWoo, precioMayorWoo, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido, false, pesoDimensiones);
         }
       } else {
         // No es bundle: usar updateWooCommerceProduct normal
         // Si es padre variable, omitir regular_price/stock (SOLICITUD-1)
-        wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precio_detal, precio_mayor, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido, esVariable, pesoDimensiones);
+        wooResult = await updateWooCommerceProduct(art_woo_id, art_nom, art_cod, precioDetalWoo, precioMayorWoo, actualiza_fecha, fac_fec, categoria, subcategoria, maxUnidadesPedido, esVariable, pesoDimensiones);
       }
       
       // Actualizar estado de sincronización
@@ -1355,6 +1526,8 @@ const updateArticulo = async ({ id_articulo, art_cod, art_nom, categoria, subcat
     
     if (transaction) {
       try {
+        // La conexión vuelve al pool: no dejar el usuario en SESSION_CONTEXT
+        await setUsuarioSessionContext(new sql.Request(transaction), null).catch(() => {});
         await transaction.rollback();
         console.log(`[UPDATE_ARTICULO] Rollback completado para artículo ${id_articulo}`);
       } catch (rollbackError) {
@@ -2304,7 +2477,7 @@ const convertArticuloToVariable = async (art_sec, attributes) => {
  * Actualiza BD y sincroniza con WooCommerce (no bloqueante ante error de Woo)
  */
 const updateProductVariation = async (variation_art_sec, variationData) => {
-  const { art_nom, precio_detal, precio_mayor, attributes, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente } = variationData;
+  const { art_nom, precio_detal, precio_mayor, attributes, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente, usuario = null } = variationData;
   const hayPesoDimensiones = [art_peso, art_largo, art_ancho, art_alto].some(v => v !== undefined);
   const pool = await poolPromise;
   let transaction = null;
@@ -2336,9 +2509,15 @@ const updateProductVariation = async (variation_art_sec, variationData) => {
       }
     }
 
+    // Mismo bloqueo que updateArticulo: un precio base <= oferta activa no se escribe
+    if (precio_detal != null || precio_mayor != null) {
+      await asegurarPreciosBaseValidos(variation_art_sec, { precio_detal, precio_mayor });
+    }
+
     transaction = new sql.Transaction(pool);
     await transaction.begin();
     const request = new sql.Request(transaction);
+    await setUsuarioSessionContext(request, usuario);
 
     if (art_nom) {
       await request
@@ -2405,6 +2584,7 @@ const updateProductVariation = async (variation_art_sec, variationData) => {
         `);
     }
 
+    await setUsuarioSessionContext(new sql.Request(transaction), null);
     await transaction.commit();
     transaction = null;
 
@@ -2480,6 +2660,7 @@ const updateProductVariation = async (variation_art_sec, variationData) => {
   } catch (error) {
     if (transaction) {
       try {
+        await setUsuarioSessionContext(new sql.Request(transaction), null).catch(() => {});
         await transaction.rollback();
       } catch (rollbackError) {
         console.error('Error en rollback:', rollbackError);

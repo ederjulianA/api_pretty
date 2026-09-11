@@ -910,7 +910,7 @@
       "severidad": "critica",
       "fase": 3,
       "hallazgo": "CRITICO-2",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -934,18 +934,20 @@
       "gate": "Por cada modulo: usuario CON el permiso opera normal; usuario SIN el permiso recibe 403. Validar con dos usuarios de prueba de roles distintos.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-21-require-permission",
           "commit": "eb19830",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "823a98f"
         }
       },
       "notas": [
         "PRIMERO validar con db-explorer los nombres reales de dbo.UsuariosRoles y dbo.RolesPermisosAcciones: la consulta propuesta en el informe se derivo de userRoleModel.js y no esta confirmada.",
         "Aplicar por modulo en tareas separadas, no todo de golpe.",
-        "[2026-09-10] CONFIRMADO contra BD 2026-09-10: la estructura real es dbo.UsuariosRoles(usurol_id, usu_cod VARCHAR(100), rol_id, fecha_asignacion) -> dbo.Roles(rol_id, rol_nombre, rol_descripcion, rol_activo). RolesPermisos usa rolperm_id + mod_id (NO mod_codigo como propuso el informe) y JOIN a dbo.Modulos; RolesPermisosAcciones usa rolperm_id + acc_id con JOIN a dbo.Acciones. Roles existentes: 1=Administrador, 2=Vendedor, 3=Supervisor. Ya existe middlewares/authorize.js creado en SEC-01 con requireAdmin: extender ahi requirePermission."
+        "[2026-09-10] CONFIRMADO contra BD 2026-09-10: la estructura real es dbo.UsuariosRoles(usurol_id, usu_cod VARCHAR(100), rol_id, fecha_asignacion) -> dbo.Roles(rol_id, rol_nombre, rol_descripcion, rol_activo). RolesPermisos usa rolperm_id + mod_id (NO mod_codigo como propuso el informe) y JOIN a dbo.Modulos; RolesPermisosAcciones usa rolperm_id + acc_id con JOIN a dbo.Acciones. Roles existentes: 1=Administrador, 2=Vendedor, 3=Supervisor. Ya existe middlewares/authorize.js creado en SEC-01 con requireAdmin: extender ahi requirePermission.",
+        "[2026-09-10] Desplegado 2026-09-10 18:09 (commit 823a98f, health check OK al primer intento). PENDIENTE de confirmar funcionalmente que un Supervisor recibe 403 en /api/users. El primer intento de despliegue hizo ROLLBACK y el segundo funciono: probable timeout del health check (30s) con arranque lento, no un fallo de codigo. Ademas 'pm2 jlist' no funciona en el servidor: el script cae al nombre por defecto 'index' (que coincide) y la comprobacion de estado online queda ciega."
       ]
     },
     {
@@ -1115,7 +1117,7 @@
       "severidad": "media",
       "fase": 3,
       "hallazgo": "MEDIA-9",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "backend",
         "frontend"
@@ -1311,7 +1313,7 @@
       "severidad": "alta",
       "fase": 3,
       "hallazgo": "Continuacion de CRITICO-2",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "backend"
       ],

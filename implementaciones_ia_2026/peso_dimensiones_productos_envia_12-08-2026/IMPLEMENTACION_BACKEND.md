@@ -104,6 +104,8 @@ No hubo cambios de rutas para los endpoints de producto individual — ya exist�
 
 **Si el campo simplemente no viene en el body:** no se toca — se persiste lo que ya había en BD, y no se pisa el valor existente en WooCommerce (mismo criterio que el resto de campos opcionales de este endpoint, como `regular_price`, `name`).
 
+> **Corrección 2026-09-10.** En la práctica el `PUT` guardaba como `NULL` cualquiera de los 4 campos de peso/dimensiones que no viniera en el body (siempre enviar los 4). Y desde 2026-09-10 `precio_detal`/`precio_mayor` son opcionales en el `PUT` (ambos o ninguno): si no vienen, no se tocan los precios base; si vienen, se rechaza con `400` un precio base ≤ oferta activa. Contexto: incidente en `implementaciones_ia_2026/incidente_precios_promo9_10-09-2026/`.
+
 **Response `200`:** sin cambios en la forma; el sync a WooCommerce ocurre de forma no bloqueante (igual que hoy con `art_max_unidades_pedido`).
 
 **Errores:** `400` si algún campo no es numérico o es ≤ 0, mismo tratamiento que el resto del payload.
