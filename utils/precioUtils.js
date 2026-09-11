@@ -438,3 +438,53 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
         throw new Error(`Error al obtener precios múltiples con oferta: ${error.message}`);
     }
 }; 
+/**
+ * Valida que los precios base (detal/mayor) que se van a ESCRIBIR sean mayores al precio
+ * de oferta fijo de la promoción activa del artículo. Es la contraparte de validarPrecioOferta:
+ * aquella protege al crear la promo, esta protege al editar el artículo.
+ *
+ * Contexto: el 2026-08-12 un script hizo GET → PUT /api/articulos/:id devolviendo
+ * precio_detal/precio_mayor (que el GET entrega CON la oferta aplicada) y dejó 34 artículos
+ * con detal = mayor = oferta; WooCommerce descartó la oferta. Esta regla habría rechazado
+ * cada una de esas escrituras.
+ *
+ * Solo se validan los precios que vengan informados (null/undefined se ignoran), así sirve
+ * tanto para updateArticulo (ambos) como para updateProductVariation (parciales).
+ * Una promoción porcentual no entra en conflicto (siempre queda por debajo del base).
+ *
+ * @param {string} art_sec
+ * @param {{precio_detal?: number, precio_mayor?: number}} precios
+ * @returns {Promise<{valido: boolean, mensaje: string, oferta_info: Object|null}>}
+ */
+export const validarPreciosBaseContraOferta = async (art_sec, { precio_detal, precio_mayor } = {}) => {
+    const precios = await obtenerPreciosConOferta(art_sec);
+
+    if (!precios.tiene_oferta || !precios.oferta_info) {
+        return { valido: true, mensaje: 'Sin promoción activa', oferta_info: null };
+    }
+
+    const { precio_oferta, codigo_promocion } = precios.oferta_info;
+    if (!(Number(precio_oferta) > 0)) {
+        return { valido: true, mensaje: 'Promoción porcentual, sin conflicto', oferta_info: precios.oferta_info };
+    }
+
+    const conflictos = [];
+    if (precio_detal != null && Number(precio_detal) <= Number(precio_oferta)) {
+        conflictos.push(`detal ${precio_detal}`);
+    }
+    if (precio_mayor != null && Number(precio_mayor) <= Number(precio_oferta)) {
+        conflictos.push(`mayor ${precio_mayor}`);
+    }
+
+    if (conflictos.length > 0) {
+        return {
+            valido: false,
+            mensaje: `El artículo está en la promoción ${codigo_promocion} con precio de oferta ${precio_oferta}; ` +
+                     `el precio base debe ser mayor (recibido: ${conflictos.join(', ')}). ` +
+                     `Ajusta o desactiva la promoción antes de bajar el precio base.`,
+            oferta_info: precios.oferta_info
+        };
+    }
+
+    return { valido: true, mensaje: 'Precios base válidos frente a la oferta activa', oferta_info: precios.oferta_info };
+};

@@ -30,10 +30,27 @@ const updateArticuloEndpoint = async (req, res) => {
     const { id_articulo } = req.params;
     const { art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal, precio_mayor, actualiza_fecha, art_max_unidades_pedido, art_peso, art_largo, art_ancho, art_alto, art_peso_fuente } = req.body;
 
-    if (!id_articulo || !art_cod || !art_nom || !categoria || !subcategoria || !art_woo_id || precio_detal == null || precio_mayor == null) {
+    if (!id_articulo || !art_cod || !art_nom || !categoria || !subcategoria || !art_woo_id) {
       return res.status(400).json({
         success: false,
-        error: "Todos los campos son requeridos: art_cod, art_nom, categoria, subcategoria, art_woo_id, precio_detal y precio_mayor."
+        error: "Todos los campos son requeridos: art_cod, art_nom, categoria, subcategoria y art_woo_id."
+      });
+    }
+
+    // Los precios son opcionales, pero van juntos: sin ellos no se tocan los precios base
+    // (así un consumidor que solo edita peso/nombre no tiene que devolver precios que leyó del GET).
+    const enviaDetal = precio_detal != null && precio_detal !== '';
+    const enviaMayor = precio_mayor != null && precio_mayor !== '';
+    if (enviaDetal !== enviaMayor) {
+      return res.status(400).json({
+        success: false,
+        error: "precio_detal y precio_mayor deben enviarse juntos (ambos o ninguno)."
+      });
+    }
+    if (enviaDetal && (!Number.isFinite(Number(precio_detal)) || !Number.isFinite(Number(precio_mayor)) || Number(precio_detal) < 0 || Number(precio_mayor) < 0)) {
+      return res.status(400).json({
+        success: false,
+        error: "precio_detal y precio_mayor deben ser números mayores o iguales a 0."
       });
     }
 
@@ -61,21 +78,27 @@ const updateArticuloEndpoint = async (req, res) => {
       categoria,
       subcategoria,
       art_woo_id,
-      precio_detal,
-      precio_mayor,
+      precio_detal: enviaDetal ? Number(precio_detal) : null,
+      precio_mayor: enviaMayor ? Number(precio_mayor) : null,
       actualiza_fecha,
       art_max_unidades_pedido,
       art_peso,
       art_largo,
       art_ancho,
       art_alto,
-      art_peso_fuente
+      art_peso_fuente,
+      usuario: req.user?.usu_cod || null
     });
 
     console.log(`[UPDATE_ARTICULO_ENDPOINT] Actualización completada para artículo ${id_articulo}`, result);
-    
+
     return res.json({ success: true, ...result });
   } catch (error) {
+    // Regla de negocio (precio base <= oferta activa): es un error del cliente, no del servidor
+    if (error.code === 'PRECIO_BASE_MENOR_OFERTA') {
+      console.warn(`[UPDATE_ARTICULO_ENDPOINT] Rechazado por precio base inválido para artículo ${req.params.id_articulo}: ${error.message}`);
+      return res.status(400).json({ success: false, error: error.message, code: error.code });
+    }
     console.error(`[UPDATE_ARTICULO_ENDPOINT] Error en updateArticuloEndpoint:`, {
       message: error.message,
       stack: error.stack,
