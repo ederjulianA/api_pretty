@@ -122,6 +122,31 @@ Para la segunda instancia de `api_pretty` en el Windows (puerto 3001, solo neces
 
 La key REST `apiMiPunto` de producción funciona también contra `pruebas.prettymakeupcol.com` (la BD del staging es copia de la de producción y conserva la misma fila en `wp_woocommerce_api_keys`), así que `.env.pruebas` puede reutilizar `WC_CONSUMER_KEY`/`WC_CONSUMER_SECRET` cambiando solo `WC_URL`.
 
+## Scripts (`scripts/`)
+
+| Script | Uso |
+|---|---|
+| `backup-y-restaurar-bd.js [pre\|backup\|restore\|todo]` | Backup `COPY_ONLY` + `VERIFYONLY` de `BD_ORIGEN` (default `PSDATAFEB2024`) a `BAK_PATH` (default `C:\Ed\<origen>_<fecha>.bak`) y, si se pide, restore como `BD_DESTINO` (default `PSDATA_PRUEBAS`) con `RECOVERY SIMPLE` y comparación de conteos. Es el script con el que se creó `PSDATA_PRUEBAS`; sirve para el backup previo a migrar producción. |
+| `aplicar-migracion.js <BD> [ruta.sql]` | Aplica la migración a la BD nombrada (aborta si el contexto no coincide), la ejecuta dos veces para probar idempotencia y verifica. Para `PSDATAFEB2024` exige `CONFIRMO_PRODUCCION=si`. |
+| `ver-pushes.js [sku…]` | Últimos 10 `woo_sync_logs` con `origen`/usuario, cola de pendientes y ERP vs Woo por SKU. Solo lectura. |
+
+Todos leen el `.env` del repo; para apuntar a pruebas: `DOTENV_CONFIG_PATH=.env.pruebas node -r dotenv/config scripts/….js`.
+
+## Pruebas manuales desde la interfaz (Eder, 14/sep/2026 — en curso)
+
+Backend local (`DOTENV_CONFIG_PATH=.env.pruebas node -r dotenv/config index.js`, puerto 3001) + `pretty_front` (`npm run dev`, 5174, `API_TARGET=http://localhost:3001`). Producto de prueba: Termo 9292 (arranca en ERP=26 / Woo=26). Verificación con `ver-pushes.js 9292`; criterio: **ERP = Woo** y ninguna pantalla se comporta distinto.
+
+| # | Acción | Esperado |
+|---|---|---|
+| 1 | Venta de mostrador ×2 | 24/24, `origen=VTA` + usuario |
+| 2 | Anular esa venta | 26/26, `ANULACION`; el pedido Woo no cambia de estado |
+| 3 | Compra ×5 | 31/31, `COM` |
+| 4 | Ajuste a 3 | 3/3, `AJT` |
+| 5 | Botón "Sincronizar" del producto | `MANUAL` + usuario, sin cambio |
+| 6 | Dashboard → Sincronización de pedidos (13/sep, En espera) → #11273 como COT → finalizar a factura | −7/−7, `VTA`; pedido en staging → "Completado" (mapeo actual) |
+
+Resultados: _(pendiente de que Eder los reporte)_.
+
 ## Verificación tras desplegar
 
 ```sql

@@ -13,6 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - WooCommerce REST API integration
 - Cloudinary for image management
 
+## SPEC-013 — Inventory sync ERP ↔ WooCommerce (in progress, Sept 2026)
+
+Active work on branch `feature/spec013-fase1-push-unico` (Phase 1 done, not merged). Full spec lives in the sibling repo `negocio_prettymakeup/specs/013-sincronizacion-inventario-erp-woocommerce.md`; implementation notes, test environment and scripts in `implementaciones_2026/spec013_inventario_woo/README_FASE1.md`. Test DB `PSDATA_PRUEBAS` + `.env.pruebas` (local, git-ignored): run with `DOTENV_CONFIG_PATH=.env.pruebas node -r dotenv/config index.js` — the boot banner must say `Entorno: PRUEBAS`. Next: Phase 2 (`jobs/importarPedidosWeb.js`, REM documents, relevo to VTA) on a new branch.
+
 ## Security Hardening — in progress
 
 An active remediation plan lives in `revision_seguridad/`. Before touching auth, routes, or CORS, read `revision_seguridad/plan/PLAN.md` and check `ESTADO.json`.
