@@ -15,9 +15,20 @@
  * Todo push a WooCommerce sale por services/wooStockService.js DESPUÉS del commit.
  */
 import { sql, poolPromise } from '../db.js';
-import { createCompleteOrder, anularDocumento } from './orderModel.js';
 import { sincronizarDocumentoWoo, actualizarEstadoPedidoWoo } from '../services/wooStockService.js';
 import { obtenerSiguienteFacSec, obtenerSiguienteFacNro, ejecutarConAutoRecuperacion } from '../utils/secuenciaUtils.js';
+
+/**
+ * orderModel se carga DINÁMICAMENTE (en el momento de uso), no con `import` estático.
+ * Motivo (incidente del despliegue del 14/sep/2026): con un import estático, orderModel.js entra
+ * al grafo ESM de index.js (pedidosWebRoutes → pedidosWebController → pedidosWebModel → orderModel)
+ * y queda "enlazado pero sin evaluar" cuando routes/orderRoutes.js (CommonJS) hace
+ * require('../controllers/orderController') → require('../models/orderModel'). Node 25 lo evalúa
+ * al vuelo; Node ≤23 devuelve el namespace vacío y el arranque muere con
+ * "ReferenceError: Cannot access 'getOrdenes' before initialization" (pm2 en bucle → rollback).
+ * Con import() diferido, orderModel sigue fuera del grafo estático, exactamente como antes de la Fase 2.
+ */
+const orderModel = () => import('./orderModel.js');
 
 export const ESTADO_ERP = Object.freeze({
   SIN_DOC: 'SIN_DOC',
@@ -285,6 +296,7 @@ export const crearRemision = async ({ mapeo, nit_sec, usuario = 'SISTEMA' }) => 
   if (mapeo.errores && mapeo.errores.length) throw new Error(`Pedido con líneas sin mapear: ${mapeo.errores.join('; ')}`);
   if (!nit_sec) throw new Error('nit_sec requerido para crear la remisión');
 
+  const { createCompleteOrder } = await orderModel();
   const creada = await createCompleteOrder({
     nit_sec: String(nit_sec),
     fac_usu_cod_cre: usuario,
@@ -509,6 +521,7 @@ export const anularRemision = async ({ fac_nro_rem, motivo, usuario = 'SISTEMA',
   }
 
   const obs = `Anulada: ${motivo || 'sin motivo'}${usuario ? ` (${usuario})` : ''}`;
+  const { anularDocumento } = await orderModel();
   const anulada = await anularDocumento({ fac_nro: fac_nro_rem, fac_tip_cod: 'REM', fac_obs: obs.slice(0, 1024), usuario });
   try {
     await upsertWooPedido({
