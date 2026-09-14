@@ -66,6 +66,10 @@ VTA nueva con `fac_sec` propio; la REM queda en `F` con `REM.fac_nro_origen = VT
 
 **Probado:** #11282 (4634: 5 disponibles, 8 pedidas por REST) → REM27, ERP = Woo = −3, alerta y filtro visibles. Luego Eder registró desde la UI **AJT209 (+4 de 4634)** → en el siguiente ciclo la alerta se apagó sola ("Alerta de saldo resuelta…"), ERP = Woo = 1, y el push `AJT` salió con `usuario=EDER` (observación (a) de Fase 1 confirmada en uso real).
 
+## Incidente del primer despliegue a producción (14/sep/2026, 14:48) — corregido con hotfix `78e40a1`
+
+`update-app.bat` hizo `git pull` a `main` (`3422bf4`), `pm2 restart`, y el health check (`http://localhost:3000/`, 12 intentos × 5 s) nunca respondió → **rollback automático a la Fase 1** (`43ef515`), que volvió a responder 200. Producción no quedó afectada. Causa, reproducida en el Mac con Node 23: **ciclo ESM/CJS en el arranque**. `pedidosWebModel.js` importaba `orderModel.js` de forma estática, con lo que `orderModel` entraba al grafo ESM de `index.js` (`pedidosWebRoutes → pedidosWebController → pedidosWebModel → orderModel`); cuando el evaluador llegaba a `routes/orderRoutes.js` (CommonJS) → `require('../controllers/orderController')` → `require('../models/orderModel')`, el módulo estaba enlazado pero sin evaluar y Node ≤23 devolvía el namespace vacío: `ReferenceError: Cannot access 'getOrdenes' before initialization` → pm2 en bucle. **Node 25 (el de desarrollo) evalúa el módulo al vuelo y por eso todas las pruebas pasaron.** Fix: `orderModel` se carga con `import()` en el momento de uso (`crearRemision`, `anularRemision`), así queda fuera del grafo estático como antes de la Fase 2. Verificado arranque + endpoints con Node 20.20, 23.11 y 25.2, y el flujo REM30 crear/anular con Node 23. **Lección para el checklist de despliegue:** antes de mergear a `main`, arrancar el backend con Node 20 y 23 (`~/.nvm/versions/node/v20.20.0/bin/node -r dotenv/config index.js` con `PORT=3003`) y pedir `/`, `/api/pedidos-web/salud` y `/api/ordenes/<fac_nro>`. Pendiente: confirmar la versión exacta de Node del Windows (`node -v`).
+
 ## Hallazgos técnicos que condicionan el diseño
 
 1. **`modified_after` de la REST de Woo es exclusivo** (probado el 14/sep: con el cursor exacto no vuelven los pedidos modificados en ese mismo segundo) y muchos pedidos comparten `date_modified_gmt` (cancelaciones masivas). El solape de 5 min es obligatorio; la idempotencia por `fac_nro_woo` hace inofensivo el reproceso.
@@ -126,6 +130,14 @@ Plan entregado en el chat (flujos A–L: confirmar pago, anular, pedido desde la
 2. Merge a `develop` → `main` (regla del repo) y `update-app.bat`.
 3. `.env` de producción: `WOO_IMPORT_ENABLED=true`, `WOO_IMPORT_MODO=simulacion` durante 2–3 días; revisar `woo_pedidos` (`SELECT estado_erp, ultima_accion, error FROM woo_pedidos ORDER BY actualizado_en DESC`). **Antes de pasar a `real`: Fase 0** (registrar los pedidos de septiembre por el flujo actual, conteo físico → AJT); si no, la primera corrida real creará REM/VTA de todo el backlog contra existencias ficticias — es exactamente lo que hizo en el entorno de pruebas (el Termo 9292 quedó en −34).
 4. Pasar a `real`; retirar el bloque "Sincronización de pedidos" del Dashboard (`pretty_front/src/pages/Dashboard.jsx`) — no se tocó en esta fase para no cambiar el flujo del equipo antes de tiempo.
+
+### Qué hace y qué no hace la simulación (confirmado con Eder el 14/sep)
+
+Solo escribe `woo_pedidos` (`SIMULADO` + `ultima_accion`) y `woo_sync_cursor`. **No** toca `factura`, `facturakardes`, `nit`, `woo_sync_logs`, ni nada en Woo (ningún PUT/POST). El flujo actual del equipo sigue intacto. No hay pérdida posible de registros.
+
+### Transición simulación → real (después de la Fase 0)
+
+El cursor avanza durante la simulación, así que un pedido que entró `on-hold` en esos días y sigue `on-hold` no se relee solo. Al cambiar a `real`: cambiar `WOO_IMPORT_MODO=real`, reiniciar, y **reposicionar el cursor al inicio de la simulación** (`POST /api/pedidos-web/importar-ahora` con `{"cursor":"YYYY-MM-DDT00:00:00Z"}`). El ciclo re-evalúa todo de forma idempotente (las filas `SIMULADO` se reprocesan por diseño): lo que ya tiene VTA por COT → `FACTURADO` sin tocar nada; `on-hold` sin documento → REM; cancelados → `SIN_DOC`; COT pendiente → `REVISION` (facturarla o anularla por el flujo viejo). **Hacerlo antes de la Fase 0 convertiría el backlog en REM/VTA contra existencias ficticias** (efecto Termo −34 de pruebas).
 
 ## Rollback
 
