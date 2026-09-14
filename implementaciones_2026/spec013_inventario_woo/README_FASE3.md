@@ -5,7 +5,7 @@
 | **Spec** | `negocio_prettymakeup/specs/013-sincronizacion-inventario-erp-woocommerce.md` (Tareas 7, 6, 8 y 9) |
 | **Ramas** | `api_pretty`: `feature/spec013-fase3-reconciliacion` (desde `develop` `07fff50`) · `pretty_front`: `feature/spec013-fase3-reconciliacion` (desde `develop` `c544e90`) |
 | **Fecha** | 14 septiembre 2026 (tarde) |
-| **Estado** | **Tareas 7, 6, 8 implementadas y probadas en `PSDATA_PRUEBAS` + staging; Tarea 9.1 validada en staging.** Sin merge, sin push. Pendiente: OK de Eder → merge a `develop`/`main`; y para producción dos escrituras que requieren su OK explícito (§"Para producción"). |
+| **Estado** | **Aprobada por Eder y mergeada el 14/sep/2026 (~15:10):** `api_pretty` `develop` `f2fdd6e` → `main` `c0bdb00`; `pretty_front` `develop` `039f7c9` → `main` `78b230c`; pusheadas; front desplegado por Vercel. **Migración de Fase 3 aplicada en producción** con backup `C:\Ed\PSDATAFEB2024_20260914_pre_spec013_fase3.bak`. Arranque verificado con Node 20/23/25. Pendiente: `update-app.bat` + variables en el `.env` del Windows (§"Para producción"); Tarea 9.1/9.2 en producción esperan OK explícito. |
 
 ## Tarea 7 — Reconciliación nocturna (`jobs/reconciliarInventarioWoo.js`)
 
