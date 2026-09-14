@@ -91,7 +91,20 @@ Orden: `PSDATA_PRUEBAS` primero → producción con backup previo.
 - Sin la migración aplicada: aviso por consola y log guardado igual (origen/usuario en `config`).
 - `actualizarEstadoPedidoWoo` en modo simulado → no llama a Woo.
 
-**No probado todavía** (requiere `PSDATA_PRUEBAS` + staging de Woo): push real (`WOO_PUSH_ENABLED=true`), cola `woo_sync_pendientes` con Woo caído, flujo completo crear VTA → Woo. Ver casos 11, 12 y 15 del spec §6.
+### Pruebas reales (14/sep/2026, `PSDATA_PRUEBAS` + `pruebas.prettymakeupcol.com` refrescado el mismo día)
+
+Ejecutadas desde el Mac corriendo el código del ERP contra el entorno de pruebas (`DOTENV_CONFIG_PATH=.env.pruebas node -r dotenv/config …`; no hace falta la instancia del Windows para probar backend):
+
+| # | Caso del spec | Resultado |
+|---|---|---|
+| 1 | Push real de un artículo (Termo 2218) | Staging pasó de `stock 0 / outofstock` a `26 / instock` (existencia del ERP de pruebas) en 1.7 s; `woo_sync_logs` id 2765 con `origen=MANUAL`, `usuario=claude`, `status=SUCCESS` |
+| 12 | Woo caído durante un push (host inválido) | Retorna `ok:false` en 5 s sin lanzar; 2 artículos en `woo_sync_pendientes` con `intentos=1` y el error DNS; log id 2766 `status=ERROR` |
+| 12b | Woo vuelve → `reintentarPendientes()` | 2 enviados, cola vacía, log id 2767 `origen=PENDIENTES` |
+| 15 | Suite E2E del sitio (`npm run e2e:staging`) | 9/9 tras el refresco del staging |
+
+Producción verificada intacta después de cada prueba (`_stock` del Termo sigue en 0, valor puesto a mano por el equipo el 14/sep a las 09:20 para frenar ventas).
+
+**Pendientes de probar:** caso 11 (VTA de mostrador con REM activa — requiere la Tarea 3/4), caso 13 (índice único con reproceso — Tarea 3), variaciones (`PUT products/{padre}/variations/{id}`; hay 5 productos variables en el catálogo).
 
 ## Ambiente de pruebas — `PSDATA_PRUEBAS` (creada el 14/sep/2026)
 
@@ -101,7 +114,9 @@ Creada por Claude con autorización de Eder, desde el Mac vía T-SQL (login `sa`
 2. `RESTORE DATABASE PSDATA_PRUEBAS ... WITH MOVE` a `...\MSSQL\DATA\PSDATA_PRUEBAS.mdf` / `_0.ldf`, luego `SET RECOVERY SIMPLE` (la copia de febrero `pruebas_ps_02092026` quedó en FULL y su log ya pesa 1.6 GB).
 3. Verificado: `factura` 4968, `facturakardes` 45990, `articulos` 2173, `nit` 782, `woo_sync_logs` 1816 — idénticos a producción. Último documento: VTA2207 (7/sep). Termo 9292 (`art_sec` 2218) con existencia 26.
 
-Para la segunda instancia de `api_pretty` en el Windows (puerto 3001): copiar `.env` a `.env.pruebas` cambiando `DB_DATABASE=PSDATA_PRUEBAS`, `PORT=3001`, `WC_URL=https://pruebas.prettymakeupcol.com` y una key REST creada en ese staging (`WC_CONSUMER_KEY`/`WC_CONSUMER_SECRET`); arrancar con `pm2 start index.js --name api_pretty_pruebas` cargando ese archivo (`dotenv` lee `.env` por defecto: usar `DOTENV_CONFIG_PATH=.env.pruebas` o `node -r dotenv/config index.js dotenv_config_path=.env.pruebas`).
+**Forma más simple de probar backend: correr el ERP en el Mac contra el entorno de pruebas.** Existe `.env.pruebas` local (ignorado por git vía `.env.*`) con `PORT=3001`, `DB_DATABASE=PSDATA_PRUEBAS`, `WC_URL=https://pruebas.prettymakeupcol.com`, `WOO_PUSH_ENABLED=true` y la misma key REST de producción (funciona contra el staging porque la BD del staging es copia). Arranque: `DOTENV_CONFIG_PATH=.env.pruebas node -r dotenv/config index.js` (el preload gana sobre los `dotenv.config()` internos, que no sobrescriben variables ya definidas).
+
+Para la segunda instancia de `api_pretty` en el Windows (puerto 3001, solo necesaria cuando el frontend quiera probar contra pruebas): copiar `.env` a `.env.pruebas` cambiando `DB_DATABASE=PSDATA_PRUEBAS`, `PORT=3001`, `WC_URL=https://pruebas.prettymakeupcol.com` y una key REST creada en ese staging (`WC_CONSUMER_KEY`/`WC_CONSUMER_SECRET`); arrancar con `pm2 start index.js --name api_pretty_pruebas` cargando ese archivo (`dotenv` lee `.env` por defecto: usar `DOTENV_CONFIG_PATH=.env.pruebas` o `node -r dotenv/config index.js dotenv_config_path=.env.pruebas`).
 
 **Migración de Tarea 1 aplicada en `PSDATA_PRUEBAS` el 14/sep/2026** (8 objetos verificados; segunda ejecución idempotente OK; producción sigue sin migrar). Corrección hecha al aplicarla: `tipo_comprobantes` exige `tip_lon`/`tip_cli`/`tip_est` (NOT NULL) — la fila `REM` copia los de VTA (`6, 1, 'A'`).
 
