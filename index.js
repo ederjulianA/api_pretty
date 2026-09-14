@@ -180,4 +180,7 @@ const HOST = '0.0.0.0'; // Escuchar en todas las interfaces de red
 app.listen(PORT, HOST, () => {
   console.log(`Servidor escuchando en ${HOST}:${PORT}`);
   console.log(`Accesible desde: http://localhost:${PORT}`);
+  // Banner de entorno (SPEC-013): que nunca haya duda de contra qué BD y qué tienda corre esta instancia.
+  const esPruebas = /PRUEBAS/i.test(process.env.DB_DATABASE || '') && /pruebas\./.test(process.env.WC_URL || '');
+  console.log(`Entorno: ${esPruebas ? 'PRUEBAS' : 'PRODUCCIÓN'} · BD=${process.env.DB_DATABASE} · Woo=${process.env.WC_URL} · WOO_PUSH_ENABLED=${process.env.WOO_PUSH_ENABLED ?? 'true'}`);
 });
