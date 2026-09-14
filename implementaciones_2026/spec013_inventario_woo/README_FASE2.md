@@ -131,6 +131,14 @@ Plan entregado en el chat (flujos A–L: confirmar pago, anular, pedido desde la
 3. `.env` de producción: `WOO_IMPORT_ENABLED=true`, `WOO_IMPORT_MODO=simulacion` durante 2–3 días; revisar `woo_pedidos` (`SELECT estado_erp, ultima_accion, error FROM woo_pedidos ORDER BY actualizado_en DESC`). **Antes de pasar a `real`: Fase 0** (registrar los pedidos de septiembre por el flujo actual, conteo físico → AJT); si no, la primera corrida real creará REM/VTA de todo el backlog contra existencias ficticias — es exactamente lo que hizo en el entorno de pruebas (el Termo 9292 quedó en −34).
 4. Pasar a `real`; retirar el bloque "Sincronización de pedidos" del Dashboard (`pretty_front/src/pages/Dashboard.jsx`) — no se tocó en esta fase para no cambiar el flujo del equipo antes de tiempo.
 
+### Qué hace y qué no hace la simulación (confirmado con Eder el 14/sep)
+
+Solo escribe `woo_pedidos` (`SIMULADO` + `ultima_accion`) y `woo_sync_cursor`. **No** toca `factura`, `facturakardes`, `nit`, `woo_sync_logs`, ni nada en Woo (ningún PUT/POST). El flujo actual del equipo sigue intacto. No hay pérdida posible de registros.
+
+### Transición simulación → real (después de la Fase 0)
+
+El cursor avanza durante la simulación, así que un pedido que entró `on-hold` en esos días y sigue `on-hold` no se relee solo. Al cambiar a `real`: cambiar `WOO_IMPORT_MODO=real`, reiniciar, y **reposicionar el cursor al inicio de la simulación** (`POST /api/pedidos-web/importar-ahora` con `{"cursor":"YYYY-MM-DDT00:00:00Z"}`). El ciclo re-evalúa todo de forma idempotente (las filas `SIMULADO` se reprocesan por diseño): lo que ya tiene VTA por COT → `FACTURADO` sin tocar nada; `on-hold` sin documento → REM; cancelados → `SIN_DOC`; COT pendiente → `REVISION` (facturarla o anularla por el flujo viejo). **Hacerlo antes de la Fase 0 convertiría el backlog en REM/VTA contra existencias ficticias** (efecto Termo −34 de pruebas).
+
 ## Rollback
 
 `WOO_IMPORT_ENABLED=false` apaga el job sin tocar código. Las REM ya creadas son documentos válidos (se anulan desde la pantalla). `git revert` del commit de la fase deja la Fase 1 intacta (el punto único de push no cambió de contrato; solo `getWcApi` se movió a `wooClient.js`).
