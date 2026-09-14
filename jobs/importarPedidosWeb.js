@@ -144,8 +144,12 @@ export const decidirAccion = ({ clasificacion, docs, lineasCambiaron = false }) 
 const estadoDesdeDocs = (docs) => {
   if (docs.vta_activa) return ESTADO_ERP.FACTURADO;
   if (docs.rem_activa) return ESTADO_ERP.REM_ACTIVA;
+  if (docs.rem_anulada) return ESTADO_ERP.ANULADO; // el pedido tuvo REM y se anuló: no es "sin documento"
   return ESTADO_ERP.SIN_DOC;
 };
+
+/** REM de referencia para la fila de seguimiento: activa > facturada > anulada más reciente. */
+const remDeReferencia = (docs) => docs.rem_activa?.fac_nro || docs.rem_facturada?.fac_nro || docs.rem_anulada?.fac_nro || null;
 
 // ---------------------------------------------------------------------------
 // Procesamiento de un pedido
@@ -214,7 +218,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
       await upsertWooPedido({
         ...base,
         estado_erp: ESTADO_ERP.SIMULADO,
-        fac_nro_rem: docs.rem_activa?.fac_nro || docs.rem_facturada?.fac_nro || null,
+        fac_nro_rem: remDeReferencia(docs),
         fac_nro_vta: docs.vta_activa?.fac_nro || null,
         error: mapeo.errores.length ? mapeo.errores.join('; ') : null,
         ultima_accion: `[SIMULACIÓN] ${texto}`,
@@ -225,7 +229,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
 
     // ----- Modo real -----
     let fila = { ...base, error: null, intentos: 0 };
-    let fac_nro_rem = docs.rem_activa?.fac_nro || docs.rem_facturada?.fac_nro || null;
+    let fac_nro_rem = remDeReferencia(docs);
     let fac_nro_vta = docs.vta_activa?.fac_nro || null;
     let ultima_accion = '';
 

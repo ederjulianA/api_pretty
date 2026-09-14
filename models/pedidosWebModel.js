@@ -37,8 +37,10 @@ const diasVencimiento = () => Math.max(1, parseInt(process.env.REM_DIAS_VENCIMIE
 // Consultas
 // ---------------------------------------------------------------------------
 /**
- * Documentos vigentes del ERP para un pedido Woo, clasificados.
- * @returns {Promise<{rem_activa, rem_facturada, vta_activa, cot_activa, todos:Array}>}
+ * Documentos del ERP para un pedido Woo, clasificados. Incluye las REM anuladas ('I') para que
+ * el seguimiento conserve la referencia (una REM anulada sigue siendo "el documento" del pedido
+ * cancelado) y para que la pantalla muestre el historial completo; VTA/COT solo vigentes.
+ * @returns {Promise<{rem_activa, rem_facturada, rem_anulada, vta_activa, cot_activa, todos:Array}>}
  */
 export const obtenerDocumentosPedidoWoo = async (fac_nro_woo) => {
   const pool = await poolPromise;
@@ -49,7 +51,7 @@ export const obtenerDocumentosPedidoWoo = async (fac_nro_woo) => {
       FROM dbo.factura
       WHERE fac_nro_woo = @fac_nro_woo
         AND fac_tip_cod IN ('REM', 'VTA', 'COT')
-        AND fac_est_fac IN ('A', 'F')
+        AND (fac_est_fac IN ('A', 'F') OR (fac_tip_cod = 'REM' AND fac_est_fac = 'I'))
       ORDER BY fac_sec DESC
     `);
   const todos = rs.recordset.map((r) => ({ ...r, fac_sec: Number(r.fac_sec) }));
@@ -57,6 +59,7 @@ export const obtenerDocumentosPedidoWoo = async (fac_nro_woo) => {
   return {
     rem_activa: primero((d) => d.fac_tip_cod === 'REM' && d.fac_est_fac === 'A'),
     rem_facturada: primero((d) => d.fac_tip_cod === 'REM' && d.fac_est_fac === 'F'),
+    rem_anulada: primero((d) => d.fac_tip_cod === 'REM' && d.fac_est_fac === 'I'), // la más reciente
     vta_activa: primero((d) => d.fac_tip_cod === 'VTA' && d.fac_est_fac === 'A'),
     // COT activa SIN facturar (fac_nro_origen NULL): camino legado del Dashboard todavía en curso.
     cot_activa: primero((d) => d.fac_tip_cod === 'COT' && d.fac_est_fac === 'A' && !d.fac_nro_origen),
@@ -460,12 +463,42 @@ export const anularRemision = async ({ fac_nro_rem, motivo, usuario = 'SISTEMA',
 // ---------------------------------------------------------------------------
 // Listado para la pantalla (Tarea 8, versión mínima)
 // ---------------------------------------------------------------------------
-export const listarPedidosWeb = async ({ estado = null, desde = null, hasta = null, limite = 300 } = {}) => {
+/**
+ * Fechas de los filtros: llegan como 'YYYY-MM-DD' (input date) y se interpretan en hora de
+ * Colombia (UTC-5) porque las columnas comparadas están en GMT. `hasta` es inclusivo (día completo).
+ */
+const inicioDiaColombia = (ymd) => {
+  if (!ymd) return null;
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(ymd) ? `${ymd}T00:00:00-05:00` : ymd);
+  return isNaN(d.getTime()) ? null : d;
+};
+const finDiaColombia = (ymd) => {
+  const d = inicioDiaColombia(ymd);
+  if (!d) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) d.setTime(d.getTime() + 24 * 60 * 60 * 1000);
+  return d;
+};
+
+/**
+ * @param {object} f
+ * @param {string} [f.estado]  estado_erp exacto. Se ignora cuando se busca por número de pedido/documento.
+ * @param {string} [f.desde]   'YYYY-MM-DD' (fecha del pedido en Woo, inclusivo)
+ * @param {string} [f.hasta]   'YYYY-MM-DD' (inclusivo)
+ * @param {string} [f.pedido]  número de pedido Woo, o fac_nro de la REM/VTA (p. ej. 'REM15', 'VTA2224')
+ * @param {string} [f.cliente] texto: nombre o email de la clienta (LIKE)
+ */
+export const listarPedidosWeb = async ({ estado = null, desde = null, hasta = null, pedido = null, cliente = null, limite = 300 } = {}) => {
   const pool = await poolPromise;
+  const pedidoTxt = pedido != null && String(pedido).trim() ? String(pedido).trim().toUpperCase().replace(/^#/, '') : null;
+  const pedidoNum = pedidoTxt && /^\d+$/.test(pedidoTxt) ? Number(pedidoTxt) : null;
+  const clienteTxt = cliente != null && String(cliente).trim() ? `%${String(cliente).trim()}%` : null;
   const req = pool.request()
     .input('estado', sql.VarChar(20), estado || null)
-    .input('desde', sql.DateTime2(0), desde ? new Date(desde) : null)
-    .input('hasta', sql.DateTime2(0), hasta ? new Date(hasta) : null)
+    .input('desde', sql.DateTime2(0), inicioDiaColombia(desde))
+    .input('hasta', sql.DateTime2(0), finDiaColombia(hasta))
+    .input('pedido_num', sql.Int, pedidoNum)
+    .input('pedido_txt', sql.VarChar(15), pedidoTxt)
+    .input('cliente', sql.NVarChar(160), clienteTxt)
     .input('limite', sql.Int, Math.min(Math.max(1, Number(limite) || 300), 2000));
   const rs = await req.query(`
     SELECT TOP (@limite)
@@ -481,7 +514,9 @@ export const listarPedidosWeb = async ({ estado = null, desde = null, hasta = nu
     LEFT JOIN dbo.nit n ON n.nit_sec = r.nit_sec
     LEFT JOIN dbo.factura v ON v.fac_nro = p.fac_nro_vta AND v.fac_tip_cod = 'VTA'
     LEFT JOIN (SELECT fac_sec, SUM(kar_total) AS total_rem FROM dbo.facturakardes GROUP BY fac_sec) t ON t.fac_sec = r.fac_sec
-    WHERE (@estado IS NULL OR p.estado_erp = @estado)
+    WHERE (@pedido_txt IS NOT NULL OR @estado IS NULL OR p.estado_erp = @estado)
+      AND (@pedido_txt IS NULL OR p.woo_order_id = @pedido_num OR p.fac_nro_rem = @pedido_txt OR p.fac_nro_vta = @pedido_txt)
+      AND (@cliente IS NULL OR n.nit_nom LIKE @cliente OR p.woo_cliente LIKE @cliente OR p.woo_email LIKE @cliente)
       AND (@desde IS NULL OR ISNULL(p.woo_created_gmt, p.woo_modified_gmt) >= @desde)
       AND (@hasta IS NULL OR ISNULL(p.woo_created_gmt, p.woo_modified_gmt) <  @hasta)
     ORDER BY ISNULL(p.woo_created_gmt, p.woo_modified_gmt) DESC, p.woo_order_id DESC
