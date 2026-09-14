@@ -145,7 +145,12 @@ Backend local (`DOTENV_CONFIG_PATH=.env.pruebas node -r dotenv/config index.js`,
 | 5 | Botón "Sincronizar" del producto | `MANUAL` + usuario, sin cambio |
 | 6 | Dashboard → Sincronización de pedidos (13/sep, En espera) → #11273 como COT → finalizar a factura | −7/−7, `VTA`; pedido en staging → "Completado" (mapeo actual) |
 
-Resultados: _(pendiente de que Eder los reporte)_.
+**Resultados (14/sep/2026, 11:22–11:29, validados contra la BD y el log):** las 6 pasaron. `VTA2208` (vendió 3 + otro SKU) → 23 · anulación → 26 · `COM00080` → 31 · `AJT208` → 3 · botón → `MANUAL` EDER · `COT1933`→`VTA2209` (pedido #11273) → **−7 / −7**, pedido en staging → `completed`. Cero errores en el backend, cola de pendientes vacía, ERP = Woo tras cada paso. **Fase 1 aprobada por Eder.**
+
+Observaciones para la Fase 2 (no bloquean):
+- Los pushes `AJT` y `ANULACION` no traen `usuario` (las funciones del modelo no reciben `usu_cod`). Completar.
+- La COT que crea el importador actual deja `fac_fch_cre = NULL` → el importador nuevo debe poner `GETDATE()`, o el índice único (filtrado por esa fecha) no cubre las REM.
+- Al finalizar COT→VTA, el ERP crea una VTA nueva (`fac_sec` distinto) y guarda el vínculo en la **COT** (`COT.fac_nro_origen = 'VTA2209'`), no en la VTA; la VTA nace con `fac_est_woo = NULL`, por eso el mapeo de estado cae al default `completed`. El relevo REM→VTA debe seguir esa convención y además copiar `fac_est_woo`.
 
 ## Verificación tras desplegar
 
