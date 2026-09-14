@@ -56,6 +56,8 @@ import promocionRoutes from './routes/promocionRoutes.js';
 import diagnosticRoutes from './routes/diagnosticRoutes.js';
 import eventoPromocionalRoutes from './routes/eventoPromocionalRoutes.js';
 import variableProductRoutes from './routes/variableProductRoutes.js';
+import pedidosWebRoutes from './routes/pedidosWebRoutes.js';
+import { iniciarImportadorPedidosWeb, config as configImportador } from './jobs/importarPedidosWeb.js';
 
 // Middleware
 
@@ -169,6 +171,7 @@ app.use("/api/reportes", rentabilidadRoutes);
 app.use("/api/dashboard/ventas", ventasKpiRoutes);
 app.use("/api/auditoria/facturas", auditiaFacturasRoutes);
 app.use("/api/cierre-mes", cierreMesRoutes);
+app.use("/api/pedidos-web", pedidosWebRoutes); // SPEC-013 Fase 2: remisiones web
 // app.use("/api", aiRoutes); // Comentado temporalmente - archivos no en repo
 app.get("/", (req, res) => {
   res.send("API Working");
@@ -183,4 +186,9 @@ app.listen(PORT, HOST, () => {
   // Banner de entorno (SPEC-013): que nunca haya duda de contra qué BD y qué tienda corre esta instancia.
   const esPruebas = /PRUEBAS/i.test(process.env.DB_DATABASE || '') && /pruebas\./.test(process.env.WC_URL || '');
   console.log(`Entorno: ${esPruebas ? 'PRUEBAS' : 'PRODUCCIÓN'} · BD=${process.env.DB_DATABASE} · Woo=${process.env.WC_URL} · WOO_PUSH_ENABLED=${process.env.WOO_PUSH_ENABLED ?? 'true'}`);
+  const imp = configImportador();
+  console.log(`Importador de pedidos web (SPEC-013): ${imp.enabled ? `ACTIVO · modo=${imp.modo} · cada ${imp.intervaloSeg}s` : 'apagado (WOO_IMPORT_ENABLED≠true)'}`);
+  // El ERP no tiene scheduler: el importador vive dentro del proceso de la API (pm2 fork, un solo proceso).
+  // Arranca después de app.listen para que el health check del despliegue no dependa de él.
+  iniciarImportadorPedidosWeb();
 });

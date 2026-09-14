@@ -708,7 +708,11 @@ const _createCompleteOrderInternal = async ({
   fac_nro_woo,
   fac_obs,
   fac_fec, // Nuevo parámetro opcional
-  fac_descuento_general // Nuevo parámetro opcional para descuento general
+  fac_descuento_general, // Nuevo parámetro opcional para descuento general
+  // SPEC-013 Fase 2 (remisiones web): el importador crea la REM con el estado y el total del
+  // pedido Woo ya conocidos. Opcionales: el resto de caminos (POS, COT→VTA) no los mandan.
+  fac_est_woo = null,
+  fac_total_woo = null
 }) => {
   let transaction;
   try {
@@ -738,6 +742,23 @@ const _createCompleteOrderInternal = async ({
 
       if (validationResult.recordset[0].existe > 0) {
         throw new Error(`Ya existe una factura de venta activa con el número de WooCommerce: ${fac_nro_woo}`);
+      }
+    }
+
+    // Remisión web (SPEC-013): una sola REM vigente (activa o ya facturada) por pedido Woo.
+    // El índice UX_factura_woo_vigente lo garantiza en BD; esta validación da un error legible.
+    if (fac_tip_cod === 'REM') {
+      if (!fac_nro_woo) throw new Error('Una remisión web (REM) requiere fac_nro_woo');
+      const remRes = await new sql.Request(transaction)
+        .input('fac_nro_woo', sql.VarChar(16), String(fac_nro_woo))
+        .query(`
+          SELECT TOP 1 fac_nro, fac_est_fac
+          FROM dbo.factura
+          WHERE fac_nro_woo = @fac_nro_woo AND fac_tip_cod = 'REM' AND fac_est_fac IN ('A','F')
+        `);
+      if (remRes.recordset.length > 0) {
+        const r = remRes.recordset[0];
+        throw new Error(`Ya existe la remisión ${r.fac_nro} (${r.fac_est_fac === 'A' ? 'activa' : 'facturada'}) para el pedido Woo ${fac_nro_woo}`);
       }
     }
 
@@ -785,9 +806,9 @@ const _createCompleteOrderInternal = async ({
     // 4. Insertar el encabezado en la tabla factura
     const insertHeaderQuery = `
       INSERT INTO dbo.factura 
-        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs, fac_est_woo, fac_descuento_general)
+        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs, fac_est_woo, fac_descuento_general, fac_total_woo)
       VALUES
-        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs, @fac_est_woo, @fac_descuento_general);
+        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs, @fac_est_woo, @fac_descuento_general, @fac_total_woo);
     `;
     await request.input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
       .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
@@ -797,8 +818,9 @@ const _createCompleteOrderInternal = async ({
       .input('fac_obs', sql.VarChar, fac_obs)
       .input('fac_usu_cod_cre', sql.VarChar(100), fac_usu_cod_cre)
       .input('fac_fec', sql.Date, fac_fec || new Date()) // Usa la fecha proporcionada o la fecha actual
-      .input('fac_est_woo', sql.VarChar(50), null) // Inicializar como null para nuevos pedidos
+      .input('fac_est_woo', sql.VarChar(50), fac_est_woo ?? null) // null salvo que lo mande el importador (REM)
       .input('fac_descuento_general', sql.Decimal(17, 2), fac_descuento_general || 0) // Usar el valor proporcionado o 0 por defecto
+      .input('fac_total_woo', sql.Decimal(17, 2), fac_total_woo != null && Number(fac_total_woo) > 0 ? Number(fac_total_woo) : null)
       .query(insertHeaderQuery);
 
     // 4.5 Obtener costos promedio de todos los artículos en una sola query
@@ -1053,14 +1075,19 @@ const _createCompleteOrderInternal = async ({
   }
 };
 
-const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
+/**
+ * Anula un documento (cabecera → 'I'). vwExistencias filtra fac_est_fac='A', así que con eso
+ * todas sus líneas salen del cálculo de existencias de una vez.
+ * @param {string} [usuario] usu_cod de quien anula: queda en fac_usu_cod_mod y en el log del push (SPEC-013 Fase 2).
+ */
+const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs, usuario = null }) => {
   let transaction;
   try {
     const pool = await poolPromise;
     const headerRes = await pool.request()
       .input('fac_nro', sql.VarChar(15), fac_nro)
       .query(`
-        SELECT fac_sec, fac_nro_woo, fac_fec, fac_est_woo 
+        SELECT fac_sec, fac_nro_woo, fac_fec, fac_est_woo, fac_est_fac, fac_tip_cod AS tipo_real
         FROM dbo.factura 
         WHERE fac_nro = @fac_nro
       `);
@@ -1069,32 +1096,46 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
       throw new Error("Documento no encontrado.");
     }
 
-    const { fac_sec, fac_nro_woo, fac_fec, fac_est_woo } = headerRes.recordset[0];
+    const { fac_sec, fac_nro_woo, fac_fec, fac_est_woo, fac_est_fac, tipo_real } = headerRes.recordset[0];
+    if (fac_est_fac !== 'A') {
+      throw new Error(`El documento ${fac_nro} no está activo (estado ${fac_est_fac}); no se puede anular.`);
+    }
     
     console.log(`[ANULAR_DOCUMENTO] Estado actual del documento ${fac_nro}:`, {
-      currentStatus: fac_est_woo
+      currentStatus: fac_est_woo, tipo: tipo_real, usuario
     });
 
     transaction = new sql.Transaction(pool);
     await transaction.begin();
 
+    // fac_anu_obs / fac_anu_fec / fac_usu_cod_mod: columnas de auditoría de anulación que el
+    // cierre de mes ya pobla (cierreMesModel.anularCotizacion); aquí no se escribían.
     const updateHeaderQuery = `
       UPDATE dbo.factura
       SET fac_est_fac = 'I',
           fac_obs = @fac_obs,
-          fac_est_woo = @fac_est_woo
-      WHERE fac_sec = @fac_sec
+          fac_est_woo = @fac_est_woo,
+          fac_anu_obs = @fac_obs,
+          fac_anu_fec = GETDATE(),
+          fac_usu_cod_mod = COALESCE(@usuario, fac_usu_cod_mod),
+          fac_fch_mod = GETDATE()
+      WHERE fac_sec = @fac_sec AND fac_est_fac = 'A'
     `;
 
     const updateHeaderRequest = new sql.Request(transaction);
-    await updateHeaderRequest
+    const upd = await updateHeaderRequest
       .input('fac_obs', sql.VarChar, fac_obs)
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
       .input('fac_est_woo', sql.VarChar(50), fac_est_woo) // Mantener el estado actual sin normalizar
+      .input('usuario', sql.VarChar(100), usuario)
       .query(updateHeaderQuery);
+    if (upd.rowsAffected[0] === 0) {
+      throw new Error(`El documento ${fac_nro} ya no estaba activo (anulación concurrente).`);
+    }
 
     let detalles = [];
-    if (fac_tip_cod === 'VTA' || fac_tip_cod === 'AJT') {
+    // Documentos que mueven kardex: al anularlos hay que empujar la existencia a Woo.
+    if (fac_tip_cod === 'VTA' || fac_tip_cod === 'AJT' || fac_tip_cod === 'REM') {
       const detallesRequest = new sql.Request(transaction);
       const detallesResult = await detallesRequest
         .input('fac_sec', sql.Decimal(18, 0), fac_sec)
@@ -1123,8 +1164,9 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
     if (detalles.length > 0) {
       await sincronizarExistenciasWoo({
         art_secs: detalles.map((d) => d.art_sec),
-        origen: 'ANULACION',
-        referencia: fac_nro
+        origen: fac_tip_cod === 'REM' ? 'REM_ANULADA' : 'ANULACION',
+        referencia: fac_nro,
+        usuario
       });
     }
 

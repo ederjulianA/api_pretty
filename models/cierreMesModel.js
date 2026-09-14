@@ -140,6 +140,8 @@ const obtenerPedidosPeriodo = async (anio, mes) => {
       SELECT
         f.fac_sec,
         f.fac_nro,
+        f.fac_tip_cod,
+        f.fac_est_fac,
         f.fac_nro_woo,
         n.nit_nom,
         f.fac_fec,
@@ -152,13 +154,16 @@ const obtenerPedidosPeriodo = async (anio, mes) => {
         SELECT fk.fac_sec, SUM(fk.kar_total) AS total
         FROM dbo.facturakardes fk
         INNER JOIN dbo.factura f2 ON f2.fac_sec = fk.fac_sec
-        WHERE f2.fac_tip_cod = 'COT'
+        WHERE f2.fac_tip_cod IN ('COT', 'REM')
           AND f2.fac_fec >= @fec_ini
           AND f2.fac_fec <  @fec_fin
         GROUP BY fk.fac_sec
       ) t ON t.fac_sec = f.fac_sec
-      WHERE f.fac_tip_cod = 'COT'
-        AND f.fac_est_fac = 'A'
+      -- SPEC-013: las remisiones web (REM) son el nuevo documento de pedido web. Una REM
+      -- facturada queda en 'F' (no 'A' como la COT), por eso se admiten ambos estados;
+      -- fac_nro_origen sigue siendo la marca de "ya facturado" en los dos tipos.
+      WHERE f.fac_tip_cod IN ('COT', 'REM')
+        AND f.fac_est_fac IN ('A', 'F')
         AND f.fac_nro_woo IS NOT NULL
         AND f.fac_nro_woo <> ''
         AND f.fac_fec >= @fec_ini
@@ -169,6 +174,8 @@ const obtenerPedidosPeriodo = async (anio, mes) => {
   return result.recordset.map(r => ({
     fac_sec: Number(r.fac_sec),
     fac_nro: r.fac_nro,
+    fac_tip_cod: r.fac_tip_cod,   // 'COT' (legado) o 'REM' (SPEC-013)
+    fac_est_fac: r.fac_est_fac,
     fac_nro_woo: r.fac_nro_woo,
     nit_nom: r.nit_nom,
     fac_fec: r.fac_fec,
@@ -210,12 +217,12 @@ const obtenerCotizacionesPendientes = async (anio, mes) => {
         SELECT fk.fac_sec, SUM(fk.kar_total) AS total
         FROM dbo.facturakardes fk
         INNER JOIN dbo.factura f2 ON f2.fac_sec = fk.fac_sec
-        WHERE f2.fac_tip_cod = 'COT'
+        WHERE f2.fac_tip_cod IN ('COT', 'REM')
           AND f2.fac_fec >= @fec_ini
           AND f2.fac_fec <  @fec_fin
         GROUP BY fk.fac_sec
       ) t ON t.fac_sec = f.fac_sec
-      WHERE f.fac_tip_cod = 'COT'
+      WHERE f.fac_tip_cod IN ('COT', 'REM')   -- SPEC-013: REM activa sin facturar = pedido web pendiente
         AND f.fac_est_fac = 'A'
         AND f.fac_nro_origen IS NULL
         AND f.fac_fec >= @fec_ini
@@ -654,7 +661,7 @@ const actualizarEstadoPedido = async ({ fac_sec, estadoNormalizado, anularVenta,
         SET fac_est_woo     = @fac_est_woo,
             fac_usu_cod_mod = @usu_cod,
             fac_fch_mod     = GETDATE()
-        WHERE fac_sec = @fac_sec AND fac_tip_cod = 'COT'
+        WHERE fac_sec = @fac_sec AND fac_tip_cod IN ('COT', 'REM')
       `);
 
     if (actualizado.rowsAffected[0] === 0) {
