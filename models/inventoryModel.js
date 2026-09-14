@@ -1,5 +1,5 @@
 import { sql, poolPromise } from "../db.js";
-import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
+import { sincronizarExistenciasWoo } from "../services/wooStockService.js";
 import { obtenerCostosPromedioMultiples } from "../utils/costoUtils.js";
 import { ejecutarConAutoRecuperacion } from "../utils/secuenciaUtils.js";
 
@@ -122,24 +122,12 @@ const _createInventoryAdjustmentInternal = async ({
 
     await transaction.commit();
 
-    // Actualizar el stock en WooCommerce solo si hay menos de 90 items
-    if (detalles.length < 90) {
-      try {
-        console.log("Actualizando WooCommerce con parámetros:", {
-          detalles: detalles.length,
-          fac_fec,
-          fac_nro: FinalFacNro,
-          actualiza_fecha
-        });
-        const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, FinalFacNro, actualiza_fecha);
-        console.log("WooCommerce stock update result:", wooResult);
-      } catch (wooError) {
-        console.error("Error updating WooCommerce stock:", wooError);
-        // No lanzamos el error para no afectar la transacción principal
-      }
-    } else {
-      console.log("Skipping WooCommerce update due to large number of items (>90)");
-    }
+    // Stock en WooCommerce (post-commit, punto único). Ya no se manda date_created al producto.
+    await sincronizarExistenciasWoo({
+      art_secs: detalles.map((d) => d.art_sec),
+      origen: 'AJT',
+      referencia: FinalFacNro
+    });
 
     return {
       fac_sec: NewFacSec,
@@ -260,24 +248,12 @@ const updateInventoryAdjustment = async ({
 
     await transaction.commit();
 
-    // Actualizar el stock en WooCommerce solo si hay menos de 90 items
-    if (detalles.length < 90) {
-      try {
-        console.log("Actualizando WooCommerce con parámetros:", {
-          detalles: detalles.length,
-          fac_fec,
-          fac_nro,
-          actualiza_fecha
-        });
-        const wooResult = await updateWooOrderStatusAndStock(null, detalles, fac_fec, fac_nro, actualiza_fecha);
-        console.log("WooCommerce stock update result:", wooResult);
-      } catch (wooError) {
-        console.error("Error updating WooCommerce stock:", wooError);
-        // No lanzamos el error para no afectar la transacción principal
-      }
-    } else {
-      console.log("Skipping WooCommerce update due to large number of items (>90)");
-    }
+    // Stock en WooCommerce (post-commit, punto único). Ya no se manda date_created al producto.
+    await sincronizarExistenciasWoo({
+      art_secs: detalles.map((d) => d.art_sec),
+      origen: 'AJT',
+      referencia: fac_nro
+    });
 
     return {
       fac_sec,
