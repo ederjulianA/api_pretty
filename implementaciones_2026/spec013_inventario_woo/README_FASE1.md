@@ -5,7 +5,7 @@
 | **Spec** | `negocio_prettymakeup/specs/013-sincronizacion-inventario-erp-woocommerce.md` (Tareas 1 y 2) |
 | **Rama** | `feature/spec013-fase1-push-unico` (desde `develop`) |
 | **Fecha** | 14 septiembre 2026 |
-| **Estado** | Código listo y probado en modo simulado contra la BD real. `PSDATA_PRUEBAS` creada el 14/sep/2026 (ver sección). **Pendiente:** aplicar la migración en `PSDATA_PRUEBAS`, levantar la instancia 3001, probar push real, pasar a `develop`. |
+| **Estado** | **Aprobada y en despliegue (14/sep/2026).** Probada en `PSDATA_PRUEBAS` + staging (pruebas reales y 6 manuales de Eder). Migración de Tarea 1 aplicada en **producción** (`PSDATAFEB2024`) el 14/sep 11:37 con backup previo `C:\Ed\PSDATAFEB2024_20260914_pre_spec013_fase1.bak` (COPY_ONLY, verificado). Código en `develop` y `main`; el deploy en el Windows (`update-app.bat`) lo ejecuta Eder. |
 
 ## Qué cambia
 
@@ -59,7 +59,7 @@ Idempotente. Crea: fuente 6 / tipo `REM`, índice único `UX_factura_woo_vigente
 
 **El servicio funciona sin la migración** (detecta si `woo_sync_logs.origen` existe; si no, guarda origen/usuario dentro de `config` y avisa por consola), pero `woo_sync_pendientes` sí es necesaria para la cola de reintentos — sin ella, un push fallido solo queda en el log.
 
-Orden: `PSDATA_PRUEBAS` primero → producción con backup previo.
+Orden: `PSDATA_PRUEBAS` primero → producción con backup previo. **Hecho en ambas el 14/sep/2026** (`aplicar-migracion.js`, segunda ejecución idempotente OK en las dos).
 
 ### Índice único filtrado por fecha — por qué
 
