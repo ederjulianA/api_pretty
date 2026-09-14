@@ -35,8 +35,8 @@ Toda transición que mueve kardex termina en un push al punto único de la Fase 
 | `controllers/orderController.js` | Pasa `req.user?.usu_cod` a `anularDocumento`. |
 | `controllers/syncWooOrdersController.js` | La COT del importador manual ya escribe `fac_fch_cre = GETDATE()` (observación (b)). |
 | `models/cierreMesModel.js`, `controllers/cierreMesController.js` | Cierre de mes reconoce REM: pedidos del periodo y pendientes incluyen `REM` (`A` o `F`); facturar/anular en bloque y estado masivo enrutan una REM activa a `facturarRemision`/`anularRemision`. |
-| `sql/2026-09-14_spec013_fase2_woo_pedidos.sql` | Columnas nuevas en `woo_pedidos`: `woo_created_gmt`, `woo_cliente`, `woo_email`, `ultima_accion`. Idempotente. **Aplicada solo en `PSDATA_PRUEBAS`.** |
-| `pretty_front/src/pages/PedidosWeb.jsx` (+ ruta `/pedidos-web` y menú) | Pantalla mínima: filtros por estado con conteos, tabla, salud del job, "Importar ahora", "Confirmar pago", "Anular", detalle de documentos. Permiso: módulo `orders` o rol Administrador. |
+| `sql/2026-09-14_spec013_fase2_woo_pedidos.sql` | Columnas nuevas en `woo_pedidos`: `woo_created_gmt`, `woo_cliente`, `woo_email`, `ultima_accion`, `alerta`. Idempotente. **Aplicada solo en `PSDATA_PRUEBAS`.** |
+| `pretty_front/src/pages/PedidosWeb.jsx` (+ ruta `/pedidos-web` en `App.jsx` y menú) | Pantalla mínima: búsqueda por nº de pedido/documento, clienta y rango de fechas; filtros por estado con conteos (+ "Stock insuficiente"); tabla; salud del job; "Importar ahora", "Confirmar pago", "Anular"; detalle de documentos (incluye REM anuladas). Permiso: módulo `orders` o rol Administrador. |
 
 ### Convención del relevo REM → VTA (observación (c) de Fase 1)
 
@@ -55,6 +55,10 @@ VTA nueva con `fac_sec` propio; la REM queda en `F` con `REM.fac_nro_origen = VT
 | `REM_DIAS_VENCIMIENTO` | `5` | Días para `woo_pedidos.vence_el` (la Tarea 6 lo consumirá; hoy solo se muestra). |
 
 `.env.pruebas` (local) ya tiene `WOO_IMPORT_ENABLED=true`, `WOO_IMPORT_MODO=real`. Producción arrancará en `simulacion` (spec §7 fase 2).
+
+## Saldo insuficiente al crear la REM (spec §4.6) — decisión confirmada con Eder el 14/sep
+
+La REM **se crea igual, con todas sus líneas** (la venta ya ocurrió en la web), `vwExistencias` queda negativa y el push manda ese negativo a Woo (producto "agotado" en la tienda). Lo que se añadió es la **alerta**: `woo_pedidos.alerta` ("Stock insuficiente en N artículos: 4634 (pedidas 8, existencia −3)…"), aviso `WARN` en el log, badge rojo en la fila y chip "⚠ Stock insuficiente" con conteo en la pantalla. La REM sigue operable (confirmar/anular); no pasa a `REVISION` porque eso es para decisiones que el sistema no puede tomar. La alerta se limpia al anular la REM (el stock volvió) y se recalcula al reemplazarla. En modo simulación se anticipa (existencia actual − pedido). Probado con #11282 (4634: 5 disponibles, 8 pedidas → REM27, ERP = Woo = −3, alerta visible). Nota: desde la tienda Woo no deja vender más del stock (sin backorders); el caso aparece cuando el ERP y Woo ya venían descuadrados o por ventas de mostrador simultáneas.
 
 ## Hallazgos técnicos que condicionan el diseño
 

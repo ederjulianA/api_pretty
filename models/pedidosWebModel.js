@@ -108,6 +108,7 @@ export const upsertWooPedido = async (p) => {
     ['vence_el', sql.DateTime2(0), p.vence_el],
     ['error', sql.NVarChar(1000), p.error != null ? String(p.error).slice(0, 1000) : p.error],
     ['ultima_accion', sql.NVarChar(1000), p.ultima_accion != null ? String(p.ultima_accion).slice(0, 1000) : p.ultima_accion],
+    ['alerta', sql.NVarChar(500), p.alerta != null ? String(p.alerta).slice(0, 500) : p.alerta],
     ['intentos', sql.Int, p.intentos]
   ].filter(([, , v]) => v !== undefined);
 
@@ -213,6 +214,63 @@ export const obtenerCursor = async (nombre = NOMBRE_CURSOR_IMPORTADOR) => {
 };
 
 // ---------------------------------------------------------------------------
+// Alerta de inventario insuficiente (spec §4.6)
+// ---------------------------------------------------------------------------
+/**
+ * Artículos de un documento cuya existencia quedó negativa después de crearlo. La REM se crea
+ * igual (la venta ya ocurrió en la web); esto solo marca el pedido para revisión humana.
+ * @returns {Promise<Array<{art_sec, art_cod, art_nom, kar_uni, existencia}>>}
+ */
+export const articulosSinSaldoDeDocumento = async (fac_nro) => {
+  const pool = await poolPromise;
+  const rs = await pool.request()
+    .input('fac_nro', sql.VarChar(15), fac_nro)
+    .query(`
+      SELECT k.art_sec, a.art_cod, a.art_nom, SUM(k.kar_uni) AS kar_uni, ISNULL(e.existencia, 0) AS existencia
+      FROM dbo.facturakardes k
+      INNER JOIN dbo.factura f ON f.fac_sec = k.fac_sec
+      INNER JOIN dbo.articulos a ON a.art_sec = k.art_sec
+      LEFT JOIN dbo.vwExistencias e ON e.art_sec = k.art_sec
+      WHERE f.fac_nro = @fac_nro
+        AND k.kar_nat = '-'
+        AND ISNULL(a.art_bundle, 'N') <> 'S'          -- el bundle padre no tiene stock propio; cuentan sus componentes
+      GROUP BY k.art_sec, a.art_cod, a.art_nom, e.existencia
+      HAVING ISNULL(e.existencia, 0) < 0
+      ORDER BY e.existencia
+    `);
+  return rs.recordset.map((r) => ({ ...r, art_sec: String(r.art_sec), kar_uni: Number(r.kar_uni), existencia: Number(r.existencia) }));
+};
+
+/**
+ * Versión "qué pasaría" para el modo simulación: existencia actual − cantidad pedida por línea
+ * (sin expandir bundles). Devuelve las líneas que quedarían en negativo.
+ */
+export const evaluarSaldoParaLineas = async (detalles) => {
+  const lista = (detalles || []).filter((d) => d.art_sec);
+  if (lista.length === 0) return [];
+  const pool = await poolPromise;
+  const req = pool.request();
+  const params = lista.map((d, i) => { req.input(`a${i}`, sql.VarChar(30), String(d.art_sec)); return `@a${i}`; });
+  const rs = await req.query(`SELECT a.art_sec, a.art_cod, ISNULL(e.existencia, 0) AS existencia FROM dbo.articulos a LEFT JOIN dbo.vwExistencias e ON e.art_sec = a.art_sec WHERE a.art_sec IN (${params.join(',')})`);
+  const ex = new Map(rs.recordset.map((r) => [String(r.art_sec), { art_cod: r.art_cod, existencia: Number(r.existencia) }]));
+  const out = [];
+  for (const d of lista) {
+    const e = ex.get(String(d.art_sec));
+    if (!e) continue;
+    const resultante = e.existencia - Number(d.kar_uni);
+    if (resultante < 0) out.push({ art_sec: String(d.art_sec), art_cod: e.art_cod, kar_uni: Number(d.kar_uni), existencia: e.existencia, resultante });
+  }
+  return out;
+};
+
+/** Texto corto para woo_pedidos.alerta / la pantalla. */
+export const textoAlertaSaldo = (faltantes) => {
+  if (!faltantes || faltantes.length === 0) return null;
+  const partes = faltantes.map((f) => `${f.art_cod} (pedidas ${f.kar_uni}, existencia ${f.resultante ?? f.existencia})`);
+  return `Stock insuficiente en ${faltantes.length} artículo${faltantes.length === 1 ? '' : 's'}: ${partes.join('; ')}`.slice(0, 500);
+};
+
+// ---------------------------------------------------------------------------
 // REM: crear
 // ---------------------------------------------------------------------------
 /**
@@ -248,7 +306,11 @@ export const crearRemision = async ({ mapeo, nit_sec, usuario = 'SISTEMA' }) => 
 
   // Post-commit. Se resuelve por documento para incluir componentes de bundles ya expandidos.
   const push = await sincronizarDocumentoWoo({ fac_nro: creada.fac_nro, origen: 'REM_CREADA', usuario });
-  return { ...creada, push };
+  // Alerta de inventario: la REM ya está creada y el negativo ya se empujó a Woo (producto agotado en la
+  // tienda, que es lo correcto); aquí solo se deja constancia para que una persona lo revise.
+  let sinSaldo = [];
+  try { sinSaldo = await articulosSinSaldoDeDocumento(creada.fac_nro); } catch (e) { console.error('[PEDIDOS_WEB] no se pudo evaluar el saldo de', creada.fac_nro, e.message); }
+  return { ...creada, push, sinSaldo, alerta: textoAlertaSaldo(sinSaldo) };
 };
 
 // ---------------------------------------------------------------------------
@@ -452,6 +514,7 @@ export const anularRemision = async ({ fac_nro_rem, motivo, usuario = 'SISTEMA',
       fac_nro_rem,
       vence_el: null,
       error: null,
+      alerta: null, // al anular, el stock volvió: la alerta de saldo ya no aplica
       ultima_accion: `REM anulada por ${usuario}: ${motivo || 'sin motivo'}${notificarWoo ? ' (pedido Woo → cancelled)' : ''}`
     });
   } catch (e) {
@@ -487,7 +550,7 @@ const finDiaColombia = (ymd) => {
  * @param {string} [f.pedido]  número de pedido Woo, o fac_nro de la REM/VTA (p. ej. 'REM15', 'VTA2224')
  * @param {string} [f.cliente] texto: nombre o email de la clienta (LIKE)
  */
-export const listarPedidosWeb = async ({ estado = null, desde = null, hasta = null, pedido = null, cliente = null, limite = 300 } = {}) => {
+export const listarPedidosWeb = async ({ estado = null, desde = null, hasta = null, pedido = null, cliente = null, alerta = false, limite = 300 } = {}) => {
   const pool = await poolPromise;
   const pedidoTxt = pedido != null && String(pedido).trim() ? String(pedido).trim().toUpperCase().replace(/^#/, '') : null;
   const pedidoNum = pedidoTxt && /^\d+$/.test(pedidoTxt) ? Number(pedidoTxt) : null;
@@ -499,11 +562,12 @@ export const listarPedidosWeb = async ({ estado = null, desde = null, hasta = nu
     .input('pedido_num', sql.Int, pedidoNum)
     .input('pedido_txt', sql.VarChar(15), pedidoTxt)
     .input('cliente', sql.NVarChar(160), clienteTxt)
+    .input('solo_alerta', sql.Bit, alerta ? 1 : 0)
     .input('limite', sql.Int, Math.min(Math.max(1, Number(limite) || 300), 2000));
   const rs = await req.query(`
     SELECT TOP (@limite)
       p.woo_order_id, p.woo_status, p.woo_created_gmt, p.woo_modified_gmt, p.woo_total, p.woo_payment_method,
-      p.woo_cliente, p.woo_email, p.fac_nro_rem, p.fac_nro_vta, p.estado_erp, p.vence_el, p.error, p.ultima_accion,
+      p.woo_cliente, p.woo_email, p.fac_nro_rem, p.fac_nro_vta, p.estado_erp, p.vence_el, p.error, p.ultima_accion, p.alerta,
       p.intentos, p.actualizado_en,
       r.fac_fec AS rem_fec, r.fac_est_fac AS rem_est, r.fac_usu_cod_cre AS rem_usuario,
       ISNULL(n.nit_nom, p.woo_cliente) AS cliente, n.nit_ide,
@@ -517,6 +581,7 @@ export const listarPedidosWeb = async ({ estado = null, desde = null, hasta = nu
     WHERE (@pedido_txt IS NOT NULL OR @estado IS NULL OR p.estado_erp = @estado)
       AND (@pedido_txt IS NULL OR p.woo_order_id = @pedido_num OR p.fac_nro_rem = @pedido_txt OR p.fac_nro_vta = @pedido_txt)
       AND (@cliente IS NULL OR n.nit_nom LIKE @cliente OR p.woo_cliente LIKE @cliente OR p.woo_email LIKE @cliente)
+      AND (@solo_alerta = 0 OR p.alerta IS NOT NULL)
       AND (@desde IS NULL OR ISNULL(p.woo_created_gmt, p.woo_modified_gmt) >= @desde)
       AND (@hasta IS NULL OR ISNULL(p.woo_created_gmt, p.woo_modified_gmt) <  @hasta)
     ORDER BY ISNULL(p.woo_created_gmt, p.woo_modified_gmt) DESC, p.woo_order_id DESC
@@ -529,11 +594,15 @@ export const contarPedidosWebPorEstado = async () => {
   const pool = await poolPromise;
   const rs = await pool.request().query(`
     SELECT estado_erp, COUNT(*) AS n,
-           SUM(CASE WHEN estado_erp = 'REM_ACTIVA' AND vence_el IS NOT NULL AND vence_el <= DATEADD(HOUR, 24, SYSUTCDATETIME()) THEN 1 ELSE 0 END) AS por_vencer
+           SUM(CASE WHEN estado_erp = 'REM_ACTIVA' AND vence_el IS NOT NULL AND vence_el <= DATEADD(HOUR, 24, SYSUTCDATETIME()) THEN 1 ELSE 0 END) AS por_vencer,
+           SUM(CASE WHEN alerta IS NOT NULL THEN 1 ELSE 0 END) AS con_alerta
     FROM dbo.woo_pedidos GROUP BY estado_erp
   `);
-  const out = {};
-  for (const r of rs.recordset) out[r.estado_erp] = { n: r.n, por_vencer: r.por_vencer };
+  const out = { _alerta: { n: 0 } };
+  for (const r of rs.recordset) {
+    out[r.estado_erp] = { n: r.n, por_vencer: r.por_vencer, con_alerta: r.con_alerta };
+    out._alerta.n += r.con_alerta;
+  }
   return out;
 };
 

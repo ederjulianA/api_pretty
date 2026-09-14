@@ -28,10 +28,17 @@ IF COL_LENGTH('dbo.woo_pedidos', 'woo_email') IS NULL
 IF COL_LENGTH('dbo.woo_pedidos', 'ultima_accion') IS NULL
     ALTER TABLE dbo.woo_pedidos ADD ultima_accion NVARCHAR(1000) NULL;
 
+/* Alerta de inventario (spec §4.6): la REM se crea aunque no haya saldo suficiente —la venta ya
+   ocurrió— pero queda marcada para que una persona lo revise. Distinto de `error`: no es un
+   fallo transitorio ni se reintenta. NULL = sin alerta. */
+IF COL_LENGTH('dbo.woo_pedidos', 'alerta') IS NULL
+    ALTER TABLE dbo.woo_pedidos ADD alerta NVARCHAR(500) NULL;
+
 COMMIT TRANSACTION;
 
 /* ---------- Verificación ---------- */
 SELECT 'woo_pedidos.woo_created_gmt' AS objeto, CASE WHEN COL_LENGTH('dbo.woo_pedidos','woo_created_gmt') IS NULL THEN 0 ELSE 1 END AS ok
 UNION ALL SELECT 'woo_pedidos.woo_cliente',     CASE WHEN COL_LENGTH('dbo.woo_pedidos','woo_cliente') IS NULL THEN 0 ELSE 1 END
 UNION ALL SELECT 'woo_pedidos.woo_email',       CASE WHEN COL_LENGTH('dbo.woo_pedidos','woo_email') IS NULL THEN 0 ELSE 1 END
-UNION ALL SELECT 'woo_pedidos.ultima_accion',   CASE WHEN COL_LENGTH('dbo.woo_pedidos','ultima_accion') IS NULL THEN 0 ELSE 1 END;
+UNION ALL SELECT 'woo_pedidos.ultima_accion',   CASE WHEN COL_LENGTH('dbo.woo_pedidos','ultima_accion') IS NULL THEN 0 ELSE 1 END
+UNION ALL SELECT 'woo_pedidos.alerta',          CASE WHEN COL_LENGTH('dbo.woo_pedidos','alerta') IS NULL THEN 0 ELSE 1 END;

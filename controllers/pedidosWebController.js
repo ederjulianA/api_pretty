@@ -12,9 +12,9 @@ const usuarioDe = (req) => req.user?.usu_cod || 'SISTEMA';
 /** GET /api/pedidos-web?estado=&desde=&hasta=&pedido=&cliente=&limite= */
 export const listar = async (req, res) => {
   try {
-    const { estado, desde, hasta, pedido, cliente, limite } = req.query;
+    const { estado, desde, hasta, pedido, cliente, alerta, limite } = req.query;
     const [pedidos, conteos, salud] = await Promise.all([
-      listarPedidosWeb({ estado: estado || null, desde: desde || null, hasta: hasta || null, pedido: pedido || null, cliente: cliente || null, limite: limite || 300 }),
+      listarPedidosWeb({ estado: estado || null, desde: desde || null, hasta: hasta || null, pedido: pedido || null, cliente: cliente || null, alerta: alerta === '1' || alerta === 'true', limite: limite || 300 }),
       contarPedidosWebPorEstado(),
       estadoImportador()
     ]);

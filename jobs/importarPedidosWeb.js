@@ -34,7 +34,8 @@ import {
   ESTADO_ERP, NOMBRE_CURSOR_IMPORTADOR,
   obtenerDocumentosPedidoWoo, obtenerLineasDocumento, upsertWooPedido, obtenerWooPedido,
   tomarLockCursor, renovarLockCursor, liberarLockCursor, avanzarCursor, obtenerCursor,
-  crearRemision, facturarRemision, anularRemision, calcularVencimiento
+  crearRemision, facturarRemision, anularRemision, calcularVencimiento,
+  evaluarSaldoParaLineas, textoAlertaSaldo
 } from '../models/pedidosWebModel.js';
 import { poolPromise, sql } from '../db.js';
 
@@ -205,6 +206,10 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
     if (cfg.modo === 'simulacion') {
       const cliente = mapeo.cliente.nuevo ? `cliente NUEVO (${mapeo.cliente.email})` : `cliente nit_sec=${mapeo.cliente.nit_sec}`;
       const lineas = mapeo.detalles.length ? ` líneas [${descripcionLineas(mapeo)}]` : '';
+      let alertaSim = null;
+      if (requiereMapeo) {
+        try { alertaSim = textoAlertaSaldo(await evaluarSaldoParaLineas(mapeo.detalles)); } catch (e) { /* solo informativo */ }
+      }
       const texto = {
         NADA: `Sin acción: ${plan.motivo}`,
         CREAR_REM: `Habría creado REM (${cliente};${lineas}; lista ${mapeo.lis_pre_cod}; total Woo ${mapeo.total_woo}) y empujado stock (REM_CREADA)`,
@@ -221,7 +226,8 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
         fac_nro_rem: remDeReferencia(docs),
         fac_nro_vta: docs.vta_activa?.fac_nro || null,
         error: mapeo.errores.length ? mapeo.errores.join('; ') : null,
-        ultima_accion: `[SIMULACIÓN] ${texto}`,
+        alerta: requiereMapeo ? alertaSim : undefined,
+        ultima_accion: `[SIMULACIÓN] ${texto}${alertaSim ? ` — ⚠ ${alertaSim}` : ''}`,
         intentos: 0
       });
       return { ok: true, accion: plan.accion, detalle: texto, simulado: true };
@@ -237,6 +243,10 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
       const { nit_sec } = await resolverNitSec(mapeo.cliente, { crear: true });
       const rem = await crearRemision({ mapeo, nit_sec, usuario: cfg.usuario });
       fac_nro_rem = rem.fac_nro;
+      // Alerta de inventario (spec §4.6): la REM ya existe y Woo ya recibió el negativo; se deja
+      // la marca para revisión humana. null limpia una alerta anterior (p. ej. REM reemplazada).
+      fila.alerta = rem.alerta || null;
+      if (rem.alerta) log('WARN', `#${mapeo.fac_nro_woo} ${rem.fac_nro}: ${rem.alerta}`);
       return rem;
     };
 
@@ -250,7 +260,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
         const rem = await crear();
         fila.estado_erp = ESTADO_ERP.REM_ACTIVA;
         fila.vence_el = calcularVencimiento();
-        ultima_accion = `REM ${rem.fac_nro} creada (${descripcionLineas(mapeo)}); push ${rem.push?.ok ? 'OK' : 'con pendientes'}`;
+        ultima_accion = `REM ${rem.fac_nro} creada (${descripcionLineas(mapeo)}); push ${rem.push?.ok ? 'OK' : 'con pendientes'}${rem.alerta ? ' — ⚠ stock insuficiente' : ''}`;
         break;
       }
 
@@ -260,7 +270,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
         fac_nro_vta = vta.fac_nro_vta;
         fila.estado_erp = ESTADO_ERP.FACTURADO;
         fila.vence_el = null;
-        ultima_accion = `REM ${rem.fac_nro} creada y facturada en ${vta.fac_nro_vta} (pago ya confirmado en Woo: ${mapeo.estado_woo})`;
+        ultima_accion = `REM ${rem.fac_nro} creada y facturada en ${vta.fac_nro_vta} (pago ya confirmado en Woo: ${mapeo.estado_woo})${rem.alerta ? ' — ⚠ stock insuficiente' : ''}`;
         break;
       }
 
@@ -279,6 +289,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
         await anularRemision({ fac_nro_rem: docs.rem_activa.fac_nro, motivo: `Pedido web #${mapeo.fac_nro_woo} ${mapeo.estado_woo} en Woo`, usuario: cfg.usuario, notificarWoo: false });
         fila.estado_erp = ESTADO_ERP.ANULADO;
         fila.vence_el = null;
+        fila.alerta = null; // el stock volvió
         ultima_accion = `REM ${docs.rem_activa.fac_nro} anulada: pedido ${mapeo.estado_woo} en Woo`;
         break;
       }
