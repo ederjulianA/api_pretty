@@ -126,7 +126,8 @@ const _createInventoryAdjustmentInternal = async ({
     await sincronizarExistenciasWoo({
       art_secs: detalles.map((d) => d.art_sec),
       origen: 'AJT',
-      referencia: FinalFacNro
+      referencia: FinalFacNro,
+      usuario: fac_usu_cod_cre || null
     });
 
     return {
@@ -152,7 +153,8 @@ const updateInventoryAdjustment = async ({
   detalles,
   fac_fec,
   fac_obs,
-  actualiza_fecha
+  actualiza_fecha,
+  usuario = null // usu_cod de quien edita: solo para el log del push a Woo (SPEC-013)
 }) => {
   let transaction;
   try {
@@ -252,7 +254,8 @@ const updateInventoryAdjustment = async ({
     await sincronizarExistenciasWoo({
       art_secs: detalles.map((d) => d.art_sec),
       origen: 'AJT',
-      referencia: fac_nro
+      referencia: fac_nro,
+      usuario
     });
 
     return {

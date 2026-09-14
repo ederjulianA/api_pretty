@@ -11,6 +11,8 @@ const cierreMesModel = require('../models/cierreMesModel');
 const { obtenerPorcentajesComision } = require('../utils/comisionUtils');
 // orderModel es ESM; se consume via require igual que en orderController.
 const { createCompleteOrder, getOrder } = require('../models/orderModel');
+// SPEC-013: las remisiones web (REM) se facturan/anulan por relevo, no por el camino COT→VTA.
+const { facturarRemision, anularRemision } = require('../models/pedidosWebModel');
 const { validarBundles, validarExistenciasVTA } = require('./orderController');
 const { sincronizarDocumentoWoo } = require('../services/wooStockService');
 
@@ -370,10 +372,22 @@ const estadoMasivoEndpoint = async (req, res) => {
 
         // fac_est_woo vive en la COT: aplicarlo sobre una VTA no tendria efecto
         // en la grilla de pedidos y dejaria el dato en el documento equivocado.
-        if (cot.fac_tip_cod !== 'COT') {
-          return { ...base, mensaje: `${cot.fac_nro} no es una cotizacion (${cot.fac_tip_cod})` };
+        if (cot.fac_tip_cod !== 'COT' && cot.fac_tip_cod !== 'REM') {
+          return { ...base, mensaje: `${cot.fac_nro} no es una cotizacion ni una remision web (${cot.fac_tip_cod})` };
         }
-        if (cot.fac_est_fac !== 'A') {
+        // SPEC-013: una REM activa (sin facturar) se resuelve con el flujo de remisiones:
+        // confirmar = relevo a VTA (+ pedido Woo a processing), no pagado = anular REM (+ Woo cancelled).
+        // Una REM ya facturada ('F') sigue el camino de la COT facturada (abajo): cambia fac_est_woo
+        // y, si aplica, anula la VTA que tiene estampada en fac_nro_origen.
+        if (cot.fac_tip_cod === 'REM' && cot.fac_est_fac === 'A') {
+          if (anulaVenta) {
+            const r = await anularRemision({ fac_nro_rem: cot.fac_nro, motivo: motivoAnulacion, usuario: usu_cod, notificarWoo: true });
+            return { ...base, ok: true, local: true, woo: !!r.estadoWoo?.ok, mensaje: `Remision ${cot.fac_nro} anulada y pedido Woo cancelado` };
+          }
+          const r = await facturarRemision({ fac_nro_rem: cot.fac_nro, usuario: usu_cod, notificarWoo: true });
+          return { ...base, ok: true, local: true, woo: !!r.estadoWoo?.ok, mensaje: r.ya_facturada ? `${cot.fac_nro} ya estaba facturada en ${r.fac_nro_vta}` : `Remision ${cot.fac_nro} facturada en ${r.fac_nro_vta}; pedido Woo a processing` };
+        }
+        if (cot.fac_est_fac !== 'A' && !(cot.fac_tip_cod === 'REM' && cot.fac_est_fac === 'F')) {
           return { ...base, mensaje: `El documento ${cot.fac_nro} esta anulado` };
         }
 
@@ -507,6 +521,14 @@ const facturarBloqueEndpoint = async (req, res) => {
 
         base.fac_nro = cot.fac_nro;
 
+        // SPEC-013: una remision web se factura por relevo (REM → 'F', VTA con las mismas lineas).
+        if (cot.fac_tip_cod === 'REM') {
+          const r = await facturarRemision({ fac_nro_rem: cot.fac_nro, usuario: usu_cod, notificarWoo: true });
+          resultados.push(r.ya_facturada
+            ? { ...base, mensaje: `La remision ${cot.fac_nro} ya fue facturada (${r.fac_nro_vta})` }
+            : { ...base, ok: true, fac_nro_generado: r.fac_nro_vta, fac_sec_generado: Number(r.fac_sec_vta) });
+          continue;
+        }
         if (cot.fac_tip_cod !== 'COT') {
           resultados.push({ ...base, mensaje: `${cot.fac_nro} no es una cotizacion (${cot.fac_tip_cod})` });
           continue;
@@ -587,6 +609,14 @@ const anularBloqueEndpoint = async (req, res) => {
 
         base.fac_nro = cot.fac_nro;
 
+        // SPEC-013: anular una remision web devuelve el stock y cancela el pedido en Woo.
+        if (cot.fac_tip_cod === 'REM') {
+          const r = await anularRemision({ fac_nro_rem: cot.fac_nro, motivo: observacion, usuario: usu_cod, notificarWoo: true });
+          resultados.push(r.ya_anulada
+            ? { ...base, mensaje: `La remision ${cot.fac_nro} ya estaba anulada` }
+            : { ...base, ok: true, mensaje: 'Remision anulada y pedido Woo cancelado' });
+          continue;
+        }
         if (cot.fac_tip_cod !== 'COT') {
           resultados.push({ ...base, mensaje: `${cot.fac_nro} no es una cotizacion (${cot.fac_tip_cod})` });
           continue;

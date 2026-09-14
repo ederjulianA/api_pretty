@@ -21,8 +21,7 @@
  */
 require('dotenv').config();
 const { poolPromise, sql } = require('../db');
-const wcPkg = require('@woocommerce/woocommerce-rest-api');
-const WooCommerceRestApi = wcPkg.default || wcPkg;
+const { getWcApi: getWcApiCompartido } = require('./wooClient');
 
 // ---------------------------------------------------------------------------
 // Configuración
@@ -46,22 +45,8 @@ const log = (nivel, mensaje, datos) => {
   else console.log(linea);
 };
 
-let wcApi = null;
-const getWcApi = () => {
-  if (wcApi) return wcApi;
-  if (!process.env.WC_URL || !process.env.WC_CONSUMER_KEY || !process.env.WC_CONSUMER_SECRET) {
-    throw new Error('Faltan variables de entorno de WooCommerce (WC_URL, WC_CONSUMER_KEY, WC_CONSUMER_SECRET)');
-  }
-  wcApi = new WooCommerceRestApi({
-    url: process.env.WC_URL,
-    consumerKey: process.env.WC_CONSUMER_KEY,
-    consumerSecret: process.env.WC_CONSUMER_SECRET,
-    version: 'wc/v3',
-    timeout: config().timeoutMs,
-    axiosConfig: { headers: { 'Content-Type': 'application/json' } }
-  });
-  return wcApi;
-};
+// Cliente REST compartido con el importador de pedidos (services/wooClient.js).
+const getWcApi = () => getWcApiCompartido({ timeoutMs: config().timeoutMs });
 
 // ---------------------------------------------------------------------------
 // Utilidades

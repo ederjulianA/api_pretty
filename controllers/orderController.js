@@ -213,7 +213,10 @@ const anularDocumentoEndpoint = async (req, res) => {
     const result = await anularDocumento({
       fac_nro,
       fac_tip_cod,
-      fac_obs
+      fac_obs,
+      // Queda en fac_usu_cod_mod y en woo_sync_logs.usuario (SPEC-013). Es null mientras
+      // la ruta no exija token (SEC-11).
+      usuario: req.user?.usu_cod || null
     });
 
     return res.json({
