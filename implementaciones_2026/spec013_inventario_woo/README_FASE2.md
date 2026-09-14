@@ -5,7 +5,7 @@
 | **Spec** | `negocio_prettymakeup/specs/013-sincronizacion-inventario-erp-woocommerce.md` (Tareas 3, 4, 5 + versión mínima de la 8) |
 | **Ramas** | `api_pretty`: `feature/spec013-fase2-importador` (desde `develop`) · `pretty_front`: `feature/spec013-fase2-pedidos-web` (desde `develop`) |
 | **Fecha** | 14 septiembre 2026 |
-| **Estado** | **Implementada y probada en `PSDATA_PRUEBAS` + `pruebas.prettymakeupcol.com`** (casos 1–9, 11, 13 y 15 del spec §6). Sin merge, sin push, nada en producción. Pendiente: pruebas de Eder desde la pantalla "Pedidos web" y su OK. |
+| **Estado** | **Implementada y probada en `PSDATA_PRUEBAS` + `pruebas.prettymakeupcol.com`** (casos 1–9, 11, 13 y 15 del spec §6). Sin merge, sin push, nada en producción. Commits `api_pretty`: `028d162` → `33da498` → `a79963c` → `b989c5f` → `6ac1825`; `pretty_front`: `ed668ce` → `829d53e` → `588ca86` → `5bf2071` → `6467915` → `a9c970f`. Eder empezó las pruebas desde la pantalla el 14/sep en la tarde (ver §"Pruebas de Eder"); pendiente su OK para merge. |
 
 ## Qué hace
 
@@ -56,9 +56,15 @@ VTA nueva con `fac_sec` propio; la REM queda en `F` con `REM.fac_nro_origen = VT
 
 `.env.pruebas` (local) ya tiene `WOO_IMPORT_ENABLED=true`, `WOO_IMPORT_MODO=real`. Producción arrancará en `simulacion` (spec §7 fase 2).
 
-## Saldo insuficiente al crear la REM (spec §4.6) — decisión confirmada con Eder el 14/sep
+## Saldo insuficiente al crear la REM (spec §4.6) — "deber ser" acordado con Eder el 14/sep
 
-La REM **se crea igual, con todas sus líneas** (la venta ya ocurrió en la web), `vwExistencias` queda negativa y el push manda ese negativo a Woo (producto "agotado" en la tienda). Lo que se añadió es la **alerta**: `woo_pedidos.alerta` ("Stock insuficiente en N artículos: 4634 (pedidas 8, existencia −3)…"), aviso `WARN` en el log, badge rojo en la fila y chip "⚠ Stock insuficiente" con conteo en la pantalla. La REM sigue operable (confirmar/anular); no pasa a `REVISION` porque eso es para decisiones que el sistema no puede tomar. La alerta se limpia al anular la REM (el stock volvió) y se recalcula al reemplazarla. En modo simulación se anticipa (existencia actual − pedido). Probado con #11282 (4634: 5 disponibles, 8 pedidas → REM27, ERP = Woo = −3, alerta visible). Nota: desde la tienda Woo no deja vender más del stock (sin backorders); el caso aparece cuando el ERP y Woo ya venían descuadrados o por ventas de mostrador simultáneas.
+**Sistema:** la REM **se crea igual, con todas sus líneas** (la venta ya ocurrió en la web; bloquearla escondería el problema), `vwExistencias` queda negativa y el push manda ese negativo a Woo (producto "agotado" en la tienda, que frena más ventas). Se marca `woo_pedidos.alerta` ("Stock insuficiente en N artículos: 4634 (pedidas 8, existencia −3)…"), sale `WARN` en el log, y la pantalla muestra badge rojo + chip "⚠ Stock insuficiente" con conteo. La REM sigue operable (confirmar/anular): no pasa a `REVISION`, que es para decisiones que el sistema no puede tomar. **La alerta es un estado vivo:** cada ciclo re-evalúa las REM activas y las filas con alerta (`revisarAlertasSaldo`) — si entra la compra/ajuste que faltaba se apaga sola; si una venta de mostrador deja sin saldo una REM creada con stock, aparece. Se limpia al anular la REM; se recalcula al reemplazarla; en simulación se anticipa (existencia − pedido). "Confirmar pago" con alerta no se bloquea (el pago es un hecho contable; si ya pagó por ePayco el job factura solo) pero la pantalla obliga a leer la advertencia ("Facturar de todas formas").
+
+**Persona (procedimiento):** antes de despachar, el filtro "⚠ Stock insuficiente" debe estar vacío. Por fila: (1) contar físicamente; (2) si el producto **sí está**, registrar la entrada que faltaba (compra o ajuste `+` con motivo real) — la alerta se apaga sola; (3) si **no está**, hablar con la clienta y ejecutar la decisión **en wp-admin** (menos cantidad / otro producto → el job reemplaza la REM; cancelar → el job anula y devuelve stock) y ajustar el cobro; (4) si ya pagó y espera reposición, la alerta queda como deuda de producto hasta que entre la compra. **No hacer:** tocar stock en Woo a mano ni "Sincronizar" para forzar el número (P1), anular la REM sin hablar con la clienta, ajustar inventario sin conteo físico (así se llegó al caso 9292).
+
+**Por qué aparece:** desde la tienda Woo no deja vender más del stock (sin backorders), así que una REM negativa siempre significa que el ERP tenía menos de lo que Woo mostraba: descuadre previo, venta de mostrador simultánea (ventana ≤60 s) o entrada no registrada en el ERP. Lo que la alerta **no** ve: ERP dice que hay y físicamente no (solo el conteo). Pendiente para la Tarea 7: reportar existencias negativas **sin pedido web asociado**.
+
+**Probado:** #11282 (4634: 5 disponibles, 8 pedidas por REST) → REM27, ERP = Woo = −3, alerta y filtro visibles. Luego Eder registró desde la UI **AJT209 (+4 de 4634)** → en el siguiente ciclo la alerta se apagó sola ("Alerta de saldo resuelta…"), ERP = Woo = 1, y el push `AJT` salió con `usuario=EDER` (observación (a) de Fase 1 confirmada en uso real).
 
 ## Hallazgos técnicos que condicionan el diseño
 
@@ -95,12 +101,24 @@ Después **modo real** (cursor al 1/sep): 45 leídos, 19 REM creadas, 14 de ella
 
 **Pendientes de probar:** caso 10 (vencimiento — Tarea 6, no implementada), caso 12 con el job (Woo caído a mitad de ciclo; el push ya lo cubrió en Fase 1), caso 14 (reconciliación — Tarea 7), pedidos con **bundles** (no hubo ninguno en septiembre; el código los expande vía `expandirBundles` como el POS).
 
+## Ajustes posteriores a la primera entrega (misma tarde del 14/sep, a pedido de Eder)
+
+- **Ruta 404:** la pantalla se registró primero en `src/routes/AppRoutes.jsx`, que **nadie importa**; las rutas reales están en `src/App.jsx` (`829d53e`).
+- **Búsqueda** por nº de pedido Woo o documento (`11270`, `#11270`, `REM15`, `vta2224`; ignora el filtro de estado), clienta (nombre/email, LIKE) y rango de fechas inclusivo en hora de Colombia (`33da498`, `588ca86`). Se recuerda en `localStorage`.
+- **REM anulada conserva su referencia:** al reprocesar un pedido cancelado el job solo veía documentos vigentes y dejaba la fila en `SIN_DOC` sin REM; `obtenerDocumentosPedidoWoo` incluye ahora las REM en `I` (`rem_anulada`) → estado `ANULADO` con la REM más reciente (`33da498`). Los pedidos #11278–#11280 se recompusieron solos vía reintento por id.
+- **Alerta de saldo** (sección anterior): `a79963c`, `5bf2071`, `6ac1825`, `a9c970f`.
+- **Popup de documentos:** código y nombre del artículo (JOIN `articulos`), etiqueta de promo por línea, unidades, **total del documento**, descuento general y total pagado en Woo (incluye envío) (`b989c5f`, `6467915`).
+
+## Pruebas de Eder desde la pantalla (14/sep, tarde — en curso)
+
+Plan entregado en el chat (flujos A–L: confirmar pago, anular, pedido desde la tienda, pago confirmado en Woo, cancelado en Woo, edición en wp-admin, pedido que nace pagado, pendiente de pago, Importar ahora, POS con REM activa, cierre de mes, otras pantallas). Evidencia de que ya empezó: #11281 (FACTURADO, REM26) y AJT209 aparecieron desde la UI. Criterio: ERP = Woo tras cada flujo (`ver-pushes.js <sku…>`), wp-admin del staging con el estado esperado, filtro "Con error" vacío.
+
 ## Estado del entorno de pruebas al cerrar la sesión
 
 - Backend con este código corriendo en el Mac en `:3001` (`DOTENV_CONFIG_PATH=.env.pruebas node -r dotenv/config index.js`, importador **activo en modo real**, 60 s); `pretty_front` en `:5174` apunta ahí. Pantalla: `http://localhost:5174/pedidos-web`.
-- REM activas para probar desde la pantalla: `REM9` (#11256, Annerys Lucena, 9292+4702), `REM15` (#11270, Jessica Correa, 4 SKU), `REM20` (#11253, Felipe Valcárcel, 9292×2).
-- Pedidos de prueba creados en el staging: #11276–#11280 (clientas "Prueba SPEC013"). El producto de prueba `11275` se borró.
-- `woo_pedidos` en `PSDATA_PRUEBAS` tiene 50 filas (2 `REVISION` reales, 18+ `FACTURADO`, 3 `REM_ACTIVA`, resto `SIN_DOC`/`ANULADO`).
+- REM activas al escribir esto: `REM9` (#11256, Annerys Lucena, 9292+4702), `REM15` (#11270, Jessica Correa, 4 SKU), `REM20` (#11253, Felipe Valcárcel, 9292×2), `REM27` (#11282, "CasoSaldo Prueba SPEC013", 4634×8, alerta ya resuelta). Eder puede haber cambiado esto desde la pantalla.
+- Pedidos de prueba creados en el staging por Claude: #11276–#11280 y #11282 (clientas "Prueba SPEC013"). El producto de prueba `11275` se borró. Documentos de prueba en `PSDATA_PRUEBAS`: REM1…REM27, VTA2210…VTA2227 (usuario `SISTEMA`/`claude`), AJT209 (Eder).
+- `woo_pedidos` en `PSDATA_PRUEBAS`: ~52 filas (2 `REVISION` reales, ~20 `FACTURADO`, REM activas, resto `SIN_DOC`/`ANULADO`).
 
 ## Para producción (cuando Eder dé el OK) — spec §7
 
