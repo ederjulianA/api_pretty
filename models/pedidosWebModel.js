@@ -47,7 +47,8 @@ export const obtenerDocumentosPedidoWoo = async (fac_nro_woo) => {
   const rs = await pool.request()
     .input('fac_nro_woo', sql.VarChar(15), String(fac_nro_woo))
     .query(`
-      SELECT fac_sec, fac_nro, fac_tip_cod, fac_est_fac, fac_est_woo, fac_nro_origen, fac_fec, fac_fch_cre, nit_sec
+      SELECT fac_sec, fac_nro, fac_tip_cod, fac_est_fac, fac_est_woo, fac_nro_origen, fac_fec, fac_fch_cre, nit_sec,
+             fac_total_woo, fac_descuento_general, fac_usu_cod_cre, fac_obs
       FROM dbo.factura
       WHERE fac_nro_woo = @fac_nro_woo
         AND fac_tip_cod IN ('REM', 'VTA', 'COT')
@@ -67,16 +68,18 @@ export const obtenerDocumentosPedidoWoo = async (fac_nro_woo) => {
   };
 };
 
-/** Líneas de un documento (todas, con marca de componente de bundle). */
+/** Líneas de un documento (todas, con marca de componente de bundle) con código y nombre del artículo. */
 export const obtenerLineasDocumento = async (fac_sec) => {
   const pool = await poolPromise;
   const rs = await pool.request()
     .input('fac_sec', sql.Decimal(18, 0), fac_sec)
     .query(`
-      SELECT kar_sec, art_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_bundle_padre
-      FROM dbo.facturakardes
-      WHERE fac_sec = @fac_sec
-      ORDER BY kar_sec
+      SELECT k.kar_sec, k.art_sec, a.art_cod, a.art_nom, k.kar_uni, k.kar_nat, k.kar_pre_pub, k.kar_total, k.kar_bundle_padre,
+             k.kar_tiene_oferta, k.kar_codigo_promocion
+      FROM dbo.facturakardes k
+      LEFT JOIN dbo.articulos a ON a.art_sec = k.art_sec
+      WHERE k.fac_sec = @fac_sec
+      ORDER BY k.kar_sec
     `);
   return rs.recordset.map((r) => ({ ...r, art_sec: String(r.art_sec) }));
 };

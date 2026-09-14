@@ -40,7 +40,12 @@ export const documentos = async (req, res) => {
     const docs = await obtenerDocumentosPedidoWoo(req.params.woo_order_id);
     const conLineas = [];
     for (const d of docs.todos) {
-      conLineas.push({ ...d, lineas: await obtenerLineasDocumento(d.fac_sec) });
+      const lineas = await obtenerLineasDocumento(d.fac_sec);
+      // Total del documento = suma de líneas (los componentes de bundle van en 0; el cupón ya está en kar_total).
+      // El descuento general (fee_lines de Woo) se informa aparte, como hace getOrder.
+      const total_lineas = lineas.reduce((s, l) => s + (Number(l.kar_total) || 0), 0);
+      const unidades = lineas.filter((l) => !l.kar_bundle_padre).reduce((s, l) => s + (Number(l.kar_uni) || 0), 0);
+      conLineas.push({ ...d, lineas, total_lineas, unidades, descuento_general: Number(d.fac_descuento_general) || 0, total_woo: d.fac_total_woo != null ? Number(d.fac_total_woo) : null });
     }
     res.json({ success: true, documentos: conLineas });
   } catch (error) {
