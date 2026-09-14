@@ -1,7 +1,7 @@
 // models/orderModel.js
 
 import { sql, poolPromise } from "../db.js";
-import { updateWooOrderStatusAndStock } from "../jobs/updateWooOrderStatusAndStock.js";
+import { sincronizarExistenciasWoo, actualizarEstadoPedidoWoo, determinarEstadoWooAlFacturar } from "../services/wooStockService.js";
 import { obtenerCostosPromedioMultiples } from "../utils/costoUtils.js";
 import { ejecutarConAutoRecuperacion } from "../utils/secuenciaUtils.js";
 
@@ -56,6 +56,36 @@ const getCurrentOrderStatus = async (fac_nro) => {
  * segunda pasada se omiten líneas cuyo art_sec ya fue añadido como componente de un bundle.
  * Referencia: implementaciones_2026/articulos_bundle/
  */
+/**
+ * SPEC-013 Tarea 2 — después de confirmar una VTA (commit ya hecho):
+ *  1. empuja la existencia actual de sus artículos a WooCommerce (punto único),
+ *  2. si la VTA viene de un pedido web, actualiza el estado del pedido en Woo
+ *     con el mismo mapeo que usaba el job anterior (sin cambio de comportamiento en Fase 1).
+ * Nunca lanza: la transacción del ERP ya quedó firme.
+ */
+const postCommitVentaWoo = async ({ detalles, fac_nro, fac_nro_woo, origen = 'VTA', usuario = null }) => {
+  const art_secs = (detalles || []).map((d) => d.art_sec).filter(Boolean);
+  const resultado = { push: null, estadoWoo: null };
+  try {
+    resultado.push = await sincronizarExistenciasWoo({ art_secs, origen, referencia: fac_nro, usuario });
+  } catch (e) {
+    console.error(`[WOO] push tras ${fac_nro} falló:`, e.message);
+  }
+  if (fac_nro_woo) {
+    try {
+      const pool = await poolPromise;
+      const rs = await pool.request()
+        .input('fac_nro_woo', sql.VarChar(15), String(fac_nro_woo))
+        .query('SELECT TOP 1 fac_est_woo FROM dbo.factura WHERE fac_nro_woo = @fac_nro_woo ORDER BY fac_fch_cre DESC');
+      const actual = rs.recordset.length ? rs.recordset[0].fac_est_woo : null;
+      resultado.estadoWoo = await actualizarEstadoPedidoWoo(fac_nro_woo, determinarEstadoWooAlFacturar(actual));
+    } catch (e) {
+      console.error(`[WOO] estado del pedido ${fac_nro_woo} no actualizado:`, e.message);
+    }
+  }
+  return resultado;
+};
+
 const expandirBundles = async (pool, detalles, fac_tip_cod = null) => {
   /** art_sec que ya se añadieron como componentes de un bundle (evita duplicar al pasar COT→VTA) */
   const componentesYaAnadidos = new Set();
@@ -450,33 +480,9 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 
     await transaction.commit();
 
-    // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
-    if (fac_tip_cod === 'VTA' && detalles.length < 90) {
-      try {
-        // Procesar en lotes más pequeños para Vercel
-        const BATCH_SIZE = 10; // Reducir el tamaño del lote para Vercel
-        const batches = [];
-        
-        for (let i = 0; i < detalles.length; i += BATCH_SIZE) {
-          batches.push(detalles.slice(i, i + BATCH_SIZE));
-        }
-
-        // Procesar cada lote secuencialmente
-        for (const batch of batches) {
-          await updateWooOrderStatusAndStock(
-            fac_nro_woo,
-            batch,
-            fac_fec,
-            fac_nro,
-            'N'
-          );
-        }
-      } catch (error) {
-        console.error("Error updating WooCommerce:", error);
-        // No lanzamos el error para no afectar la transacción principal
-      }
-    } else if (fac_tip_cod === 'VTA' && detalles.length >= 90) {
-      console.log("Skipping WooCommerce update due to large number of items (>90)");
+    // Si se confirma como factura (fac_tip_cod = 'VTA'): stock + estado del pedido en WooCommerce (post-commit, punto único)
+    if (fac_tip_cod === 'VTA') {
+      await postCommitVentaWoo({ detalles, fac_nro, fac_nro_woo, origen: 'VTA' });
     }
 
     return { message: "Pedido actualizado exitosamente." };
@@ -1029,33 +1035,9 @@ const _createCompleteOrderInternal = async ({
 
     await transaction.commit();
 
-    // Si se confirma como factura (fac_tip_cod = 'VTA'), actualizar el estado y el inventario en WooCommerce
-    if (fac_tip_cod === 'VTA' && detalles.length < 90) {
-      try {
-        // Procesar en lotes más pequeños para Vercel
-        const BATCH_SIZE = 10; // Reducir el tamaño del lote para Vercel
-        const batches = [];
-        
-        for (let i = 0; i < detalles.length; i += BATCH_SIZE) {
-          batches.push(detalles.slice(i, i + BATCH_SIZE));
-        }
-
-        // Procesar cada lote secuencialmente
-        for (const batch of batches) {
-          await updateWooOrderStatusAndStock(
-            fac_nro_woo,
-            batch,
-            fac_fec,
-            FinalFacNro,  // Usar FinalFacNro en lugar de fac_nro
-            'N'
-          );
-        }
-      } catch (error) {
-        console.error("Error updating WooCommerce:", error);
-        // No lanzamos el error para no afectar la transacción principal
-      }
-    } else if (fac_tip_cod === 'VTA' && detalles.length >= 90) {
-      console.log("Skipping WooCommerce update due to large number of items (>90)");
+    // Si se confirma como factura (fac_tip_cod = 'VTA'): stock + estado del pedido en WooCommerce (post-commit, punto único)
+    if (fac_tip_cod === 'VTA') {
+      await postCommitVentaWoo({ detalles, fac_nro: FinalFacNro, fac_nro_woo, origen: 'VTA', usuario: fac_usu_cod_cre });
     }
 
     return { fac_sec: NewFacSec, fac_nro: FinalFacNro };
@@ -1136,14 +1118,14 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs }) => {
 
     await transaction.commit();
 
-    if (detalles.length > 0 && detalles.length < 90) {
-      try {
-        await updateWooOrderStatusAndStock(fac_nro_woo, detalles, fac_fec, fac_nro,'N');
-      } catch (wooError) {
-        console.error('Error al actualizar WooCommerce:', wooError.message);
-      }
-    } else if (detalles.length >= 90) {
-      console.log("Skipping WooCommerce update due to large number of items (>90)");
+    // Solo stock (punto único). El estado del pedido en Woo NO se toca al anular: el camino anterior
+    // reutilizaba el mapeo de facturación y, para on-hold, mandaba 'completed' (specs/013 §5, Tarea 2).
+    if (detalles.length > 0) {
+      await sincronizarExistenciasWoo({
+        art_secs: detalles.map((d) => d.art_sec),
+        origen: 'ANULACION',
+        referencia: fac_nro
+      });
     }
 
     return {

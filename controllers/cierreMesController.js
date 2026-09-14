@@ -12,7 +12,7 @@ const { obtenerPorcentajesComision } = require('../utils/comisionUtils');
 // orderModel es ESM; se consume via require igual que en orderController.
 const { createCompleteOrder, getOrder } = require('../models/orderModel');
 const { validarBundles, validarExistenciasVTA } = require('./orderController');
-const { syncDocumentStockToWoo } = require('../utils/wooStockSync');
+const { sincronizarDocumentoWoo } = require('../services/wooStockService');
 
 const wcApi = new WooCommerceRestApi({
   url: process.env.WC_URL,
@@ -396,11 +396,7 @@ const estadoMasivoEndpoint = async (req, res) => {
         // local ya subio. Se empuja a WooCommerce el valor absoluto resultante.
         // Es best-effort: no debe tumbar una operacion que ya quedo firme.
         if (cambio.vta_anulada) {
-          try {
-            await syncDocumentStockToWoo(cambio.vta_anulada, { silent: true });
-          } catch (stockError) {
-            console.error(`[CIERRE_MES_ESTADO_MASIVO] Stock de ${cambio.vta_anulada} no sincronizado:`, stockError.message);
-          }
+          await sincronizarDocumentoWoo({ fac_nro: cambio.vta_anulada, origen: 'CIERRE_MES', usuario: usu_cod });
         }
 
         if (!cot.fac_nro_woo) {
