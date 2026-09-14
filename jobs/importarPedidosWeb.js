@@ -536,6 +536,7 @@ export const estadoImportador = async () => {
     enabled: cfg.enabled,
     modo: cfg.modo,
     intervaloSeg: cfg.intervaloSeg,
+    wc_url: (process.env.WC_URL || '').replace(/\/+$/, ''), // para enlazar el pedido en wp-admin desde la pantalla
     corriendo: timer !== null,
     enCurso,
     cursor_gmt: cursor?.cursor_gmt || null,
