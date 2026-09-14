@@ -60,6 +60,7 @@ import pedidosWebRoutes from './routes/pedidosWebRoutes.js';
 import reconciliacionRoutes from './routes/reconciliacionRoutes.js';
 import { iniciarImportadorPedidosWeb, config as configImportador } from './jobs/importarPedidosWeb.js';
 import { iniciarReconciliacionNocturna, config as configReconciliacion } from './jobs/reconciliarInventarioWoo.js';
+import { iniciarVencimientoRemisiones, config as configVencimiento } from './jobs/vencerRemisiones.js';
 
 // Middleware
 
@@ -197,4 +198,7 @@ app.listen(PORT, HOST, () => {
   const rec = configReconciliacion();
   console.log(`Reconciliación nocturna (SPEC-013): ${rec.enabled ? `ACTIVA · ${rec.hora} · autocorregir=${rec.autocorregir}` : 'apagada (WOO_RECONCILIACION_ENABLED≠true)'}`);
   iniciarReconciliacionNocturna();
+  const ven = configVencimiento();
+  console.log(`Vencimiento de remisiones (SPEC-013): ${ven.enabled ? `ACTIVO · cada ${ven.intervaloMin} min · ${ven.dias} días` : 'apagado (WOO_VENCIMIENTO_ENABLED≠true)'}`);
+  iniciarVencimientoRemisiones();
 });

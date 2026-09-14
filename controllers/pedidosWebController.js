@@ -6,6 +6,7 @@ import {
   listarPedidosWeb, contarPedidosWebPorEstado, facturarRemision, anularRemision, fijarCursor, obtenerDocumentosPedidoWoo, obtenerLineasDocumento
 } from '../models/pedidosWebModel.js';
 import { ejecutarCiclo, estadoImportador, config as configImportador } from '../jobs/importarPedidosWeb.js';
+import { extenderVencimiento, ejecutarVencimiento, estadoVencimiento } from '../jobs/vencerRemisiones.js';
 
 const usuarioDe = (req) => req.user?.usu_cod || 'SISTEMA';
 
@@ -28,7 +29,7 @@ export const listar = async (req, res) => {
 /** GET /api/pedidos-web/salud */
 export const salud = async (req, res) => {
   try {
-    res.json({ success: true, salud: await estadoImportador() });
+    res.json({ success: true, salud: await estadoImportador(), vencimiento: estadoVencimiento() });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -105,6 +106,30 @@ export const importarAhora = async (req, res) => {
     }
     const resumen = await ejecutarCiclo({ forzar: false });
     res.json({ success: !resumen.error, modo: configImportador().modo, resumen });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * POST /api/pedidos-web/:fac_nro_rem/extender  body {hasta: ISO|null, motivo} — Tarea 6.
+ * hasta=null → sin vencimiento. Solo REM activas.
+ */
+export const extender = async (req, res) => {
+  const { fac_nro_rem } = req.params;
+  try {
+    const r = await extenderVencimiento({ fac_nro_rem, hasta: req.body?.hasta ?? null, motivo: req.body?.motivo, usuario: usuarioDe(req) });
+    res.json({ success: true, ...r, message: r.vence_el ? `Vencimiento de ${fac_nro_rem} extendido` : `${fac_nro_rem} quedó sin vencimiento` });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+};
+
+/** POST /api/pedidos-web/vencer-ahora — corre el vencimiento sin esperar la hora (soporte/pruebas). */
+export const vencerAhora = async (req, res) => {
+  try {
+    const r = await ejecutarVencimiento({ origen: 'MANUAL', usuario: usuarioDe(req) });
+    res.json({ success: !r.error && !r.omitido, resumen: r });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

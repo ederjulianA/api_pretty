@@ -466,6 +466,7 @@ export const facturarRemision = async ({ fac_nro_rem, usuario = 'SISTEMA', fac_f
         fac_nro_rem: r.fac_nro_rem,
         fac_nro_vta: r.fac_nro_vta,
         vence_el: null,
+        woo_status: notificarWoo && post.estadoWoo?.ok ? 'processing' : undefined, // el job lo confirmará en el siguiente ciclo
         // Si Woo no aceptó el cambio de estado, queda visible en la pantalla; el pedido sigue "en espera" en Woo.
         error: wooFallo ? `Factura ${r.fac_nro_vta} creada, pero el pedido Woo no pasó a processing: ${post.estadoWoo.error}` : null,
         ultima_accion: `Relevo ${r.fac_nro_rem} → ${r.fac_nro_vta} por ${usuario}${notificarWoo ? (wooFallo ? ' (Woo NO actualizado)' : ' (pedido Woo → processing)') : ''}`
@@ -518,6 +519,7 @@ export const anularRemision = async ({ fac_nro_rem, motivo, usuario = 'SISTEMA',
       vence_el: null,
       error: null,
       alerta: null, // al anular, el stock volvió: la alerta de saldo ya no aplica
+      woo_status: notificarWoo && estadoWoo?.ok ? 'cancelled' : undefined,
       ultima_accion: `REM anulada por ${usuario}: ${motivo || 'sin motivo'}${notificarWoo ? ' (pedido Woo → cancelled)' : ''}`
     });
   } catch (e) {
