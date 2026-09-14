@@ -5,7 +5,7 @@
 | **Spec** | `negocio_prettymakeup/specs/013-sincronizacion-inventario-erp-woocommerce.md` (Tareas 1 y 2) |
 | **Rama** | `feature/spec013-fase1-push-unico` (desde `develop`) |
 | **Fecha** | 14 septiembre 2026 |
-| **Estado** | Código listo y probado en modo simulado contra la BD real (solo lecturas + filas `SIMULADO` en `woo_sync_logs`). **Pendiente:** aplicar la migración, probar en `PSDATA_PRUEBAS`, pasar a `develop`. |
+| **Estado** | Código listo y probado en modo simulado contra la BD real. `PSDATA_PRUEBAS` creada el 14/sep/2026 (ver sección). **Pendiente:** aplicar la migración en `PSDATA_PRUEBAS`, levantar la instancia 3001, probar push real, pasar a `develop`. |
 
 ## Qué cambia
 
@@ -92,6 +92,18 @@ Orden: `PSDATA_PRUEBAS` primero → producción con backup previo.
 - `actualizarEstadoPedidoWoo` en modo simulado → no llama a Woo.
 
 **No probado todavía** (requiere `PSDATA_PRUEBAS` + staging de Woo): push real (`WOO_PUSH_ENABLED=true`), cola `woo_sync_pendientes` con Woo caído, flujo completo crear VTA → Woo. Ver casos 11, 12 y 15 del spec §6.
+
+## Ambiente de pruebas — `PSDATA_PRUEBAS` (creada el 14/sep/2026)
+
+Creada por Claude con autorización de Eder, desde el Mac vía T-SQL (login `sa` del `.env`):
+
+1. `BACKUP DATABASE PSDATAFEB2024 TO DISK='C:\Ed\PSDATA_20260914_pre_spec013.bak' WITH COPY_ONLY, COMPRESSION` — 84 MB de datos (17 MB comprimido), `RESTORE VERIFYONLY` válido. `COPY_ONLY` para no alterar la cadena de backups de producción. Es además el primer backup de producción desde el 15/abr/2026.
+2. `RESTORE DATABASE PSDATA_PRUEBAS ... WITH MOVE` a `...\MSSQL\DATA\PSDATA_PRUEBAS.mdf` / `_0.ldf`, luego `SET RECOVERY SIMPLE` (la copia de febrero `pruebas_ps_02092026` quedó en FULL y su log ya pesa 1.6 GB).
+3. Verificado: `factura` 4968, `facturakardes` 45990, `articulos` 2173, `nit` 782, `woo_sync_logs` 1816 — idénticos a producción. Último documento: VTA2207 (7/sep). Termo 9292 (`art_sec` 2218) con existencia 26.
+
+Para la segunda instancia de `api_pretty` en el Windows (puerto 3001): copiar `.env` a `.env.pruebas` cambiando `DB_DATABASE=PSDATA_PRUEBAS`, `PORT=3001`, `WC_URL=https://pruebas.prettymakeupcol.com` y una key REST creada en ese staging (`WC_CONSUMER_KEY`/`WC_CONSUMER_SECRET`); arrancar con `pm2 start index.js --name api_pretty_pruebas` cargando ese archivo (`dotenv` lee `.env` por defecto: usar `DOTENV_CONFIG_PATH=.env.pruebas` o `node -r dotenv/config index.js dotenv_config_path=.env.pruebas`).
+
+**Pendiente inmediato:** ejecutar `sql/2026-09-14_spec013_tarea1_esquema.sql` sobre `PSDATA_PRUEBAS`.
 
 ## Verificación tras desplegar
 
