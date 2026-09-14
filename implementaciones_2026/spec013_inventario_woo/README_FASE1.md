@@ -103,7 +103,9 @@ Creada por Claude con autorización de Eder, desde el Mac vía T-SQL (login `sa`
 
 Para la segunda instancia de `api_pretty` en el Windows (puerto 3001): copiar `.env` a `.env.pruebas` cambiando `DB_DATABASE=PSDATA_PRUEBAS`, `PORT=3001`, `WC_URL=https://pruebas.prettymakeupcol.com` y una key REST creada en ese staging (`WC_CONSUMER_KEY`/`WC_CONSUMER_SECRET`); arrancar con `pm2 start index.js --name api_pretty_pruebas` cargando ese archivo (`dotenv` lee `.env` por defecto: usar `DOTENV_CONFIG_PATH=.env.pruebas` o `node -r dotenv/config index.js dotenv_config_path=.env.pruebas`).
 
-**Pendiente inmediato:** ejecutar `sql/2026-09-14_spec013_tarea1_esquema.sql` sobre `PSDATA_PRUEBAS`.
+**Migración de Tarea 1 aplicada en `PSDATA_PRUEBAS` el 14/sep/2026** (8 objetos verificados; segunda ejecución idempotente OK; producción sigue sin migrar). Corrección hecha al aplicarla: `tipo_comprobantes` exige `tip_lon`/`tip_cli`/`tip_est` (NOT NULL) — la fila `REM` copia los de VTA (`6, 1, 'A'`).
+
+La key REST `apiMiPunto` de producción funciona también contra `pruebas.prettymakeupcol.com` (la BD del staging es copia de la de producción y conserva la misma fila en `wp_woocommerce_api_keys`), así que `.env.pruebas` puede reutilizar `WC_CONSUMER_KEY`/`WC_CONSUMER_SECRET` cambiando solo `WC_URL`.
 
 ## Verificación tras desplegar
 

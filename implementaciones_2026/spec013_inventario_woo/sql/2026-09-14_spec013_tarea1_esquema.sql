@@ -18,8 +18,8 @@ IF NOT EXISTS (SELECT 1 FROM dbo.fuentes WHERE fue_cod = 6)
     INSERT INTO dbo.fuentes (fue_cod, fue_nom, fue_est) VALUES (6, 'REMISIONES WEB', 'A');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.tipo_comprobantes WHERE tip_cod = 'REM')
-    INSERT INTO dbo.tipo_comprobantes (tip_cod, tip_nom, fue_cod, tip_con_sec)
-    VALUES ('REM', 'REMISIÓN WEB', 6, 0);
+    INSERT INTO dbo.tipo_comprobantes (tip_cod, tip_nom, tip_lon, tip_cli, tip_est, fue_cod, tip_con_sec)
+    VALUES ('REM', 'REMISIÓN WEB', 6, 1, 'A', 6, 0);   -- tip_lon/tip_cli/tip_est copiados de VTA
 
 /* ---------- 2. Un solo documento vigente por (pedido Woo, tipo) ----------
    Permite REM 'F' + VTA 'A' del mismo pedido (relevo); bloquea dos REM o
