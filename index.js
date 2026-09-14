@@ -57,7 +57,9 @@ import diagnosticRoutes from './routes/diagnosticRoutes.js';
 import eventoPromocionalRoutes from './routes/eventoPromocionalRoutes.js';
 import variableProductRoutes from './routes/variableProductRoutes.js';
 import pedidosWebRoutes from './routes/pedidosWebRoutes.js';
+import reconciliacionRoutes from './routes/reconciliacionRoutes.js';
 import { iniciarImportadorPedidosWeb, config as configImportador } from './jobs/importarPedidosWeb.js';
+import { iniciarReconciliacionNocturna, config as configReconciliacion } from './jobs/reconciliarInventarioWoo.js';
 
 // Middleware
 
@@ -129,6 +131,7 @@ app.use("/api/woo", wooRoutes);
 app.use("/api/woo", wooSyncRoutes);
 app.use("/api/woo", syncWooOrdersRoutes);
 app.use("/api/woo", wooCategoriaRoutes);
+app.use("/api/woo", reconciliacionRoutes); // SPEC-013 Fase 3: reconciliación ERP ↔ Woo (con verifyToken)
 app.use("/api/inventory-differences", inventoryDifferenceRoutes);
 app.get("/api/woo/test", (req, res) => {
   res.json({ message: "WooCommerce router is working" });
@@ -191,4 +194,7 @@ app.listen(PORT, HOST, () => {
   // El ERP no tiene scheduler: el importador vive dentro del proceso de la API (pm2 fork, un solo proceso).
   // Arranca después de app.listen para que el health check del despliegue no dependa de él.
   iniciarImportadorPedidosWeb();
+  const rec = configReconciliacion();
+  console.log(`Reconciliación nocturna (SPEC-013): ${rec.enabled ? `ACTIVA · ${rec.hora} · autocorregir=${rec.autocorregir}` : 'apagada (WOO_RECONCILIACION_ENABLED≠true)'}`);
+  iniciarReconciliacionNocturna();
 });
