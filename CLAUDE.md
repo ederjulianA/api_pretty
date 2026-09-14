@@ -13,6 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - WooCommerce REST API integration
 - Cloudinary for image management
 
+## SPEC-013 — Inventory sync ERP ↔ WooCommerce (in progress, Sept 2026)
+
+Active work on branch `feature/spec013-fase1-push-unico` (Phase 1 done, not merged). Full spec lives in the sibling repo `negocio_prettymakeup/specs/013-sincronizacion-inventario-erp-woocommerce.md`; implementation notes, test environment and scripts in `implementaciones_2026/spec013_inventario_woo/README_FASE1.md`. Test DB `PSDATA_PRUEBAS` + `.env.pruebas` (local, git-ignored): run with `DOTENV_CONFIG_PATH=.env.pruebas node -r dotenv/config index.js` — the boot banner must say `Entorno: PRUEBAS`. Next: Phase 2 (`jobs/importarPedidosWeb.js`, REM documents, relevo to VTA) on a new branch.
+
 ## Security Hardening — in progress
 
 An active remediation plan lives in `revision_seguridad/`. Before touching auth, routes, or CORS, read `revision_seguridad/plan/PLAN.md` and check `ESTADO.json`.
@@ -152,8 +156,14 @@ Pricing validation rules (see `utils/precioUtils.js`):
 - Customer matching by email or creates new `nit` record
 - Creates complete transaction: header + line items + kardex entries
 
+**Stock push to WooCommerce — SINGLE entry point (SPEC-013, Sept 2026):**
+- `services/wooStockService.js` (CommonJS; import it with named imports from ESM or `require` from CJS) is the **only** code allowed to write `stock_quantity` to WooCommerce. Call `sincronizarExistenciasWoo({ art_secs, origen, referencia, usuario })` or `sincronizarDocumentoWoo({ fac_nro, origen, usuario })` **after `transaction.commit()`**, never inside a transaction. It reads `vwExistencias` at call time, serializes pushes, retries, parks failures in `woo_sync_pendientes`, logs to `woo_sync_logs` (`origen`, `usuario`) and never throws.
+- Order status in Woo is a separate call: `actualizarEstadoPedidoWoo(fac_nro_woo, estado, nota)`.
+- `WOO_PUSH_ENABLED=false` makes it simulate (log only). Do not add a new `wcApi.put/post` for stock anywhere else.
+- `jobs/updateWooOrderStatusAndStock.js` is now a compatibility wrapper (keeps the read helpers `getArticleStock/getArticleWooId/getArticleWooInfo`); `utils/wooStockSync.js` was removed. Details: `implementaciones_2026/spec013_inventario_woo/README_FASE1.md`; full design in `negocio_prettymakeup/specs/013-sincronizacion-inventario-erp-woocommerce.md`.
+
 **Critical Fields:**
-- `fac_est_fac` - Internal status (A=Active, I=Inactive, C=Cancelled)
+- `fac_est_fac` - Internal status (A=Active, I=Inactive, C=Cancelled; `F`=Facturada is reserved for web remisiones REM once SPEC-013 phase 3 lands)
 - `fac_est_woo` - WooCommerce status (pending, processing, completed, etc.)
 - `fac_nro_woo` - WooCommerce order ID
 - `fac_nro_origen` - References original local order if created here first
@@ -209,7 +219,7 @@ try {
 ### Working with Background Jobs
 Jobs in `/jobs` directory handle scheduled tasks:
 - `syncWooOrders.js` - Import orders from WooCommerce
-- `updateWooOrderStatusAndStock.js` - Update inventory and sync status back
+- `updateWooOrderStatusAndStock.js` - Compatibility wrapper only (SPEC-013); stock goes through `services/wooStockService.js`
 - `updateWooProductPrices.js` - Bulk price sync to WooCommerce
 - `updateArticleImagesFromWoo.js` - Download product images
 

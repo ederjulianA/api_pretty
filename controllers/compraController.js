@@ -18,7 +18,7 @@ const {
   obtenerArticulosPorSubcategoria
 } = require('../models/compraModel');
 
-const { syncDocumentStockToWoo, syncArticleStockToWoo } = require('../utils/wooStockSync');
+const { sincronizarDocumentoWoo, sincronizarExistenciasWoo } = require('../services/wooStockService');
 
 /**
  * POST /api/compras
@@ -109,7 +109,7 @@ const crearCompra = async (req, res) => {
         fac_nro: resultado.fac_nro,
         total_items: resultado.total_items
       });
-      wooSyncResult = await syncDocumentStockToWoo(resultado.fac_nro, { silent: true });
+      wooSyncResult = await sincronizarDocumentoWoo({ fac_nro: resultado.fac_nro, origen: 'COM', usuario: usu_cod });
       console.log('[COMPRA-SYNC] Resultado de sincronización:', wooSyncResult);
     } catch (wooError) {
       console.warn('Error sincronizando stock con WooCommerce:', wooError.message);
@@ -1138,27 +1138,18 @@ const modificarCompra = async (req, res) => {
           detalles_eliminados: resultado.detalles_eliminados?.length || 0
         });
 
-        // syncDocumentStockToWoo cubre ítems que SIGUEN en facturakardes
-        wooSyncResult = await syncDocumentStockToWoo(fac_nro, { silent: true });
+        // Ítems que SIGUEN en facturakardes (punto único)
+        wooSyncResult = await sincronizarDocumentoWoo({ fac_nro, origen: 'COM', usuario: datosActualizacion.usu_cod });
 
-        // Para ítems ELIMINADOS: ya no están en facturakardes, así que
-        // syncDocumentStockToWoo no los encuentra. Usamos syncArticleStockToWoo
-        // por art_sec para sincronizar su stock actualizado (post-reversión).
+        // Ítems ELIMINADOS: ya no están en facturakardes, así que se sincronizan por art_sec.
         if (resultado.detalles_eliminados && resultado.detalles_eliminados.length > 0) {
-          const syncEliminados = [];
-          for (const detEliminado of resultado.detalles_eliminados) {
-            try {
-              const syncResult = await syncArticleStockToWoo(detEliminado.art_sec, { silent: true });
-              syncEliminados.push({ art_sec: detEliminado.art_sec, ...syncResult });
-            } catch (syncErr) {
-              console.warn(`[COMPRA-SYNC] Error sincronizando artículo eliminado ${detEliminado.art_sec}:`, syncErr.message);
-              syncEliminados.push({ art_sec: detEliminado.art_sec, success: false, reason: syncErr.message });
-            }
-          }
-          wooSyncResult = {
-            ...wooSyncResult,
-            eliminados_sync: syncEliminados
-          };
+          const eliminados_sync = await sincronizarExistenciasWoo({
+            art_secs: resultado.detalles_eliminados.map((d) => d.art_sec),
+            origen: 'COM',
+            referencia: fac_nro,
+            usuario: datosActualizacion.usu_cod
+          });
+          wooSyncResult = { ...wooSyncResult, eliminados_sync };
         }
 
         console.log('[COMPRA-SYNC] Resultado de sincronización:', wooSyncResult);
