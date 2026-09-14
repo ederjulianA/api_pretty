@@ -473,12 +473,12 @@ const createOrder = async (orderData, nitSec, usuario) => {
                 INSERT INTO dbo.factura (
                     fac_sec, fac_fec, fac_tip_cod, f_tip_cod, nit_sec,
                     fac_est_fac, fac_obs, fac_nro_woo, fac_nro, fac_usu_cod_cre, fac_est_woo,
-                    fac_descuento_general, fac_total_woo
+                    fac_descuento_general, fac_total_woo, fac_fch_cre
                 )
                 VALUES (
                     @fac_sec, @fac_fec, @fac_tip_cod, @f_tip_cod, @nit_sec,
                     @fac_est_fac, @fac_obs, @fac_nro_woo, @fac_nro, @fac_usu_cod_cre, @fac_est_woo,
-                    @fac_descuento_general, @fac_total_woo
+                    @fac_descuento_general, @fac_total_woo, GETDATE()
                 )
             `);
 

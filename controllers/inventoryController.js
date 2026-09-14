@@ -137,7 +137,8 @@ export const updateAdjustment = async (req, res) => {
       detalles,
       fac_fec,
       fac_obs,
-      actualiza_fecha
+      actualiza_fecha,
+      usuario: req.user?.usu_cod || null // la ruta lleva verifyToken, así que normalmente viene
     });
 
     res.json({
