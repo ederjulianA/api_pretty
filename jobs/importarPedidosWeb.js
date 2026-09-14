@@ -35,7 +35,7 @@ import {
   obtenerDocumentosPedidoWoo, obtenerLineasDocumento, upsertWooPedido, obtenerWooPedido,
   tomarLockCursor, renovarLockCursor, liberarLockCursor, avanzarCursor, obtenerCursor,
   crearRemision, facturarRemision, anularRemision, calcularVencimiento,
-  evaluarSaldoParaLineas, textoAlertaSaldo
+  evaluarSaldoParaLineas, textoAlertaSaldo, articulosSinSaldoDeDocumento
 } from '../models/pedidosWebModel.js';
 import { poolPromise, sql } from '../db.js';
 
@@ -368,6 +368,49 @@ const actualizarEstadoWooEnDocumentos = async (fac_nro_woo, estadoNormalizado) =
 };
 
 // ---------------------------------------------------------------------------
+// Alertas de saldo como estado vivo (spec §4.6, decisión del 14/sep/2026)
+// ---------------------------------------------------------------------------
+/**
+ * Re-evalúa cada ciclo el saldo de las REM activas y de las filas que ya tienen alerta:
+ *  - si entró la compra/ajuste que faltaba, la alerta se apaga sola;
+ *  - si una venta de mostrador dejó sin saldo una REM activa creada con stock, la alerta aparece.
+ * Consulta barata (solo REM_ACTIVA + filas con alerta) y nunca lanza.
+ */
+const revisarAlertasSaldo = async () => {
+  const resumen = { revisadas: 0, nuevas: 0, resueltas: 0 };
+  try {
+    const pool = await poolPromise;
+    const rs = await pool.request().query(`
+      SELECT woo_order_id, estado_erp, fac_nro_rem, fac_nro_vta, alerta
+      FROM dbo.woo_pedidos
+      WHERE estado_erp = '${ESTADO_ERP.REM_ACTIVA}' OR (alerta IS NOT NULL AND estado_erp = '${ESTADO_ERP.FACTURADO}')
+    `);
+    for (const p of rs.recordset) {
+      // El documento que carga el '-' hoy: la VTA si ya se facturó, si no la REM.
+      const fac_nro = p.estado_erp === ESTADO_ERP.FACTURADO ? (p.fac_nro_vta || p.fac_nro_rem) : p.fac_nro_rem;
+      if (!fac_nro) continue;
+      resumen.revisadas++;
+      const alertaNueva = textoAlertaSaldo(await articulosSinSaldoDeDocumento(fac_nro));
+      if ((alertaNueva || null) === (p.alerta || null)) continue;
+      if (alertaNueva && !p.alerta) {
+        resumen.nuevas++;
+        log('WARN', `#${p.woo_order_id} ${fac_nro}: ${alertaNueva}`);
+        await upsertWooPedido({ woo_order_id: p.woo_order_id, alerta: alertaNueva, ultima_accion: `⚠ ${alertaNueva} (detectado después de crear la REM: venta de mostrador o ajuste)` });
+      } else if (!alertaNueva && p.alerta) {
+        resumen.resueltas++;
+        log('INFO', `#${p.woo_order_id} ${fac_nro}: alerta de saldo resuelta (stock corregido)`);
+        await upsertWooPedido({ woo_order_id: p.woo_order_id, alerta: null, ultima_accion: `Alerta de saldo resuelta: el stock ya cubre el pedido (${p.alerta.slice(0, 120)})` });
+      } else {
+        await upsertWooPedido({ woo_order_id: p.woo_order_id, alerta: alertaNueva }); // cambió el detalle (otro artículo, otra cantidad)
+      }
+    }
+  } catch (e) {
+    log('WARN', `No se pudieron re-evaluar las alertas de saldo: ${e.message}`);
+  }
+  return resumen;
+};
+
+// ---------------------------------------------------------------------------
 // Ciclo
 // ---------------------------------------------------------------------------
 let enCurso = false;   // bandera en memoria (además del lock en BD)
@@ -442,6 +485,8 @@ export const ejecutarCiclo = async ({ forzar = false } = {}) => {
     if (ultimoOk) {
       await avanzarCursor(ultimoOk);
     }
+    // 3. Alertas de saldo como estado vivo (solo tiene sentido en modo real: en simulación no hay REM)
+    if (cfg.modo === 'real') resumen.alertas = await revisarAlertasSaldo();
     const c2 = await obtenerCursor();
     resumen.cursorDespues = c2 ? new Date(c2.cursor_gmt).toISOString() : null;
     resumen.duracionMs = Date.now() - inicio;
