@@ -28,6 +28,7 @@ const { getWcApi: getWcApiCompartido } = require('./wooClient');
 // ---------------------------------------------------------------------------
 const ORIGENES = [
   'REM_CREADA', 'REM_ANULADA', 'REM_FACTURADA', 'REM_REAFIRMADA',
+  'REM_EDITADA', // SPEC-014: líneas de una REM editadas desde el POS (unión de artículos anteriores y nuevos)
   'VTA', 'ANULACION', 'COM', 'AJT', 'CIERRE_MES', 'BUNDLE',
   'RECONCILIACION', 'MANUAL', 'PENDIENTES'
 ];
@@ -477,8 +478,25 @@ const actualizarEstadoPedidoWoo = async (fac_nro_woo, estado, nota = null) => {
   }
 };
 
+/**
+ * Nota privada en un pedido Woo, sin tocar su estado (SPEC-014 §5.5: p. ej. VTA respaldada anulada).
+ * Nunca lanza: la nota es informativa.
+ */
+const agregarNotaPedidoWoo = async (fac_nro_woo, nota) => {
+  if (!fac_nro_woo || !nota) return { ok: false };
+  if (!config().pushEnabled) { log('INFO', `SIMULADO nota en pedido ${fac_nro_woo}: ${nota}`); return { ok: true, simulado: true }; }
+  try {
+    await getWcApi().post(`orders/${fac_nro_woo}/notes`, { note: String(nota).slice(0, 1000), customer_note: false });
+    return { ok: true };
+  } catch (e) {
+    log('ERROR', `No se pudo dejar la nota en el pedido Woo ${fac_nro_woo}`, { error: e.message });
+    return { ok: false, error: e.message };
+  }
+};
+
 module.exports = {
   ORIGENES,
+  agregarNotaPedidoWoo,
   sincronizarExistenciasWoo,
   sincronizarDocumentoWoo,
   reintentarPendientes,

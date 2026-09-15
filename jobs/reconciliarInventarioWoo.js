@@ -130,13 +130,28 @@ const invariantes = async (diferenciasActuales) => {
   `);
   out.pedidos_comprometidos_sin_documento = a.recordset;
 
-  // b. REM activas vencidas sin anular (la Tarea 6 las anulará; mientras, se reportan)
+  // b. REM activas (sin VTA activa cruzada) vencidas sin anular — web y manuales (SPEC-014: factura.fac_vence_el)
   const b = await pool.request().query(`
-    SELECT woo_order_id, fac_nro_rem, vence_el, DATEDIFF(HOUR, vence_el, SYSUTCDATETIME()) AS horas_vencida
-    FROM dbo.woo_pedidos WHERE estado_erp = 'REM_ACTIVA' AND vence_el IS NOT NULL AND vence_el < SYSUTCDATETIME()
-    ORDER BY vence_el
+    SELECT TRY_CAST(f.fac_nro_woo AS INT) AS woo_order_id, f.fac_nro AS fac_nro_rem, f.fac_vence_el AS vence_el,
+           DATEDIFF(HOUR, f.fac_vence_el, SYSUTCDATETIME()) AS horas_vencida
+    FROM dbo.factura f
+    WHERE f.fac_tip_cod = 'REM' AND f.fac_est_fac = 'A' AND f.fac_vence_el IS NOT NULL AND f.fac_vence_el < SYSUTCDATETIME()
+      AND NOT EXISTS (SELECT 1 FROM dbo.factura v WHERE v.fac_nro = f.fac_nro_origen AND v.fac_tip_cod = 'VTA' AND v.fac_est_fac = 'A')
+    ORDER BY f.fac_vence_el
   `);
   out.rem_vencidas_sin_anular = b.recordset;
+
+  // b2. SPEC-014 §5.9 — doble kardex: una VTA activa con líneas '-' cuyo origen es una REM activa (las dos
+  // descuentan la misma mercancía). Debe ser 0 siempre; si aparece, algo creó la VTA por fuera de facturarRemision.
+  const b2 = await pool.request().query(`
+    SELECT v.fac_nro AS fac_nro_vta, r.fac_nro AS fac_nro_rem, v.fac_nro_woo, v.fac_fec
+    FROM dbo.factura v
+    INNER JOIN dbo.factura r ON r.fac_tip_cod = 'REM' AND r.fac_est_fac = 'A' AND (r.fac_nro = v.fac_nro_origen OR r.fac_nro_origen = v.fac_nro)
+    WHERE v.fac_tip_cod = 'VTA' AND v.fac_est_fac = 'A'
+      AND EXISTS (SELECT 1 FROM dbo.facturakardes k WHERE k.fac_sec = v.fac_sec AND k.kar_nat = '-')
+    ORDER BY v.fac_sec
+  `);
+  out.doble_kardex = b2.recordset;
 
   // c. VTA activa cuyo pedido Woo está cancelado o reembolsado (decisión contable humana)
   const c = await pool.request().query(`
@@ -181,6 +196,7 @@ const invariantes = async (diferenciasActuales) => {
   out.resumen = {
     pedidos_comprometidos_sin_documento: out.pedidos_comprometidos_sin_documento.length,
     rem_vencidas_sin_anular: out.rem_vencidas_sin_anular.length,
+    doble_kardex: out.doble_kardex.length,
     vta_activa_con_pedido_cancelado: out.vta_activa_con_pedido_cancelado.length,
     negativos_con_pedido_web: out.negativos_con_pedido_web.length,
     negativos_sin_pedido_web: out.negativos_sin_pedido_web.length,
@@ -289,6 +305,7 @@ export const listarReconciliaciones = async ({ limite = 30 } = {}) => {
     SELECT TOP (@limite) id, ejecutada_en, total_comparados, total_diferentes, corregidos, autocorregir, origen, usuario, duracion_ms,
            JSON_VALUE(invariantes, '$.resumen.pedidos_comprometidos_sin_documento') AS inv_sin_doc,
            JSON_VALUE(invariantes, '$.resumen.rem_vencidas_sin_anular') AS inv_rem_vencidas,
+           JSON_VALUE(invariantes, '$.resumen.doble_kardex') AS inv_doble_kardex,
            JSON_VALUE(invariantes, '$.resumen.vta_activa_con_pedido_cancelado') AS inv_vta_cancelado,
            JSON_VALUE(invariantes, '$.resumen.negativos_con_pedido_web') AS inv_neg_con_pedido,
            JSON_VALUE(invariantes, '$.resumen.negativos_sin_pedido_web') AS inv_neg_sin_pedido,

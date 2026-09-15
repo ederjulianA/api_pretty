@@ -147,7 +147,12 @@ const obtenerPedidosPeriodo = async (anio, mes) => {
         f.fac_fec,
         f.fac_est_woo,
         ISNULL(t.total, 0) AS total,
-        f.fac_nro_origen
+        f.fac_nro_origen,
+        -- SPEC-014: "facturado" = cruzado con una VTA ACTIVA (COT→VTA legado, REM 'F' de relevo, o REM 'A'
+        -- de respaldo). Un fac_nro_origen que apunta a una REM (COT remisionada) o a una VTA anulada no cuenta.
+        CASE WHEN EXISTS (SELECT 1 FROM dbo.factura v WHERE v.fac_tip_cod = 'VTA' AND v.fac_est_fac = 'A'
+                            AND (v.fac_nro = f.fac_nro_origen OR v.fac_nro_origen = f.fac_nro))
+             THEN 1 ELSE 0 END AS facturado
       FROM dbo.factura f
       LEFT JOIN dbo.nit n ON n.nit_sec = f.nit_sec
       LEFT JOIN (
@@ -159,9 +164,8 @@ const obtenerPedidosPeriodo = async (anio, mes) => {
           AND f2.fac_fec <  @fec_fin
         GROUP BY fk.fac_sec
       ) t ON t.fac_sec = f.fac_sec
-      -- SPEC-013: las remisiones web (REM) son el nuevo documento de pedido web. Una REM
-      -- facturada queda en 'F' (no 'A' como la COT), por eso se admiten ambos estados;
-      -- fac_nro_origen sigue siendo la marca de "ya facturado" en los dos tipos.
+      -- SPEC-013: las remisiones web (REM) son el nuevo documento de pedido web. Con el relevo
+      -- (legado) una REM facturada queda en 'F'; con el respaldo (SPEC-014) sigue en 'A'.
       WHERE f.fac_tip_cod IN ('COT', 'REM')
         AND f.fac_est_fac IN ('A', 'F')
         AND f.fac_nro_woo IS NOT NULL
@@ -186,7 +190,7 @@ const obtenerPedidosPeriodo = async (anio, mes) => {
     // resuelto es lo que decide si el pedido bloquea el cierre; confirmado solo
     // alimenta el chip de estado de la grilla.
     resuelto: estaResuelto(r.fac_est_woo),
-    facturado: r.fac_nro_origen !== null && r.fac_nro_origen !== '',
+    facturado: Number(r.facturado) === 1,
     fac_nro_origen: r.fac_nro_origen
   }));
 };
@@ -224,7 +228,15 @@ const obtenerCotizacionesPendientes = async (anio, mes) => {
       ) t ON t.fac_sec = f.fac_sec
       WHERE f.fac_tip_cod IN ('COT', 'REM')   -- SPEC-013: REM activa sin facturar = pedido web pendiente
         AND f.fac_est_fac = 'A'
-        AND f.fac_nro_origen IS NULL
+        -- SPEC-014 §2.2: pendiente = sin destino activo. Una COT remisionada (REM activa) no está pendiente
+        -- (la REM sí lo está); una REM cuya VTA se anuló vuelve a estarlo aunque conserve fac_nro_origen.
+        AND NOT EXISTS (
+          SELECT 1 FROM dbo.factura d
+          WHERE d.fac_est_fac = 'A'
+            AND (d.fac_nro = f.fac_nro_origen OR d.fac_nro_origen = f.fac_nro)
+            AND ((f.fac_tip_cod = 'COT' AND d.fac_tip_cod IN ('REM', 'VTA'))
+              OR (f.fac_tip_cod = 'REM' AND d.fac_tip_cod = 'VTA'))
+        )
         AND f.fac_fec >= @fec_ini
         AND f.fac_fec <  @fec_fin
       ORDER BY f.fac_fec, f.fac_nro
