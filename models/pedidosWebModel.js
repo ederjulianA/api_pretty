@@ -42,7 +42,7 @@ export const ESTADO_ERP = Object.freeze({
 
 export const NOMBRE_CURSOR_IMPORTADOR = 'importar_pedidos';
 
-const diasVencimiento = () => Math.max(1, parseInt(process.env.REM_DIAS_VENCIMIENTO || '5', 10));
+export const diasVencimiento = () => Math.max(1, parseInt(process.env.REM_DIAS_VENCIMIENTO || '5', 10));
 
 // ---------------------------------------------------------------------------
 // Consultas
@@ -465,11 +465,15 @@ export const facturarRemision = async ({ fac_nro_rem, usuario = 'SISTEMA', fac_f
 
   const post = { push: null, estadoWoo: null };
   if (!r.ya_facturada) {
-    post.push = await sincronizarDocumentoWoo({ fac_nro: r.fac_nro_vta, origen: 'REM_FACTURADA', usuario });
     if (notificarWoo && r.fac_nro_woo) {
-      // Pasar a processing no mueve stock en Woo (ya lo descontó en on-hold), así que aquí el orden no importa.
+      // ORDEN IMPORTANTE: primero Woo, después el push. Si la REM nació de un pedido `pending`, Woo no
+      // había descontado stock y lo descuenta justo al pasar a processing; si el push fuera antes, Woo
+      // quedaría en ERP − n hasta el siguiente movimiento del artículo. Para una REM de on-hold el
+      // orden es indiferente (Woo ya descontó y no repite). Si Woo rechaza el cambio, la VTA ya existe
+      // igual: se registra el error y el pedido sigue "en espera" en Woo.
       post.estadoWoo = await actualizarEstadoPedidoWoo(r.fac_nro_woo, 'processing', `Pago confirmado en el ERP por ${usuario} (${r.fac_nro_vta})`);
     }
+    post.push = await sincronizarDocumentoWoo({ fac_nro: r.fac_nro_vta, origen: 'REM_FACTURADA', usuario });
     const wooFallo = notificarWoo && post.estadoWoo && !post.estadoWoo.ok;
     try {
       await upsertWooPedido({
@@ -488,6 +492,17 @@ export const facturarRemision = async ({ fac_nro_rem, usuario = 'SISTEMA', fac_f
     }
   }
   return { ...r, ...post };
+};
+
+/**
+ * Re-afirma en Woo el stock de los artículos de una REM activa sin tocar el ERP. Lo usa el importador
+ * cuando Woo cambia el estado de un pedido que ya tiene REM y en esa transición Woo movió `_stock` por
+ * su cuenta (pending → on-hold descuenta, on-hold → pending devuelve): el número del ERP no cambió,
+ * pero el de Woo sí, y el ERP es el dueño.
+ */
+export const reafirmarStockRemision = async ({ fac_nro_rem, usuario = 'SISTEMA' }) => {
+  if (!fac_nro_rem) throw new Error('fac_nro_rem es obligatorio');
+  return sincronizarDocumentoWoo({ fac_nro: fac_nro_rem, origen: 'REM_REAFIRMADA', usuario });
 };
 
 // ---------------------------------------------------------------------------

@@ -29,12 +29,12 @@
  * clientes. Es el primer despliegue (spec §7, fase 2).
  */
 import { getWcApi } from '../services/wooClient.js';
-import { mapearPedidoWoo, resolverNitSec, lineasDifieren, CLASIFICACION } from '../services/wooPedidoMapper.js';
+import { mapearPedidoWoo, resolverNitSec, lineasDifieren, CLASIFICACION, wooHaDescontadoStock } from '../services/wooPedidoMapper.js';
 import {
   ESTADO_ERP, NOMBRE_CURSOR_IMPORTADOR,
   obtenerDocumentosPedidoWoo, obtenerLineasDocumento, upsertWooPedido, obtenerWooPedido,
   tomarLockCursor, renovarLockCursor, liberarLockCursor, avanzarCursor, obtenerCursor,
-  crearRemision, facturarRemision, anularRemision, calcularVencimiento,
+  crearRemision, facturarRemision, anularRemision, calcularVencimiento, diasVencimiento, reafirmarStockRemision,
   evaluarSaldoParaLineas, textoAlertaSaldo, articulosSinSaldoDeDocumento
 } from '../models/pedidosWebModel.js';
 import { poolPromise, sql } from '../db.js';
@@ -103,8 +103,12 @@ const leerPedidoPorId = async (id, cfg) => {
  * Decide qué hacer con un pedido dado su estado en Woo y sus documentos en el ERP.
  * Devuelve un plan { accion, motivo } sin ejecutar nada (se usa igual en simulación y en real).
  *   acciones: NADA | CREAR_REM | CREAR_REM_Y_FACTURAR | FACTURAR | ANULAR_REM | REEMPLAZAR_REM | REVISION | BLOQUEADO_COT
+ *
+ * @param {object|null} pendingAbandonado  { edadDias, limiteDias } cuando el pedido está `pending` desde hace
+ *   más de REM_DIAS_VENCIMIENTO días: es un checkout abandonado y no se le reserva stock (decisión 14/sep/2026).
+ *   Solo frena la CREACIÓN de la REM; si ya existe, sigue el flujo normal (la vence el job de vencimiento).
  */
-export const decidirAccion = ({ clasificacion, docs, lineasCambiaron = false }) => {
+export const decidirAccion = ({ clasificacion, docs, lineasCambiaron = false, pendingAbandonado = null }) => {
   const { rem_activa, vta_activa, cot_activa } = docs;
 
   if (vta_activa && rem_activa) {
@@ -113,13 +117,16 @@ export const decidirAccion = ({ clasificacion, docs, lineasCambiaron = false }) 
 
   switch (clasificacion) {
     case CLASIFICACION.SIN_COMPROMISO:
-      return { accion: 'NADA', motivo: 'Woo no ha comprometido stock (pending/borrador)' };
+      return { accion: 'NADA', motivo: 'no es un pedido real en Woo (borrador/papelera)' };
 
     case CLASIFICACION.PENDIENTE_PAGO:
       if (vta_activa) return { accion: 'NADA', motivo: `ya facturado en ${vta_activa.fac_nro}` };
       if (rem_activa) {
         if (lineasCambiaron) return { accion: 'REEMPLAZAR_REM', motivo: `pedido editado en Woo: reemplazar ${rem_activa.fac_nro}` };
         return { accion: 'NADA', motivo: `REM ${rem_activa.fac_nro} ya activa` };
+      }
+      if (pendingAbandonado) {
+        return { accion: 'NADA', motivo: `pendiente de pago desde hace ${pendingAbandonado.edadDias} días (límite ${pendingAbandonado.limiteDias}): checkout abandonado, no se reserva stock` };
       }
       if (cot_activa) return { accion: 'BLOQUEADO_COT', motivo: `existe ${cot_activa.fac_nro} (COT legada sin facturar); facturarla o anularla en el ERP antes de que el importador cree la REM` };
       return { accion: 'CREAR_REM', motivo: 'pedido en espera de pago' };
@@ -183,7 +190,18 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
       lineasCambiaron = lineasDifieren(lineasRem, mapeo.detalles);
     }
 
-    const plan = decidirAccion({ clasificacion: mapeo.clasificacion, docs, lineasCambiaron });
+    // Un `pending` es un checkout que no llegó a pagar en la pasarela. Reserva igual que on-hold
+    // (decisión 14/sep/2026), pero solo mientras esté dentro de la ventana de vencimiento: en 6 meses de
+    // historial ningún pending pagó después de 2 h, así que uno de más de N días es un abandono seguro.
+    let pendingAbandonado = null;
+    if (mapeo.clasificacion === CLASIFICACION.PENDIENTE_PAGO && !wooHaDescontadoStock(mapeo.estado_woo) && order.date_created_gmt) {
+      const creado = new Date(`${order.date_created_gmt}Z`).getTime();
+      const edadDias = (Date.now() - creado) / 86400000;
+      const limiteDias = diasVencimiento();
+      if (!isNaN(edadDias) && edadDias > limiteDias) pendingAbandonado = { edadDias: Math.floor(edadDias), limiteDias };
+    }
+
+    const plan = decidirAccion({ clasificacion: mapeo.clasificacion, docs, lineasCambiaron, pendingAbandonado });
     if (plan.warn) log('WARN', `Pedido #${mapeo.fac_nro_woo} con estado Woo desconocido "${mapeo.estado_woo}"`);
 
     // Acciones que necesitan crear documento exigen mapeo completo (spec §4.6: nunca REM parcial)
@@ -251,10 +269,20 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
     };
 
     switch (plan.accion) {
-      case 'NADA':
+      case 'NADA': {
         ultima_accion = `Sin acción: ${plan.motivo}`;
         fila.estado_erp = estadoDesdeDocs(docs); // vence_el no se toca: conserva el ya fijado
+        // Woo cambió el estado del pedido y el ERP no tiene nada que hacer (la REM ya está), pero si en esa
+        // transición Woo movió `_stock` por su cuenta (pending → on-hold descuenta; on-hold → pending
+        // devuelve, como hizo #11254 el 4/sep), el número de Woo quedó distinto al del ERP: re-afirmar.
+        const antes = previo?.woo_status;
+        if (docs.rem_activa && antes && antes !== base.woo_status && wooHaDescontadoStock(antes) !== wooHaDescontadoStock(base.woo_status)) {
+          const push = await reafirmarStockRemision({ fac_nro_rem: docs.rem_activa.fac_nro, usuario: cfg.usuario });
+          ultima_accion += `; stock de ${docs.rem_activa.fac_nro} re-afirmado en Woo por cambio ${antes} → ${base.woo_status} (push ${push.ok ? 'OK' : 'con pendientes'})`;
+          log('INFO', `#${mapeo.fac_nro_woo} ${antes} → ${base.woo_status} con ${docs.rem_activa.fac_nro} activa: stock re-afirmado (REM_REAFIRMADA)`);
+        }
         break;
+      }
 
       case 'CREAR_REM': {
         const rem = await crear();
@@ -421,7 +449,13 @@ let ultimoResumen = null;
  * Un ciclo completo: lock → reintentos por id → pedidos modificados → cursor → unlock.
  * Devuelve un resumen. Nunca lanza (deja ultimo_error en el cursor).
  */
-export const ejecutarCiclo = async ({ forzar = false } = {}) => {
+/**
+ * @param {boolean} forzar      arranca aunque haya un ciclo en curso (solo pruebas)
+ * @param {boolean} reprocesar  no saltar pedidos ya vistos en la misma versión: vuelve a decidir sobre todos
+ *                              los del rango. Se usa desde importar-ahora tras reposicionar el cursor cuando
+ *                              cambió una regla (p. ej. pending → REM) y hay que aplicarla al backlog.
+ */
+export const ejecutarCiclo = async ({ forzar = false, reprocesar = false } = {}) => {
   const cfg = config();
   if (enCurso && !forzar) return { omitido: true, motivo: 'ciclo anterior aún en curso' };
   enCurso = true;
@@ -467,7 +501,7 @@ export const ejecutarCiclo = async ({ forzar = false } = {}) => {
       // Saltar si ya se procesó exactamente esta versión (misma date_modified_gmt), sin error y en el
       // mismo modo: un pedido visto en simulación se vuelve a procesar al pasar a modo real.
       // REVISION guarda el motivo en `error` pero no es un fallo transitorio: solo se vuelve a mirar si Woo cambió el pedido.
-      const yaAtendido = previo && (previo.error == null || previo.estado_erp === ESTADO_ERP.REVISION);
+      const yaAtendido = !reprocesar && previo && (previo.error == null || previo.estado_erp === ESTADO_ERP.REVISION);
       if (yaAtendido && previo.woo_modified_gmt && order.date_modified_gmt) {
         const mismaVersion = new Date(previo.woo_modified_gmt).getTime() === new Date(`${order.date_modified_gmt}Z`).getTime();
         const mismoModo = (previo.estado_erp === ESTADO_ERP.SIMULADO) === (cfg.modo === 'simulacion');
