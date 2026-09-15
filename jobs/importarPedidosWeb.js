@@ -4,11 +4,11 @@
  * WooCommerce los pedidos modificados desde el cursor y aplica la máquina de estados del
  * spec §4.3 sobre los documentos del ERP (REM / VTA).
  *
- *   Estado Woo                         | sin documento          | REM 'A'                    | REM 'F' + VTA 'A'
+ *   Estado Woo                         | sin documento          | REM 'A' sin VTA            | REM 'A' + VTA 'A' (o REM 'F' legado)
  *   -----------------------------------+------------------------+----------------------------+------------------
- *   pending (y borradores)             | nada                   | nada                       | nada
- *   on-hold                            | crear REM              | si cambió: reemplazar REM  | nada
- *   processing/completed/epayco-*      | crear REM + relevo VTA | relevo REM→VTA             | nada
+ *   pending (≤ N días) / on-hold       | crear REM              | si cambió: reemplazar REM  | nada
+ *   processing/completed/epayco-*      | crear REM + VTA        | facturar REM → VTA         | nada
+ *   (SPEC-014: la VTA nace con líneas 'R' — la REM sigue 'A' y es el movimiento de kardex)
  *   cancelled/failed/epayco-cancelled… | nada                   | anular REM                 | REVISION
  *   refunded/epayco-refunded           | nada                   | anular REM                 | REVISION
  *   otro                               | nada + WARN            | nada                       | nada
@@ -257,9 +257,9 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
     let fac_nro_vta = docs.vta_activa?.fac_nro || null;
     let ultima_accion = '';
 
-    const crear = async () => {
+    const crear = async ({ fac_vence_el } = {}) => {
       const { nit_sec } = await resolverNitSec(mapeo.cliente, { crear: true });
-      const rem = await crearRemision({ mapeo, nit_sec, usuario: cfg.usuario });
+      const rem = await crearRemision({ mapeo, nit_sec, usuario: cfg.usuario, fac_vence_el });
       fac_nro_rem = rem.fac_nro;
       // Alerta de inventario (spec §4.6): la REM ya existe y Woo ya recibió el negativo; se deja
       // la marca para revisión humana. null limpia una alerta anterior (p. ej. REM reemplazada).
@@ -287,7 +287,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
       case 'CREAR_REM': {
         const rem = await crear();
         fila.estado_erp = ESTADO_ERP.REM_ACTIVA;
-        fila.vence_el = calcularVencimiento();
+        fila.vence_el = rem.fac_vence_el ?? calcularVencimiento(); // espejo de factura.fac_vence_el
         ultima_accion = `REM ${rem.fac_nro} creada (${descripcionLineas(mapeo)}); push ${rem.push?.ok ? 'OK' : 'con pendientes'}${rem.alerta ? ' — ⚠ stock insuficiente' : ''}`;
         break;
       }
@@ -309,7 +309,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
         fila.vence_el = null;
         ultima_accion = vta.ya_facturada
           ? `${docs.rem_activa.fac_nro} ya estaba facturada en ${vta.fac_nro_vta}`
-          : `Relevo ${docs.rem_activa.fac_nro} → ${vta.fac_nro_vta} (pago confirmado en Woo: ${mapeo.estado_woo})`;
+          : `${vta.modelo === 'respaldo' ? 'Facturada' : 'Relevo'} ${docs.rem_activa.fac_nro} → ${vta.fac_nro_vta} (pago confirmado en Woo: ${mapeo.estado_woo})`;
         break;
       }
 
@@ -325,9 +325,9 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
       case 'REEMPLAZAR_REM': {
         const vieja = docs.rem_activa.fac_nro;
         await anularRemision({ fac_nro_rem: vieja, motivo: `Reemplazada por edición del pedido web #${mapeo.fac_nro_woo} en Woo`, usuario: cfg.usuario, notificarWoo: false });
-        const rem = await crear();
+        const rem = await crear({ fac_vence_el: previo?.vence_el ?? undefined }); // conserva el plazo de la REM reemplazada
         fila.estado_erp = ESTADO_ERP.REM_ACTIVA;
-        fila.vence_el = previo?.vence_el ?? calcularVencimiento();
+        fila.vence_el = rem.fac_vence_el ?? previo?.vence_el ?? calcularVencimiento();
         ultima_accion = `REM ${vieja} reemplazada por ${rem.fac_nro} (pedido editado en Woo: ${descripcionLineas(mapeo)})`;
         break;
       }

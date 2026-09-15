@@ -41,7 +41,7 @@ const exportarPlantillaCostos = async (req, res) => {
           FROM dbo.facturakardes fk
           INNER JOIN dbo.factura f ON f.fac_sec = fk.fac_sec
           WHERE fk.art_sec = a.art_sec
-            AND fk.kar_nat = '-'
+            AND fk.kar_nat IN ('-', 'R') -- SPEC-014: 'R' = VTA respaldada por REM
             AND f.fac_tip_cod = 'VTA'
             AND f.fac_est_fac = 'A'
         ), 0) AS total_unidades_vendidas,
@@ -1352,7 +1352,7 @@ const reprocesarCostosDocumentos = async (req, res) => {
         AND f.fac_fec      <= @fecha_fin
         AND f.fac_tip_cod   = 'VTA'
         AND f.fac_est_fac   = 'A'
-        AND fk.kar_nat      = '-'
+        AND fk.kar_nat      IN ('-', 'R') -- SPEC-014
         ${whereDocumento}
       ORDER BY f.fac_sec, fk.kar_sec
     `);

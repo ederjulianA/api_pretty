@@ -69,7 +69,7 @@ const obtenerFacturasAuditoria = async (fechaInicioStr, fechaFinStr, pagina = 1,
           (SELECT SUM(fk.kar_total)
            FROM dbo.facturakardes fk
            WHERE fk.fac_sec = f.fac_sec
-           AND fk.kar_nat = '-') AS total_factura,
+           AND fk.kar_nat IN ('-', 'R')) AS total_factura, -- SPEC-014: 'R' = VTA respaldada por REM
 
           -- Información de Estado y Auditoría
           f.fac_est_fac AS estado_interno,
@@ -210,7 +210,7 @@ const obtenerDetalleFactura = async (fac_sec) => {
             AND ad.lis_pre_cod = 1
             AND ad.bod_sec = '1'
         WHERE fk.fac_sec = @fac_sec
-          AND fk.kar_nat = '-'
+          AND fk.kar_nat IN ('-', 'R') -- SPEC-014
         ORDER BY fk.kar_sec ASC
       `);
 
@@ -286,7 +286,7 @@ const obtenerFacturasPorEstadoWoo = async (fechaInicioStr, fechaFinStr) => {
           LEFT JOIN (
             SELECT fk.fac_sec, SUM(fk.kar_total) AS total_factura
             FROM dbo.facturakardes fk
-            WHERE fk.kar_nat = '-'
+            WHERE fk.kar_nat IN ('-', 'R') -- SPEC-014
             GROUP BY fk.fac_sec
           ) t ON t.fac_sec = f.fac_sec
         WHERE CAST(f.fac_fec AS DATE) >= @fecha_inicio
