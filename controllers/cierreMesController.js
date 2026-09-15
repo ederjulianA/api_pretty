@@ -15,6 +15,8 @@ const { createCompleteOrder, getOrder } = require('../models/orderModel');
 const { facturarRemision, anularRemision } = require('../models/pedidosWebModel');
 const { validarBundles, validarExistenciasVTA } = require('./orderController');
 const { sincronizarDocumentoWoo } = require('../services/wooStockService');
+const { poolPromise } = require('../db.js');
+const { destinoActivo } = require('../utils/documentosUtils.js'); // SPEC-014: bloqueo por vínculo
 
 const wcApi = new WooCommerceRestApi({
   url: process.env.WC_URL,
@@ -379,7 +381,10 @@ const estadoMasivoEndpoint = async (req, res) => {
         // confirmar = relevo a VTA (+ pedido Woo a processing), no pagado = anular REM (+ Woo cancelled).
         // Una REM ya facturada ('F') sigue el camino de la COT facturada (abajo): cambia fac_est_woo
         // y, si aplica, anula la VTA que tiene estampada en fac_nro_origen.
-        if (cot.fac_tip_cod === 'REM' && cot.fac_est_fac === 'A') {
+        // SPEC-014: con el respaldo la REM facturada sigue en 'A' pero cruzada con una VTA activa; esa
+        // sigue el camino de la "COT facturada" (abajo), igual que la REM 'F' del relevo.
+        const remSinFacturar = cot.fac_tip_cod === 'REM' && cot.fac_est_fac === 'A' && !(await destinoActivo(await poolPromise, { fac_sec: Number(cot.fac_sec) }));
+        if (remSinFacturar) {
           if (anulaVenta) {
             const r = await anularRemision({ fac_nro_rem: cot.fac_nro, motivo: motivoAnulacion, usuario: usu_cod, notificarWoo: true });
             return { ...base, ok: true, local: true, woo: !!r.estadoWoo?.ok, mensaje: `Remision ${cot.fac_nro} anulada y pedido Woo cancelado` };
@@ -537,8 +542,9 @@ const facturarBloqueEndpoint = async (req, res) => {
           resultados.push({ ...base, mensaje: `La cotizacion ${cot.fac_nro} esta anulada` });
           continue;
         }
-        if (cot.fac_nro_origen) {
-          resultados.push({ ...base, mensaje: `La cotizacion ${cot.fac_nro} ya fue facturada (${cot.fac_nro_origen})` });
+        const cruce = await destinoActivo(await poolPromise, { fac_sec: Number(cot.fac_sec) });
+        if (cruce) {
+          resultados.push({ ...base, mensaje: `La cotizacion ${cot.fac_nro} ya fue ${cruce.fac_tip_cod === 'REM' ? 'remisionada' : 'facturada'} (${cruce.fac_nro})` });
           continue;
         }
 
@@ -625,8 +631,9 @@ const anularBloqueEndpoint = async (req, res) => {
           resultados.push({ ...base, mensaje: `La cotizacion ${cot.fac_nro} ya estaba anulada` });
           continue;
         }
-        if (cot.fac_nro_origen) {
-          resultados.push({ ...base, mensaje: `La cotizacion ${cot.fac_nro} ya fue facturada (${cot.fac_nro_origen}); no se puede anular` });
+        const cruceAnular = await destinoActivo(await poolPromise, { fac_sec: Number(cot.fac_sec) });
+        if (cruceAnular) {
+          resultados.push({ ...base, mensaje: `La cotizacion ${cot.fac_nro} ya fue ${cruceAnular.fac_tip_cod === 'REM' ? 'remisionada' : 'facturada'} (${cruceAnular.fac_nro}); no se puede anular` });
           continue;
         }
 
