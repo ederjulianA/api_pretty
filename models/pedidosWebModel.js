@@ -19,6 +19,8 @@ import { sql, poolPromise } from '../db.js';
 import { sincronizarDocumentoWoo, actualizarEstadoPedidoWoo } from '../services/wooStockService.js';
 import { obtenerSiguienteFacSec, obtenerSiguienteFacNro, ejecutarConAutoRecuperacion } from '../utils/secuenciaUtils.js';
 import { NATURALEZA, diasVencimientoRem, calcularVencimientoRem, destinoActivo, errorNegocio } from '../utils/documentosUtils.js';
+import { getWcApi } from '../services/wooClient.js';
+import { mapearPedidoWoo, clasificarEstadoWoo, CLASIFICACION } from '../services/wooPedidoMapper.js';
 
 /** SPEC-014 §8: modelo de respaldo (VTA 'R', REM sigue 'A'). false = relevo de SPEC-013 (rollback). */
 export const facturaSinKardex = () => String(process.env.REM_FACTURA_SIN_KARDEX || 'false').toLowerCase() === 'true';
@@ -522,6 +524,122 @@ export const facturarRemision = async ({ fac_nro_rem, usuario = 'SISTEMA', fac_f
     }
   }
   return { ...r, ...post };
+};
+
+// ---------------------------------------------------------------------------
+// Editar líneas de la REM de un pedido web desde el POS — SPEC-014 §5.4
+// ---------------------------------------------------------------------------
+const redondear2 = (n) => Number((Math.round(Number(n) * 100) / 100).toFixed(2));
+
+/**
+ * Guardar desde el POS las líneas de una REM que nació de un pedido web. Orden: Woo primero, ERP
+ * después, push al final.
+ *   1. REM activa, sin VTA activa (bloqueo por vínculo).
+ *   2. GET del pedido en Woo: solo `pending` / `on-hold` (si ya pagó, es devolución, no edición → 409).
+ *   3. Diff artículo / cantidad / precio contra las líneas actuales de Woo (mapeadas al ERP).
+ *   4. PUT orders/{id} con line_items: quantity 0 quita, id+quantity cambia, product_id agrega; siempre con
+ *      subtotal/total del ERP (Woo recalcula totales y cupones). Nota privada con el resumen.
+ *      Si Woo rechaza → 502 y el ERP no cambia.
+ *   5. La REM se reescribe con la RESPUESTA de Woo pasada por mapearPedidoWoo (mismo camino que la
+ *      creación): cupones, bundles, lista y fac_total_woo quedan consistentes por construcción.
+ *   6. updateOrder({ sinPropagarWoo }) → commit → push REM_EDITADA de la unión de artículos.
+ *   7. Alerta de saldo y ultima_accion en woo_pedidos. fac_vence_el no cambia.
+ * Editar líneas por REST no mueve date_modified del pedido, así que el importador no re-lee por esto;
+ * si lo re-lee más tarde por un cambio de estado, las líneas ya coinciden y no dispara un reemplazo.
+ */
+export const editarLineasRemisionWoo = async ({ fac_nro_rem, nit_sec = null, detalles, descuento = 0, fac_descuento_general, usuario = null }) => {
+  if (!fac_nro_rem) throw errorNegocio('fac_nro_rem es obligatorio', 400);
+  if (!Array.isArray(detalles) || detalles.length === 0) throw errorNegocio('La remisión debe conservar al menos una línea', 400);
+  const pool = await poolPromise;
+  const rs = await pool.request().input('n', sql.VarChar(15), fac_nro_rem)
+    .query(`SELECT fac_sec, fac_est_fac, fac_nro_woo, nit_sec FROM dbo.factura WHERE fac_nro = @n AND fac_tip_cod = 'REM'`);
+  if (!rs.recordset.length) throw errorNegocio(`Remisión ${fac_nro_rem} no existe`, 404);
+  const rem = rs.recordset[0];
+  if (rem.fac_est_fac !== 'A') throw errorNegocio(`${fac_nro_rem} no está activa (${rem.fac_est_fac}); no se puede editar`);
+  if (!rem.fac_nro_woo) throw errorNegocio(`${fac_nro_rem} no es de un pedido web`, 400);
+  const destino = await destinoActivo(pool, { fac_sec: Number(rem.fac_sec) });
+  if (destino) throw errorNegocio(`${fac_nro_rem} ya está facturada en ${destino.fac_nro}; anule la factura antes de editar la remisión`);
+
+  // 2. Pedido en Woo
+  const api = getWcApi();
+  let order;
+  try { order = (await api.get(`orders/${rem.fac_nro_woo}`)).data; } catch (e) { throw errorNegocio(`No se pudo leer el pedido #${rem.fac_nro_woo} en WooCommerce: ${e.message}`, 502); }
+  if (clasificarEstadoWoo(order.status) !== CLASIFICACION.PENDIENTE_PAGO) {
+    throw errorNegocio(`El pedido #${rem.fac_nro_woo} está "${order.status}" en WooCommerce: solo se edita mientras está pendiente de pago o en espera. Si ya pagó, la diferencia se maneja como devolución.`);
+  }
+  const actual = await mapearPedidoWoo(order);
+  if (actual.errores.length) throw errorNegocio(`El pedido #${rem.fac_nro_woo} tiene líneas sin mapear en el ERP: ${actual.errores.join('; ')}`, 400);
+
+  // 3. Diff (a nivel de artículo vendible: el POS no manda componentes de bundle y Woo tampoco los tiene)
+  const desc = Math.max(0, Number(descuento) || 0);
+  const deseadas = new Map();
+  for (const d of detalles) {
+    if (!d.art_sec || Number(d.kar_uni) <= 0) continue;
+    const k = String(d.art_sec);
+    const prev = deseadas.get(k);
+    const qty = Number(d.kar_uni) + (prev ? prev.qty : 0);
+    deseadas.set(k, { art_sec: k, qty, precio: Number(d.kar_pre_pub) || 0 });
+  }
+  const enWoo = new Map(actual.detalles.map((d) => [String(d.art_sec), d]));
+  const lineItems = []; const cambios = { agregados: [], quitados: [], modificados: [] };
+  const totales = (l) => { const subtotal = redondear2(l.precio * l.qty); return { subtotal: String(subtotal), total: String(redondear2(subtotal * (1 - desc / 100))) }; };
+  for (const [k, w] of enWoo) {
+    const d = deseadas.get(k);
+    if (!d) { lineItems.push({ id: w.woo_line_id, quantity: 0 }); cambios.quitados.push(`${w.art_cod}×${w.kar_uni}`); continue; }
+    if (Number(w.kar_uni) !== d.qty || Math.abs(Number(w.kar_pre_pub) - d.precio) >= 0.01) {
+      lineItems.push({ id: w.woo_line_id, quantity: d.qty, ...totales(d) });
+      cambios.modificados.push(`${w.art_cod}: ${w.kar_uni}→${d.qty}${Math.abs(Number(w.kar_pre_pub) - d.precio) >= 0.01 ? ` ($${w.kar_pre_pub}→$${d.precio})` : ''}`);
+    }
+  }
+  const nuevos = [...deseadas.values()].filter((d) => !enWoo.has(d.art_sec));
+  if (nuevos.length) {
+    const req = pool.request();
+    const params = nuevos.map((d, i) => { req.input(`a${i}`, sql.VarChar(30), d.art_sec); return `@a${i}`; });
+    const arts = await req.query(`SELECT art_sec, art_cod, art_nom, art_woo_id, art_woo_variation_id, art_woo_type FROM dbo.articulos WHERE art_sec IN (${params.join(',')})`);
+    const porSec = new Map(arts.recordset.map((a) => [String(a.art_sec), a]));
+    for (const d of nuevos) {
+      const a = porSec.get(d.art_sec);
+      if (!a) throw errorNegocio(`Artículo ${d.art_sec} no existe`, 400);
+      const li = { quantity: d.qty, ...totales(d) };
+      if (a.art_woo_variation_id) { li.variation_id = Number(a.art_woo_variation_id); li.product_id = Number(a.art_woo_id) || undefined; }
+      else if (a.art_woo_id && a.art_woo_type !== 'variable') li.product_id = Number(a.art_woo_id);
+      else throw errorNegocio(`${a.art_nom} (${a.art_cod}) no está publicado en WooCommerce; no se puede agregar al pedido web. Créelo en Woo primero.`, 400);
+      lineItems.push(li); cambios.agregados.push(`${a.art_cod}×${d.qty}`);
+    }
+  }
+  if (lineItems.length === 0) return { fac_nro_rem, fac_nro_woo: rem.fac_nro_woo, sin_cambios: true, cambios };
+
+  // 4. Woo primero
+  const resumen = [cambios.agregados.length ? `+${cambios.agregados.join(', ')}` : '', cambios.quitados.length ? `−${cambios.quitados.join(', ')}` : '', cambios.modificados.length ? `Δ ${cambios.modificados.join(', ')}` : ''].filter(Boolean).join(' · ');
+  let respuesta;
+  try {
+    respuesta = (await api.put(`orders/${rem.fac_nro_woo}`, { line_items: lineItems })).data;
+  } catch (e) {
+    const det = e.response?.data?.message || e.message;
+    throw errorNegocio(`WooCommerce no aceptó la edición del pedido #${rem.fac_nro_woo} (${det}); la remisión ${fac_nro_rem} no cambió.`, 502);
+  }
+  try { await api.post(`orders/${rem.fac_nro_woo}/notes`, { note: `Modificado desde el ERP${usuario ? ` por ${usuario}` : ''} (${fac_nro_rem}): ${resumen}`.slice(0, 1000), customer_note: false }); } catch (e) { /* informativa */ }
+
+  // 5-6. La REM nace del pedido Woo, también cuando la edición vino del POS.
+  const nuevo = await mapearPedidoWoo(respuesta);
+  if (nuevo.errores.length) throw errorNegocio(`Woo aceptó la edición pero devolvió líneas sin mapear: ${nuevo.errores.join('; ')}. Revise el pedido #${rem.fac_nro_woo} en wp-admin.`, 500);
+  const { updateOrder } = await orderModel();
+  const upd = await updateOrder({
+    fac_nro: fac_nro_rem, fac_tip_cod: 'REM', nit_sec: nit_sec || rem.nit_sec, fac_est_fac: 'A',
+    detalles: nuevo.detalles.map((d) => ({ art_sec: d.art_sec, kar_uni: d.kar_uni, kar_pre_pub: d.kar_pre_pub, kar_total: d.kar_total, kar_lis_pre_cod: nuevo.lis_pre_cod })),
+    descuento: 0, fac_descuento_general: nuevo.fac_descuento_general, usuario, sinPropagarWoo: true
+  });
+  await pool.request().input('sec', sql.Decimal(18, 0), Number(rem.fac_sec)).input('t', sql.Decimal(17, 2), nuevo.total_woo > 0 ? nuevo.total_woo : null)
+    .query('UPDATE dbo.factura SET fac_total_woo = @t WHERE fac_sec = @sec');
+
+  // 7. Seguimiento
+  let sinSaldo = [];
+  try { sinSaldo = await articulosSinSaldoDeDocumento(fac_nro_rem); } catch (e) { /* informativo */ }
+  const alerta = textoAlertaSaldo(sinSaldo);
+  try {
+    await upsertWooPedido({ woo_order_id: Number(rem.fac_nro_woo), woo_total: nuevo.total_woo, alerta, ultima_accion: `REM ${fac_nro_rem} editada desde el ERP${usuario ? ` por ${usuario}` : ''}: ${resumen}; pedido Woo actualizado; push ${upd.push?.ok ? 'OK' : 'con pendientes'}${alerta ? ' — ⚠ stock insuficiente' : ''}` });
+  } catch (e) { console.error('[PEDIDOS_WEB] woo_pedidos no actualizado tras editar:', e.message); }
+  return { ...upd, fac_nro_rem, fac_nro_woo: rem.fac_nro_woo, cambios, resumen, woo_total: nuevo.total_woo, alerta };
 };
 
 /**

@@ -291,7 +291,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     //    (antes un PUT sin fac_obs borraba la observación).
     const updateHeaderQuery = `
       UPDATE dbo.factura
-      SET nit_sec = @nit_sec,
+      SET nit_sec = COALESCE(@nit_sec, nit_sec),
           fac_est_fac = @fac_est_fac,
           fac_nro_woo = COALESCE(@fac_nro_woo, fac_nro_woo),
           fac_obs = COALESCE(@fac_obs, fac_obs),
@@ -305,7 +305,7 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 
     const updateHeaderRequest = new sql.Request(transaction);
     updateHeaderRequest
-      .input('nit_sec', sql.VarChar(16), nit_sec)
+      .input('nit_sec', sql.VarChar(16), nit_sec || null)
       .input('fac_est_fac', sql.Char(1), fac_est_fac || 'A')
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
       .input('fac_nro_woo', sql.VarChar(15), fac_nro_woo || null)

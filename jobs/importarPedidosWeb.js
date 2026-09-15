@@ -309,7 +309,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
         fila.vence_el = null;
         ultima_accion = vta.ya_facturada
           ? `${docs.rem_activa.fac_nro} ya estaba facturada en ${vta.fac_nro_vta}`
-          : `Relevo ${docs.rem_activa.fac_nro} → ${vta.fac_nro_vta} (pago confirmado en Woo: ${mapeo.estado_woo})`;
+          : `${vta.modelo === 'respaldo' ? 'Facturada' : 'Relevo'} ${docs.rem_activa.fac_nro} → ${vta.fac_nro_vta} (pago confirmado en Woo: ${mapeo.estado_woo})`;
         break;
       }
 

@@ -89,10 +89,11 @@ const updateOrderEndpoint = async (req, res) => {
     const { fac_nro } = req.params;
     const { fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_descuento_general, fac_est_woo } = req.body;
 
-    if (!fac_nro || !fac_tip_cod || !nit_sec || !fac_est_fac || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
+    // nit_sec es opcional: si no viene, el documento conserva su cliente (SPEC-014).
+    if (!fac_nro || !fac_tip_cod || !fac_est_fac || !detalles || !Array.isArray(detalles) || detalles.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "Se deben proporcionar fac_nro (por URL), fac_tip_cod, nit_sec, fac_est_fac y un arreglo no vacío de detalles en el cuerpo."
+        error: "Se deben proporcionar fac_nro (por URL), fac_tip_cod, fac_est_fac y un arreglo no vacío de detalles en el cuerpo."
       });
     }
 
