@@ -96,7 +96,8 @@ export const anular = async (req, res) => {
 /**
  * POST /api/pedidos-web/importar-ahora — ejecuta un ciclo del importador sin esperar al intervalo.
  * Respeta WOO_IMPORT_MODO. Útil para probar y para "traer ya" un pedido desde la pantalla.
- * body opcional {cursor: 'YYYY-MM-DDTHH:mm:ssZ'} reposiciona el cursor antes (soporte).
+ * body opcional {cursor: 'YYYY-MM-DDTHH:mm:ssZ'} reposiciona el cursor antes (soporte);
+ * {reprocesar: true} vuelve a decidir sobre pedidos ya vistos en la misma versión (tras un cambio de regla).
  */
 export const importarAhora = async (req, res) => {
   try {
@@ -104,7 +105,9 @@ export const importarAhora = async (req, res) => {
       const d = await fijarCursor(req.body.cursor);
       console.log(`[PEDIDOS_WEB] cursor reposicionado a ${d.toISOString()} por ${usuarioDe(req)}`);
     }
-    const resumen = await ejecutarCiclo({ forzar: false });
+    const reprocesar = req.body?.reprocesar === true;
+    if (reprocesar) console.log(`[PEDIDOS_WEB] ciclo con reprocesar=true pedido por ${usuarioDe(req)}`);
+    const resumen = await ejecutarCiclo({ forzar: false, reprocesar });
     res.json({ success: !resumen.error, modo: configImportador().modo, resumen });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

@@ -27,7 +27,7 @@ const { getWcApi: getWcApiCompartido } = require('./wooClient');
 // Configuración
 // ---------------------------------------------------------------------------
 const ORIGENES = [
-  'REM_CREADA', 'REM_ANULADA', 'REM_FACTURADA',
+  'REM_CREADA', 'REM_ANULADA', 'REM_FACTURADA', 'REM_REAFIRMADA',
   'VTA', 'ANULACION', 'COM', 'AJT', 'CIERRE_MES', 'BUNDLE',
   'RECONCILIACION', 'MANUAL', 'PENDIENTES'
 ];

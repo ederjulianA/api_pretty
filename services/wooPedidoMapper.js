@@ -27,11 +27,11 @@ import { generateConsecutivo, valorMayorista } from '../utils/facturaUtils.js';
 // Estados de WooCommerce → clasificación del ERP (specs/013 §4.3)
 // ---------------------------------------------------------------------------
 export const CLASIFICACION = Object.freeze({
-  PENDIENTE_PAGO: 'PENDIENTE_PAGO',   // compromete stock, sin pago confirmado → REM
+  PENDIENTE_PAGO: 'PENDIENTE_PAGO',   // sin pago confirmado → REM (on-hold ya descontó en Woo; pending no, ver ESTADOS)
   PAGADO: 'PAGADO',                   // compromete stock y está pagado → REM + VTA
   CANCELADO: 'CANCELADO',             // libera stock → anular REM
   REEMBOLSADO: 'REEMBOLSADO',         // libera stock → anular REM; VTA a revisión
-  SIN_COMPROMISO: 'SIN_COMPROMISO',   // Woo no descontó nada (pending, borradores)
+  SIN_COMPROMISO: 'SIN_COMPROMISO',   // Woo no descontó nada y no es un pedido real (borradores, papelera)
   DESCONOCIDO: 'DESCONOCIDO'
 });
 
@@ -47,19 +47,33 @@ const ESTADOS = {
   'epayco-failed': CLASIFICACION.CANCELADO,
   'refunded': CLASIFICACION.REEMBOLSADO,
   'epayco-refunded': CLASIFICACION.REEMBOLSADO,
-  'pending': CLASIFICACION.SIN_COMPROMISO,
-  'epayco-pending': CLASIFICACION.SIN_COMPROMISO,
+  // Decisión de negocio (Eder, 14/sep/2026, revisando la pantalla Pedidos web): un pedido "Pendiente de
+  // pago" también reserva en el ERP, aunque Woo no le descuente stock (Woo solo lo retiene 60 min). Si la
+  // clienta paga, se factura y despacha desde la misma REM. El importador NO crea la REM cuando el pending
+  // ya tiene más de REM_DIAS_VENCIMIENTO días (checkout abandonado); ver decidirAccion en el job.
+  'pending': CLASIFICACION.PENDIENTE_PAGO,
+  'epayco-pending': CLASIFICACION.PENDIENTE_PAGO,
   'checkout-draft': CLASIFICACION.SIN_COMPROMISO,
   'auto-draft': CLASIFICACION.SIN_COMPROMISO,
   'trash': CLASIFICACION.SIN_COMPROMISO
 };
 
+const limpiarEstado = (status) => String(status).trim().toLowerCase().replace(/_/g, '-').replace(/^wc-/, '');
+
 /** Estado tal como viene de Woo ('epayco-processing' o 'epayco_processing') → clasificación. */
 export const clasificarEstadoWoo = (status) => {
   if (!status || typeof status !== 'string') return CLASIFICACION.DESCONOCIDO;
-  const s = status.trim().toLowerCase().replace(/_/g, '-').replace(/^wc-/, '');
-  return ESTADOS[s] || CLASIFICACION.DESCONOCIDO;
+  return ESTADOS[limpiarEstado(status)] || CLASIFICACION.DESCONOCIDO;
 };
+
+/**
+ * Estados en los que Woo NO ha descontado `_stock` del producto (solo lo reserva 60 min en
+ * wc_reserved_stock). Importa porque con una REM activa en el ERP, cualquier transición de Woo que
+ * entre o salga de estos estados mueve `_stock` por su cuenta (pending→on-hold descuenta,
+ * on-hold→pending devuelve, pending→processing descuenta) y el ERP debe re-afirmar su número después.
+ */
+const ESTADOS_WOO_SIN_DESCUENTO = new Set(['pending', 'epayco-pending', 'checkout-draft', 'auto-draft', 'trash']);
+export const wooHaDescontadoStock = (status) => !!status && !ESTADOS_WOO_SIN_DESCUENTO.has(limpiarEstado(status));
 
 /** El ERP guarda fac_est_woo con guion bajo ('on_hold'). Misma regla que el importador histórico. */
 export const normalizarEstadoWoo = (status) => {
