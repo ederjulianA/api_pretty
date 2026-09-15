@@ -1,22 +1,27 @@
 /**
- * models/pedidosWebModel.js — SPEC-013, Fase 2 (Tareas 3, 4 y 5)
+ * models/pedidosWebModel.js — SPEC-013, Fase 2 (Tareas 3, 4 y 5) · SPEC-014 (respaldo)
  *
  * Documentos del flujo de pedidos web:
- *   REM (remisión web, fac_est_fac 'A') reserva stock desde que Woo lo compromete;
- *   al confirmar el pago pasa a VTA por RELEVO (REM → 'F', la VTA carga el '-');
- *   si se cancela o vence, REM → 'I'.
+ *   REM (remisión, fac_est_fac 'A', líneas '-') reserva stock desde que existe;
+ *   al confirmar el pago nace la VTA por RESPALDO (SPEC-014 §5.3): la REM sigue 'A' — es el
+ *   movimiento de kardex — y la VTA lleva líneas 'R', que vwExistencias ignora. Mientras
+ *   REM_FACTURA_SIN_KARDEX no sea true se conserva el RELEVO anterior (REM → 'F', VTA con '-').
+ *   Si se cancela o vence sin VTA, REM → 'I'.
  *
- * Convención de vínculo (la misma que COT→VTA en el ERP, verificada en Fase 1):
- *   la VTA nace con fac_sec propio, la REM guarda REM.fac_nro_origen = VTA.fac_nro,
- *   y las líneas de la VTA apuntan a la REM (kar_fac_sec_ori / kar_kar_sec_ori).
- *   Además la VTA guarda VTA.fac_nro_origen = REM.fac_nro y copia fac_est_woo de la REM
- *   (spec §5 Tarea 4 + observación (c) de las pruebas de Fase 1).
+ * Convención de vínculo (la misma que COT→VTA en el ERP):
+ *   la VTA nace con fac_sec propio y VTA.fac_nro_origen = REM.fac_nro; la REM guarda
+ *   REM.fac_nro_origen = VTA.fac_nro; las líneas de la VTA apuntan a la REM
+ *   (kar_fac_sec_ori / kar_kar_sec_ori). Mientras la VTA esté activa la REM queda bloqueada.
  *
  * Todo push a WooCommerce sale por services/wooStockService.js DESPUÉS del commit.
  */
 import { sql, poolPromise } from '../db.js';
 import { sincronizarDocumentoWoo, actualizarEstadoPedidoWoo } from '../services/wooStockService.js';
 import { obtenerSiguienteFacSec, obtenerSiguienteFacNro, ejecutarConAutoRecuperacion } from '../utils/secuenciaUtils.js';
+import { NATURALEZA, diasVencimientoRem, calcularVencimientoRem, destinoActivo, errorNegocio } from '../utils/documentosUtils.js';
+
+/** SPEC-014 §8: modelo de respaldo (VTA 'R', REM sigue 'A'). false = relevo de SPEC-013 (rollback). */
+export const facturaSinKardex = () => String(process.env.REM_FACTURA_SIN_KARDEX || 'false').toLowerCase() === 'true';
 
 /**
  * orderModel se carga DINÁMICAMENTE (en el momento de uso), no con `import` estático.
@@ -42,7 +47,7 @@ export const ESTADO_ERP = Object.freeze({
 
 export const NOMBRE_CURSOR_IMPORTADOR = 'importar_pedidos';
 
-export const diasVencimiento = () => Math.max(1, parseInt(process.env.REM_DIAS_VENCIMIENTO || '5', 10));
+export const diasVencimiento = diasVencimientoRem;
 
 // ---------------------------------------------------------------------------
 // Consultas
@@ -68,11 +73,17 @@ export const obtenerDocumentosPedidoWoo = async (fac_nro_woo) => {
     `);
   const todos = rs.recordset.map((r) => ({ ...r, fac_sec: Number(r.fac_sec) }));
   const primero = (pred) => todos.find(pred) || null;
+  const vta_activa = primero((d) => d.fac_tip_cod === 'VTA' && d.fac_est_fac === 'A');
+  // SPEC-014: "facturada" = REM 'A' cruzada con la VTA activa (respaldo) o REM 'F' (relevo legado).
+  // "activa" = REM 'A' sin VTA: la única que el importador puede reemplazar, anular o facturar.
+  const remCruzada = vta_activa
+    ? primero((d) => d.fac_tip_cod === 'REM' && d.fac_est_fac === 'A' && (d.fac_nro_origen === vta_activa.fac_nro || vta_activa.fac_nro_origen === d.fac_nro))
+    : null;
   return {
-    rem_activa: primero((d) => d.fac_tip_cod === 'REM' && d.fac_est_fac === 'A'),
-    rem_facturada: primero((d) => d.fac_tip_cod === 'REM' && d.fac_est_fac === 'F'),
+    rem_activa: primero((d) => d.fac_tip_cod === 'REM' && d.fac_est_fac === 'A' && d !== remCruzada),
+    rem_facturada: remCruzada || primero((d) => d.fac_tip_cod === 'REM' && d.fac_est_fac === 'F'),
     rem_anulada: primero((d) => d.fac_tip_cod === 'REM' && d.fac_est_fac === 'I'), // la más reciente
-    vta_activa: primero((d) => d.fac_tip_cod === 'VTA' && d.fac_est_fac === 'A'),
+    vta_activa,
     // COT activa SIN facturar (fac_nro_origen NULL): camino legado del Dashboard todavía en curso.
     cot_activa: primero((d) => d.fac_tip_cod === 'COT' && d.fac_est_fac === 'A' && !d.fac_nro_origen),
     todos
@@ -291,7 +302,7 @@ export const textoAlertaSaldo = (faltantes) => {
  * Crea la remisión web a partir del pedido mapeado (services/wooPedidoMapper.js) y empuja
  * la existencia a Woo (origen REM_CREADA). Devuelve { fac_sec, fac_nro, push }.
  */
-export const crearRemision = async ({ mapeo, nit_sec, usuario = 'SISTEMA' }) => {
+export const crearRemision = async ({ mapeo, nit_sec, usuario = 'SISTEMA', fac_vence_el = undefined }) => {
   if (!mapeo || !Array.isArray(mapeo.detalles) || mapeo.detalles.length === 0) throw new Error('El pedido no tiene líneas mapeadas');
   if (mapeo.errores && mapeo.errores.length) throw new Error(`Pedido con líneas sin mapear: ${mapeo.errores.join('; ')}`);
   if (!nit_sec) throw new Error('nit_sec requerido para crear la remisión');
@@ -316,7 +327,9 @@ export const crearRemision = async ({ mapeo, nit_sec, usuario = 'SISTEMA' }) => 
     fac_fec: mapeo.fac_fec,
     fac_descuento_general: mapeo.fac_descuento_general,
     fac_est_woo: mapeo.estado_woo_normalizado,
-    fac_total_woo: mapeo.total_woo
+    fac_total_woo: mapeo.total_woo,
+    fac_vence_el,  // undefined → hoy + REM_DIAS_VENCIMIENTO (factura.fac_vence_el, SPEC-014)
+    pushWoo: false // el push se hace aquí abajo, después de resolver bundles por documento
   });
 
   // Post-commit. Se resuelve por documento para incluir componentes de bundles ya expandidos.
@@ -346,10 +359,11 @@ const _facturarRemisionInternal = async ({ fac_nro_rem, usuario, fac_fec }) => {
         FROM dbo.factura WITH (UPDLOCK, HOLDLOCK)
         WHERE fac_nro = @fac_nro AND fac_tip_cod = 'REM'
       `);
-    if (remRs.recordset.length === 0) throw new Error(`Remisión ${fac_nro_rem} no existe`);
+    if (remRs.recordset.length === 0) throw errorNegocio(`Remisión ${fac_nro_rem} no existe`, 404);
     const rem = remRs.recordset[0];
+    const respaldo = facturaSinKardex();
 
-    // Idempotencia: ya facturada → devolver la VTA existente sin hacer nada.
+    // Idempotencia (relevo legado): REM 'F' → devolver la VTA existente sin hacer nada.
     if (rem.fac_est_fac === 'F') {
       const vta = await new sql.Request(transaction)
         .input('woo', sql.VarChar(15), rem.fac_nro_woo)
@@ -357,14 +371,23 @@ const _facturarRemisionInternal = async ({ fac_nro_rem, usuario, fac_fec }) => {
       await transaction.commit();
       return { ya_facturada: true, fac_nro_rem, fac_nro_vta: vta.recordset[0]?.fac_nro || rem.fac_nro_origen || null, fac_nro_woo: rem.fac_nro_woo, art_secs: [] };
     }
-    if (rem.fac_est_fac !== 'A') throw new Error(`Remisión ${fac_nro_rem} está anulada (estado ${rem.fac_est_fac}); no se puede facturar`);
+    if (rem.fac_est_fac !== 'A') throw errorNegocio(`Remisión ${fac_nro_rem} está anulada (estado ${rem.fac_est_fac}); no se puede facturar`);
 
-    // 2. Nunca dos VTA activas del mismo pedido (el índice UX_factura_woo_vigente también lo impide).
-    const vtaPrev = await new sql.Request(transaction)
-      .input('woo', sql.VarChar(15), rem.fac_nro_woo)
-      .query(`SELECT TOP 1 fac_nro FROM dbo.factura WHERE fac_nro_woo = @woo AND fac_tip_cod = 'VTA' AND fac_est_fac = 'A'`);
-    if (vtaPrev.recordset.length > 0) {
-      throw new Error(`Ya existe la factura ${vtaPrev.recordset[0].fac_nro} activa para el pedido Woo ${rem.fac_nro_woo}; la remisión ${fac_nro_rem} requiere revisión manual`);
+    // Idempotencia (respaldo, SPEC-014): REM 'A' ya cruzada con una VTA activa → esa VTA.
+    const destino = await destinoActivo(transaction, { fac_sec: Number(rem.fac_sec) });
+    if (destino) {
+      await transaction.commit();
+      return { ya_facturada: true, fac_nro_rem, fac_nro_vta: destino.fac_nro, fac_nro_woo: rem.fac_nro_woo, art_secs: [] };
+    }
+
+    // 2. Nunca dos VTA activas del mismo pedido web (el índice UX_factura_woo_vigente también lo impide).
+    if (rem.fac_nro_woo) {
+      const vtaPrev = await new sql.Request(transaction)
+        .input('woo', sql.VarChar(15), rem.fac_nro_woo)
+        .query(`SELECT TOP 1 fac_nro FROM dbo.factura WHERE fac_nro_woo = @woo AND fac_tip_cod = 'VTA' AND fac_est_fac = 'A'`);
+      if (vtaPrev.recordset.length > 0) {
+        throw errorNegocio(`Ya existe la factura ${vtaPrev.recordset[0].fac_nro} activa para el pedido Woo ${rem.fac_nro_woo}; la remisión ${fac_nro_rem} requiere revisión manual`);
+      }
     }
 
     // 3. Consecutivos (mismas utilidades que el resto de documentos)
@@ -379,7 +402,7 @@ const _facturarRemisionInternal = async ({ fac_nro_rem, usuario, fac_fec }) => {
       .input('FinalFacNro', sql.VarChar(20), FinalFacNro)
       .input('usuario', sql.VarChar(100), usuario)
       .input('fac_nro_woo', sql.VarChar(16), rem.fac_nro_woo)
-      .input('fac_obs', sql.VarChar(1024), `Factura de la remisión web ${rem.fac_nro} (pedido web #${rem.fac_nro_woo})`)
+      .input('fac_obs', sql.VarChar(1024), rem.fac_nro_woo ? `Factura de la remisión web ${rem.fac_nro} (pedido web #${rem.fac_nro_woo})` : `Factura de la remisión ${rem.fac_nro}`)
       .input('fac_est_woo', sql.VarChar(50), rem.fac_est_woo)
       .input('fac_descuento_general', sql.Decimal(17, 2), rem.fac_descuento_general || 0)
       .input('fac_total_woo', sql.Decimal(17, 2), rem.fac_total_woo)
@@ -393,29 +416,31 @@ const _facturarRemisionInternal = async ({ fac_nro_rem, usuario, fac_fec }) => {
            @fac_nro_woo, @fac_obs, @fac_est_woo, @fac_descuento_general, @fac_total_woo, @fac_nro_origen)
       `);
 
-    // 5. Líneas: copia fiel de la REM (bundles ya expandidos, precios y costos de la REM),
-    //    kar_nat '-' y trazabilidad a la REM como hace COT→VTA.
-    const lineas = await copiarLineasRemAVta(transaction, rem.fac_sec, NewFacSec);
-    if (lineas.filas === 0) throw new Error(`La remisión ${fac_nro_rem} no tiene líneas`);
+    // 5. Líneas: copia fiel de la REM (bundles ya expandidos, precios y costos de la REM) con
+    //    trazabilidad a la REM como hace COT→VTA. Naturaleza: 'R' en respaldo (la REM ya descontó,
+    //    SPEC-014 §5.1) o '-' en el relevo legado.
+    const lineas = await copiarLineasRemAVta(transaction, rem.fac_sec, NewFacSec, respaldo ? NATURALEZA.RESPALDADA : NATURALEZA.SALIDA);
+    if (lineas.filas === 0) throw errorNegocio(`La remisión ${fac_nro_rem} no tiene líneas`, 400);
 
-    // 6. REM → 'F' con el vínculo a la VTA (convención COT→VTA del ERP)
+    // 6. Vínculo en la REM (convención COT→VTA del ERP). Respaldo: la REM sigue 'A' (es el movimiento
+    //    de kardex), queda bloqueada por la VTA y deja de vencer. Relevo legado: REM → 'F'.
     const upd = await new sql.Request(transaction)
       .input('rem_sec', sql.Decimal(18, 0), rem.fac_sec)
       .input('vta', sql.NVarChar(15), FinalFacNro)
       .input('usuario', sql.VarChar(100), usuario)
       .query(`
         UPDATE dbo.factura
-        SET fac_est_fac = 'F',
+        SET ${respaldo ? "fac_vence_el = NULL," : "fac_est_fac = 'F',"}
             fac_nro_origen = @vta,
             fac_obs = LEFT(CONCAT(ISNULL(fac_obs, ''), ' | facturada en ', @vta), 1024),
             fac_usu_cod_mod = @usuario,
             fac_fch_mod = GETDATE()
         WHERE fac_sec = @rem_sec AND fac_est_fac = 'A'
       `);
-    if (upd.rowsAffected[0] !== 1) throw new Error(`La remisión ${fac_nro_rem} cambió de estado durante el relevo`);
+    if (upd.rowsAffected[0] !== 1) throw errorNegocio(`La remisión ${fac_nro_rem} cambió de estado durante la facturación`);
 
     await transaction.commit();
-    resultado = { ya_facturada: false, fac_nro_rem, fac_sec_vta: NewFacSec, fac_nro_vta: FinalFacNro, fac_nro_woo: rem.fac_nro_woo, art_secs: lineas.art_secs };
+    resultado = { ya_facturada: false, modelo: respaldo ? 'respaldo' : 'relevo', fac_nro_rem, fac_sec_vta: NewFacSec, fac_nro_vta: FinalFacNro, fac_nro_woo: rem.fac_nro_woo, art_secs: lineas.art_secs };
   } catch (e) {
     try { await transaction.rollback(); } catch (_) { /* ya revertida */ }
     throw e;
@@ -428,10 +453,11 @@ const _facturarRemisionInternal = async ({ fac_nro_rem, usuario, fac_fec }) => {
  * kar_nat '-' explícito; kar_kar_sec_ori / kar_fac_sec_ori apuntan a la línea y al documento
  * de la REM (misma trazabilidad que deja COT→VTA). Devuelve los art_sec distintos para el push.
  */
-const copiarLineasRemAVta = async (transaction, remSec, vtaSec) => {
+const copiarLineasRemAVta = async (transaction, remSec, vtaSec, karNat = NATURALEZA.SALIDA) => {
   const rs = await new sql.Request(transaction)
     .input('rem_sec', sql.Decimal(18, 0), remSec)
     .input('vta_sec', sql.Decimal(18, 0), vtaSec)
+    .input('kar_nat', sql.VarChar(1), karNat)
     .query(`
       INSERT INTO dbo.facturakardes
         (fac_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno,
@@ -439,7 +465,7 @@ const copiarLineasRemAVta = async (transaction, remSec, vtaSec) => {
          kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje,
          kar_codigo_promocion, kar_descripcion_promocion, kar_bundle_padre, kar_cos)
       OUTPUT INSERTED.art_sec
-      SELECT @vta_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, '-', kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno,
+      SELECT @vta_sec, kar_sec, art_sec, kar_bod_sec, kar_uni, @kar_nat, kar_pre_pub, kar_total, kar_lis_pre_cod, kar_des_uno,
              kar_sec, @rem_sec,
              kar_pre_pub_detal, kar_pre_pub_mayor, kar_tiene_oferta, kar_precio_oferta, kar_descuento_porcentaje,
              kar_codigo_promocion, kar_descripcion_promocion, kar_bundle_padre, kar_cos
@@ -450,8 +476,10 @@ const copiarLineasRemAVta = async (transaction, remSec, vtaSec) => {
 };
 
 /**
- * Relevo REM → VTA. Idempotente. Después del commit: push REM_FACTURADA (neto 0, re-afirma el
- * número sobre cualquier deriva de Woo) y, si la confirmación vino del ERP, pedido Woo → processing.
+ * REM → VTA (respaldo con SPEC-014; relevo si REM_FACTURA_SIN_KARDEX no es true). Idempotente.
+ * Sirve para REM de pedidos web y para REM manuales del POS (sin fac_nro_woo: sin Woo ni seguimiento).
+ * Después del commit: push REM_FACTURADA (neto 0, re-afirma el número sobre cualquier deriva de Woo)
+ * y, si la confirmación vino del ERP, pedido Woo → processing.
  *
  * @param {object} p
  * @param {string}  p.fac_nro_rem
@@ -473,9 +501,11 @@ export const facturarRemision = async ({ fac_nro_rem, usuario = 'SISTEMA', fac_f
       // igual: se registra el error y el pedido sigue "en espera" en Woo.
       post.estadoWoo = await actualizarEstadoPedidoWoo(r.fac_nro_woo, 'processing', `Pago confirmado en el ERP por ${usuario} (${r.fac_nro_vta})`);
     }
-    post.push = await sincronizarDocumentoWoo({ fac_nro: r.fac_nro_vta, origen: 'REM_FACTURADA', usuario });
+    // El push se resuelve por la REM: en respaldo la VTA tiene líneas 'R' (sin efecto en kardex) y lo que
+    // hay que re-afirmar en Woo es el número que ya descontó la remisión.
+    post.push = await sincronizarDocumentoWoo({ fac_nro: r.fac_nro_rem, origen: 'REM_FACTURADA', usuario });
     const wooFallo = notificarWoo && post.estadoWoo && !post.estadoWoo.ok;
-    try {
+    if (r.fac_nro_woo) try {
       await upsertWooPedido({
         woo_order_id: Number(r.fac_nro_woo),
         estado_erp: ESTADO_ERP.FACTURADO,
@@ -485,13 +515,30 @@ export const facturarRemision = async ({ fac_nro_rem, usuario = 'SISTEMA', fac_f
         woo_status: notificarWoo && post.estadoWoo?.ok ? 'processing' : undefined, // el job lo confirmará en el siguiente ciclo
         // Si Woo no aceptó el cambio de estado, queda visible en la pantalla; el pedido sigue "en espera" en Woo.
         error: wooFallo ? `Factura ${r.fac_nro_vta} creada, pero el pedido Woo no pasó a processing: ${post.estadoWoo.error}` : null,
-        ultima_accion: `Relevo ${r.fac_nro_rem} → ${r.fac_nro_vta} por ${usuario}${notificarWoo ? (wooFallo ? ' (Woo NO actualizado)' : ' (pedido Woo → processing)') : ''}`
+        ultima_accion: `${r.modelo === 'respaldo' ? 'Facturada' : 'Relevo'} ${r.fac_nro_rem} → ${r.fac_nro_vta} por ${usuario}${notificarWoo ? (wooFallo ? ' (Woo NO actualizado)' : ' (pedido Woo → processing)') : ''}`
       });
     } catch (e) {
       console.error('[PEDIDOS_WEB] woo_pedidos no actualizado tras facturar:', e.message);
     }
   }
   return { ...r, ...post };
+};
+
+/**
+ * SPEC-014 §5.5: una VTA respaldada se anuló (orderModel.anularDocumento). La REM sigue activa y
+ * descontando; aquí solo se actualiza el seguimiento del pedido web para que la pantalla lo muestre.
+ */
+export const registrarVtaAnulada = async ({ fac_nro_vta, fac_nro_rem, fac_nro_woo, usuario = null }) => {
+  if (!fac_nro_woo) return null;
+  await upsertWooPedido({
+    woo_order_id: Number(fac_nro_woo),
+    estado_erp: ESTADO_ERP.REM_ACTIVA,
+    fac_nro_rem: fac_nro_rem || undefined,
+    fac_nro_vta: null,
+    error: null,
+    ultima_accion: `Factura ${fac_nro_vta} anulada${usuario ? ` por ${usuario}` : ''}; ${fac_nro_rem || 'la REM'} sigue activa y reservando (sin vencimiento automático)`
+  });
+  return { fac_nro_woo, fac_nro_rem };
 };
 
 /**
@@ -522,7 +569,10 @@ export const anularRemision = async ({ fac_nro_rem, motivo, usuario = 'SISTEMA',
   if (rs.recordset.length === 0) throw new Error(`Remisión ${fac_nro_rem} no existe`);
   const rem = rs.recordset[0];
   if (rem.fac_est_fac === 'I') return { ya_anulada: true, fac_nro_rem, fac_nro_woo: rem.fac_nro_woo };
-  if (rem.fac_est_fac === 'F') throw new Error(`La remisión ${fac_nro_rem} ya fue facturada en ${rem.fac_nro_origen}; anule la factura con criterio contable`);
+  if (rem.fac_est_fac === 'F') throw errorNegocio(`La remisión ${fac_nro_rem} ya fue facturada en ${rem.fac_nro_origen}; anule la factura con criterio contable`);
+  // SPEC-014 §2.6: con VTA activa cruzada (respaldo) la REM está bloqueada.
+  const destino = await destinoActivo(pool, { fac_sec: Number(rem.fac_sec) });
+  if (destino) throw errorNegocio(`La remisión ${fac_nro_rem} está facturada en ${destino.fac_nro} (activa); anule primero la factura`);
 
   // ORDEN IMPORTANTE: primero Woo, después el ERP. Al cancelar, Woo devuelve stock por su cuenta
   // (wc_maybe_increase_stock_levels); si el ERP empujara antes, ese incremento posterior dejaría
@@ -539,7 +589,7 @@ export const anularRemision = async ({ fac_nro_rem, motivo, usuario = 'SISTEMA',
   const obs = `Anulada: ${motivo || 'sin motivo'}${usuario ? ` (${usuario})` : ''}`;
   const { anularDocumento } = await orderModel();
   const anulada = await anularDocumento({ fac_nro: fac_nro_rem, fac_tip_cod: 'REM', fac_obs: obs.slice(0, 1024), usuario });
-  try {
+  if (rem.fac_nro_woo) try {
     await upsertWooPedido({
       woo_order_id: Number(rem.fac_nro_woo),
       estado_erp: ESTADO_ERP.ANULADO,
@@ -639,4 +689,4 @@ export const contarPedidosWebPorEstado = async () => {
   return out;
 };
 
-export const calcularVencimiento = (desde = new Date()) => new Date(desde.getTime() + diasVencimiento() * 24 * 60 * 60 * 1000);
+export const calcularVencimiento = calcularVencimientoRem;

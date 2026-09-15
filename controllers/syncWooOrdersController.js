@@ -172,7 +172,7 @@ const validateOrder = async (wooOrderNumber) => {
                 SELECT COUNT(*) as invoice_count
                 FROM dbo.facturakardes k
                 WHERE k.kar_fac_sec_ori = @fac_sec
-                AND k.kar_nat = '-'
+                AND k.kar_nat IN ('-', 'R') -- SPEC-014
                 AND k.kar_uni > 0
             `);
         

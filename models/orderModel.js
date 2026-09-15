@@ -1,9 +1,16 @@
 // models/orderModel.js
 
 import { sql, poolPromise } from "../db.js";
-import { sincronizarExistenciasWoo, actualizarEstadoPedidoWoo, determinarEstadoWooAlFacturar } from "../services/wooStockService.js";
+import { sincronizarExistenciasWoo, sincronizarDocumentoWoo, actualizarEstadoPedidoWoo, determinarEstadoWooAlFacturar, agregarNotaPedidoWoo } from "../services/wooStockService.js";
 import { obtenerCostosPromedioMultiples } from "../utils/costoUtils.js";
 import { ejecutarConAutoRecuperacion } from "../utils/secuenciaUtils.js";
+import { NATURALEZA, naturalezaKardex, calcularVencimientoRem, destinoActivo, errorNegocio } from "../utils/documentosUtils.js";
+
+/**
+ * pedidosWebModel se carga en diferido (misma razón que en pedidosWebModel → orderModel):
+ * un import estático metería este módulo en el grafo ESM de index.js y Node 23 rompe el arranque.
+ */
+const pedidosWebModel = () => import('./pedidosWebModel.js');
 
 /**
  * Normaliza el estado de WooCommerce para consistencia en la base de datos
@@ -86,13 +93,13 @@ const postCommitVentaWoo = async ({ detalles, fac_nro, fac_nro_woo, origen = 'VT
   return resultado;
 };
 
-const expandirBundles = async (pool, detalles, fac_tip_cod = null) => {
+const expandirBundles = async (pool, detalles, karNat = NATURALEZA.SALIDA) => {
   /** art_sec que ya se añadieron como componentes de un bundle (evita duplicar al pasar COT→VTA) */
   const componentesYaAnadidos = new Set();
   const detallesExpandidos = [];
-  
-  // kar_nat por defecto: 'C' para cotizaciones (no afecta kardex), '-' para ventas
-  const karNatDefault = fac_tip_cod === 'COT' ? 'C' : '-';
+
+  // SPEC-014 §5.1: la naturaleza la decide el documento (naturalezaKardex), no cada línea del
+  // payload. Componentes y padres de bundle la heredan tal cual; lo que traiga detalle.kar_nat se ignora.
 
   // Primera pasada: solo expandir bundles (así no importa el orden bundle/componentes en la lista)
   for (const detalle of detalles) {
@@ -108,7 +115,7 @@ const expandirBundles = async (pool, detalles, fac_tip_cod = null) => {
     detallesExpandidos.push({
       ...detalle,
       kar_bundle_padre: null,
-      kar_nat: detalle.kar_nat || karNatDefault
+      kar_nat: karNat
     });
 
     const componentes = await pool.request()
@@ -120,7 +127,6 @@ const expandirBundles = async (pool, detalles, fac_tip_cod = null) => {
       `);
 
     const karUniBase = Number(detalle.kar_uni) || 1;
-    const karNat = detalle.kar_nat || karNatDefault;
 
     for (const comp of (componentes.recordset || [])) {
       const compSec = comp.ComArtSec != null ? String(comp.ComArtSec) : '';
@@ -162,34 +168,117 @@ const expandirBundles = async (pool, detalles, fac_tip_cod = null) => {
 
     detallesExpandidos.push({
       ...detalle,
-      kar_bundle_padre: detalle.kar_bundle_padre ?? null
+      kar_bundle_padre: detalle.kar_bundle_padre ?? null,
+      kar_nat: karNat
     });
   }
 
   return detallesExpandidos;
 };
 
+/**
+ * SPEC-014 §2.2 / §5.3 — documentos de origen de un lote de líneas (kar_fac_sec_ori).
+ * Valida que un COT/REM/VTA nuevo o editado solo pueda cruzarse con una COT activa y libre:
+ *   - una VTA no nace de una REM por aquí (solo facturarRemision, con naturaleza 'R');
+ *   - la COT de origen debe estar activa y sin destino activo (no se factura/remisiona dos veces).
+ * Devuelve las COT de origen [{ fac_sec, fac_nro }] para estampar el vínculo en ambas cabeceras.
+ * @param {sql.Transaction} transaction
+ * @param {string} fac_tip_cod  tipo del documento que se está creando/editando
+ * @param {Array} detalles      líneas del payload
+ * @param {number|null} [fac_sec_propio]  al editar: el propio documento no cuenta como "destino"
+ */
+const validarOrigenes = async (transaction, fac_tip_cod, detalles, fac_sec_propio = null) => {
+  const secs = [...new Set((detalles || []).map((d) => d.kar_fac_sec_ori).filter((v) => v != null && v !== '').map((v) => String(v)))];
+  if (secs.length === 0) return [];
+  const req = new sql.Request(transaction);
+  const params = secs.map((v, i) => { req.input(`o${i}`, sql.Decimal(18, 0), Number(v)); return `@o${i}`; });
+  const rs = await req.query(`SELECT fac_sec, fac_nro, fac_tip_cod, fac_est_fac FROM dbo.factura WHERE fac_sec IN (${params.join(',')})`);
+  // Al editar, el propio documento ya puede ser el destino estampado en la COT: no es un cruce doble.
+  let propioNro = null;
+  if (fac_sec_propio != null) {
+    const p = await new sql.Request(transaction).input('s', sql.Decimal(18, 0), Number(fac_sec_propio)).query('SELECT fac_nro FROM dbo.factura WHERE fac_sec = @s');
+    propioNro = p.recordset[0]?.fac_nro || null;
+  }
+  const origenes = [];
+  for (const o of rs.recordset) {
+    if (o.fac_tip_cod === 'REM') {
+      throw errorNegocio(`Una factura o remisión no puede nacer de la remisión ${o.fac_nro} por este camino; use POST /api/pedidos-web/${o.fac_nro}/facturar (la REM ya descontó kardex)`, 400);
+    }
+    if (o.fac_tip_cod !== 'COT') continue; // vínculos VTA→VTA (edición de factura) no son cruces de documentos
+    if (fac_tip_cod === 'COT') continue;    // guardar una COT no la cruza consigo misma
+    if (o.fac_est_fac !== 'A') throw errorNegocio(`La cotización ${o.fac_nro} no está activa (estado ${o.fac_est_fac}); no se puede ${fac_tip_cod === 'REM' ? 'remisionar' : 'facturar'}`);
+    const destino = await destinoActivo(transaction, { fac_sec: Number(o.fac_sec) });
+    if (destino && destino.fac_nro !== propioNro) {
+      throw errorNegocio(`La cotización ${o.fac_nro} ya fue cruzada con ${destino.fac_nro} (${destino.fac_tip_cod} activa); anúlela primero`);
+    }
+    origenes.push({ fac_sec: Number(o.fac_sec), fac_nro: o.fac_nro });
+  }
+  return origenes;
+};
 
 
 
-const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_fec, fac_descuento_general, fac_est_woo }) => {
+
+/**
+ * Edita las líneas (y cabecera comercial) de un documento existente.
+ *
+ * SPEC-014:
+ *  - El tipo es el REAL del documento; `fac_tip_cod` del payload solo se valida (nunca convierte
+ *    una REM en COT ni viceversa). La naturaleza de las líneas la decide el tipo (§5.1).
+ *  - Bloqueos (§2.2 / §9.2): documento no activo; documento cruzado con un destino activo
+ *    (COT con REM/VTA, REM con VTA); VTA respaldada por remisión (líneas 'R').
+ *  - REM de un pedido Woo: se delega en pedidosWebModel.editarLineasRemisionWoo (Woo primero);
+ *    esa función vuelve a llamar aquí con `sinPropagarWoo: true` para la escritura local.
+ *  - Push tras el commit por el punto único: VTA → estado + stock; REM → REM_EDITADA con la unión
+ *    de artículos anteriores y nuevos (los que salieron recuperan stock en Woo).
+ * @param {string} [usuario]  usu_cod de quien edita (log del push y nota en Woo)
+ */
+const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_fec, fac_descuento_general, fac_est_woo, usuario = null, sinPropagarWoo = false }) => {
   let transaction;
   try {
     const pool = await poolPromise;
-    // 1. Buscar el fac_sec correspondiente al fac_nro y obtener el estado actual
+    // 1. Cabecera real del documento
     const headerRes = await pool.request()
       .input('fac_nro', sql.VarChar(15), fac_nro)
-      .query('SELECT fac_sec, fac_est_woo FROM dbo.factura WHERE fac_nro = @fac_nro');
+      .query('SELECT fac_sec, fac_tip_cod, fac_est_fac, fac_est_woo, fac_nro_woo, fac_obs, fac_nro_origen FROM dbo.factura WHERE fac_nro = @fac_nro');
     if (headerRes.recordset.length === 0) {
-      throw new Error("Pedido no encontrado.");
+      throw errorNegocio("Pedido no encontrado.", 404);
     }
-    const fac_sec = headerRes.recordset[0].fac_sec;
-    const currentStatus = headerRes.recordset[0].fac_est_woo;
-    
+    const cab = headerRes.recordset[0];
+    const fac_sec = cab.fac_sec;
+    const tipoReal = cab.fac_tip_cod;
+    const currentStatus = cab.fac_est_woo;
+
+    if (fac_tip_cod && fac_tip_cod !== tipoReal) {
+      throw errorNegocio(`${fac_nro} es una ${tipoReal}; no se puede guardar como ${fac_tip_cod}. Para pasarla a otro documento use REMISIONAR / FACTURAR.`, 400);
+    }
+    if (cab.fac_est_fac !== 'A') {
+      throw errorNegocio(`${fac_nro} no está activa (estado ${cab.fac_est_fac}); no se puede editar.`);
+    }
+    const destino = await destinoActivo(pool, { fac_sec: Number(fac_sec) });
+    if (destino) {
+      throw errorNegocio(`${fac_nro} está cruzada con ${destino.fac_nro} (${destino.fac_tip_cod} activa) y no se puede editar; anule ${destino.fac_nro} primero.`);
+    }
+    // Líneas actuales: naturaleza (VTA respaldada) y artículos anteriores (push de la unión en REM)
+    const lineasPrevias = await pool.request()
+      .input('fac_sec', sql.Decimal(18, 0), fac_sec)
+      .query('SELECT art_sec, kar_nat FROM dbo.facturakardes WHERE fac_sec = @fac_sec');
+    if (tipoReal === 'VTA' && lineasPrevias.recordset.some((l) => l.kar_nat === NATURALEZA.RESPALDADA)) {
+      throw errorNegocio(`${fac_nro} nació de la remisión ${cab.fac_nro_origen || ''} y no se edita por líneas: anule la factura, edite la remisión y vuelva a facturar.`);
+    }
+    const artSecsPrevios = [...new Set(lineasPrevias.recordset.map((l) => String(l.art_sec)))];
+
+    // REM de un pedido web: Woo primero (spec §5.4). editarLineasRemisionWoo vuelve a llamar con sinPropagarWoo.
+    if (tipoReal === 'REM' && cab.fac_nro_woo && !sinPropagarWoo) {
+      const { editarLineasRemisionWoo } = await pedidosWebModel();
+      return editarLineasRemisionWoo({ fac_nro_rem: fac_nro, nit_sec, detalles, descuento, fac_descuento_general, usuario });
+    }
+
+    const karNat = naturalezaKardex(tipoReal);
     // Si se proporciona fac_est_woo, usarlo; de lo contrario, mantener el estado actual
     const newStatus = fac_est_woo !== undefined ? fac_est_woo : currentStatus;
-    
-    console.log(`[UPDATE_ORDER] Estado actual del pedido ${fac_nro}:`, {
+
+    console.log(`[UPDATE_ORDER] ${fac_nro} (${tipoReal}) estado Woo:`, {
       currentStatus: currentStatus,
       willUpdateTo: newStatus
     });
@@ -198,29 +287,30 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
     transaction = new sql.Transaction(pool);
     await transaction.begin();
 
-    // 3. Actualizar el encabezado en la tabla factura con un nuevo Request
-    // NOTA: NO normalizamos el estado aquí para que determineWooCommerceStatus pueda detectar correctamente el entorno
+    // 3. Actualizar el encabezado. fac_nro_woo / fac_obs se conservan si el payload no los trae
+    //    (antes un PUT sin fac_obs borraba la observación).
     const updateHeaderQuery = `
       UPDATE dbo.factura
-      SET fac_tip_cod = @fac_tip_cod,
-          nit_sec = @nit_sec,
+      SET nit_sec = @nit_sec,
           fac_est_fac = @fac_est_fac,
-          fac_nro_woo = @fac_nro_woo,
-          fac_obs = @fac_obs,
-          fac_est_woo = @fac_est_woo
+          fac_nro_woo = COALESCE(@fac_nro_woo, fac_nro_woo),
+          fac_obs = COALESCE(@fac_obs, fac_obs),
+          fac_est_woo = @fac_est_woo,
+          fac_usu_cod_mod = COALESCE(@usuario, fac_usu_cod_mod),
+          fac_fch_mod = GETDATE()
           ${fac_fec ? ', fac_fec = @fac_fec' : ''}
           ${fac_descuento_general !== undefined ? ', fac_descuento_general = @fac_descuento_general' : ''}
-      WHERE fac_sec = @fac_sec
+      WHERE fac_sec = @fac_sec AND fac_est_fac = 'A'
     `;
 
     const updateHeaderRequest = new sql.Request(transaction);
     updateHeaderRequest
-      .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
       .input('nit_sec', sql.VarChar(16), nit_sec)
-      .input('fac_est_fac', sql.Char(1), fac_est_fac)
+      .input('fac_est_fac', sql.Char(1), fac_est_fac || 'A')
       .input('fac_sec', sql.Decimal(18, 0), fac_sec)
-      .input('fac_nro_woo', sql.VarChar(15), fac_nro_woo)
-      .input('fac_obs', sql.VarChar, fac_obs)
+      .input('fac_nro_woo', sql.VarChar(15), fac_nro_woo || null)
+      .input('fac_obs', sql.VarChar, fac_obs ?? null)
+      .input('usuario', sql.VarChar(100), usuario)
       .input('fac_est_woo', sql.VarChar(50), newStatus); // Usar el nuevo estado o mantener el actual
 
     // Solo agregar el parámetro de fecha si se proporciona
@@ -233,10 +323,14 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
       updateHeaderRequest.input('fac_descuento_general', sql.Decimal(17, 2), fac_descuento_general);
     }
 
-    await updateHeaderRequest.query(updateHeaderQuery);
+    const updHeader = await updateHeaderRequest.query(updateHeaderQuery);
+    if (updHeader.rowsAffected[0] !== 1) throw errorNegocio(`${fac_nro} cambió de estado mientras se editaba; vuelva a cargarla.`);
 
     // 4. Expandir bundles antes de eliminar detalles (para mantener consistencia con createCompleteOrder)
-    const detallesExpandidos = await expandirBundles(pool, detalles, fac_tip_cod);
+    const detallesExpandidos = await expandirBundles(pool, detalles, karNat);
+    // SPEC-014 §2.2: al re-guardar una VTA que nació de una COT, esa COT sigue siendo su origen
+    // (no es un cruce doble); una REM como origen se rechaza aquí igual que al crear.
+    await validarOrigenes(transaction, tipoReal, detallesExpandidos, Number(fac_sec));
 
     // 4.1 Obtener costos promedio de todos los artículos en una sola query
     const art_secs = detallesExpandidos.map(d => String(d.art_sec));
@@ -432,8 +526,8 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
         .input('fac_sec', sql.Decimal(18, 0), fac_sec)
         .input('NewKarSec', sql.Int, newKarSec)
         .input('art_sec', sql.VarChar(50), detail.art_sec)
-        // kar_nat: 'C' para cotizaciones (no afecta kardex), usar el del detalle o por defecto según fac_tip_cod
-        .input('kar_nat', sql.VarChar(1), detail.kar_nat || (fac_tip_cod === 'COT' ? 'C' : '-'))
+        // SPEC-014 §5.1: naturaleza del documento (expandirBundles ya la puso en cada línea).
+        .input('kar_nat', sql.VarChar(1), detail.kar_nat || karNat)
         .input('kar_uni', sql.Decimal(17, 2), detail.kar_uni)
         .input('kar_pre_pub', sql.Decimal(17, 2), detail.kar_pre_pub)
         .input('kar_lis_pre_cod', sql.Int, detail.kar_lis_pre_cod)
@@ -480,12 +574,21 @@ const updateOrder = async ({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalle
 
     await transaction.commit();
 
-    // Si se confirma como factura (fac_tip_cod = 'VTA'): stock + estado del pedido en WooCommerce (post-commit, punto único)
-    if (fac_tip_cod === 'VTA') {
-      await postCommitVentaWoo({ detalles, fac_nro, fac_nro_woo, origen: 'VTA' });
+    // Post-commit, punto único. VTA: stock + estado del pedido Woo. REM: stock de la unión de artículos
+    // (los que salieron de la remisión recuperan existencia en Woo), origen REM_EDITADA.
+    let push = null;
+    if (tipoReal === 'VTA') {
+      push = await postCommitVentaWoo({ detalles, fac_nro, fac_nro_woo: fac_nro_woo || cab.fac_nro_woo, origen: 'VTA', usuario });
+    } else if (tipoReal === 'REM') {
+      const art_secs = [...new Set([...artSecsPrevios, ...detallesExpandidos.map((d) => String(d.art_sec))])];
+      try {
+        push = await sincronizarExistenciasWoo({ art_secs, origen: 'REM_EDITADA', referencia: fac_nro, usuario });
+      } catch (e) {
+        console.error(`[WOO] push tras editar ${fac_nro} falló:`, e.message);
+      }
     }
 
-    return { message: "Pedido actualizado exitosamente." };
+    return { message: "Pedido actualizado exitosamente.", fac_nro, fac_tip_cod: tipoReal, push };
   } catch (error) {
     if (transaction) {
       try {
@@ -532,12 +635,16 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
         f.fac_est_fac,
         SUM(fd.kar_total) - ISNULL(MAX(f.fac_descuento_general), 0) AS total_pedido,
         ISNULL(MAX(f.fac_descuento_general), 0) AS descuento_general,
+        -- SPEC-014 §5.2: documento activo de tipo posterior cruzado con este (COT → REM/VTA, REM → VTA).
+        -- Con valor, el documento está bloqueado (no se edita ni se anula).
         (SELECT STRING_AGG(fac_nro_origen, ', ')
          FROM (SELECT DISTINCT f.fac_nro_origen
                FROM factura f2
                WHERE f2.fac_nro = f.fac_nro_origen
                AND f2.fac_est_fac = 'A'
-               AND f2.fac_tip_cod = 'VTA') AS docs) as documentos,
+               AND ((f.fac_tip_cod = 'COT' AND f2.fac_tip_cod IN ('REM', 'VTA'))
+                 OR (f.fac_tip_cod = 'REM' AND f2.fac_tip_cod = 'VTA'))) AS docs) as documentos,
+        f.fac_vence_el,
         f.fac_usu_cod_cre,
         -- Rentabilidad real de la factura
         SUM(fd.kar_uni * ISNULL(fd.kar_cos, 0)) AS costo_total_factura,
@@ -564,7 +671,7 @@ const getOrdenes = async ({ FechaDesde, FechaHasta, nit_ide, nit_nom, fac_nro, f
       AND (@fac_nro_woo IS NULL OR f.fac_nro_woo = @fac_nro_woo)
       AND (@fac_est_fac IS NULL OR f.fac_est_fac = @fac_est_fac)
     GROUP BY 
-        f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_woo, f.fac_est_fac, f.fac_nro_origen, f.fac_usu_cod_cre, f.fac_sec
+        f.fac_fec, n.nit_ide, n.nit_nom, f.fac_nro, f.fac_tip_cod, f.fac_nro_woo, f.fac_est_woo, f.fac_est_fac, f.fac_nro_origen, f.fac_usu_cod_cre, f.fac_sec, f.fac_vence_el
     ORDER BY f.fac_fec DESC, f.fac_nro  ASC
     OFFSET (@PageNumber - 1) * @PageSize ROWS
     FETCH NEXT @PageSize ROWS ONLY;
@@ -608,6 +715,9 @@ const getOrder = async (fac_nro) => {
         f.fac_descuento_general,
         f.fac_total_woo,
         f.fac_obs,
+        f.fac_est_woo,
+        f.fac_nro_origen,
+        f.fac_vence_el,
         c.ciu_nom
       FROM dbo.factura f
       LEFT JOIN dbo.nit n ON n.nit_sec = f.nit_sec
@@ -624,6 +734,14 @@ const getOrder = async (fac_nro) => {
 
     const header = headerResult.recordset[0];
     const fac_sec = header.fac_sec;
+
+    // SPEC-014 §5.2: bloqueo por vínculo y documento del que nace, para que el POS muestre lo que puede hacer.
+    const destino = await destinoActivo(pool, { fac_sec: Number(fac_sec) });
+    header.bloqueado = !!destino;
+    header.bloqueado_por = destino ? destino.fac_nro : null;
+    header.bloqueado_por_tipo = destino ? destino.fac_tip_cod : null;
+    // "origen" = el documento anterior cruzado (COT de una REM/VTA; REM de una VTA): distinto del destino.
+    header.origen = header.fac_nro_origen && !(destino && destino.fac_nro === header.fac_nro_origen) ? header.fac_nro_origen : null;
 
     // Consulta de los detalles, usando los campos guardados en facturakardes
     const detailQuery = `
@@ -662,6 +780,8 @@ const getOrder = async (fac_nro) => {
           ELSE 0
         END AS rentabilidad_real,
         vw.existencia,
+        -- SPEC-014 §5.10: lo que puede vender este documento = existencia + lo que él mismo ya descontó
+        CASE WHEN fd.kar_nat = '-' THEN ISNULL(vw.existencia, 0) + fd.kar_uni ELSE ISNULL(vw.existencia, 0) END AS existencia_disponible,
         a.art_cod,
 		    a.art_nom,
         a.art_url_img_servi,
@@ -712,18 +832,28 @@ const _createCompleteOrderInternal = async ({
   // SPEC-013 Fase 2 (remisiones web): el importador crea la REM con el estado y el total del
   // pedido Woo ya conocidos. Opcionales: el resto de caminos (POS, COT→VTA) no los mandan.
   fac_est_woo = null,
-  fac_total_woo = null
+  fac_total_woo = null,
+  // SPEC-014: vencimiento de la REM (undefined → hoy + REM_DIAS_VENCIMIENTO; null → sin vencimiento)
+  // y si esta función debe empujar la REM a Woo (crearRemision ya lo hace por su cuenta).
+  fac_vence_el = undefined,
+  pushWoo = true
 }) => {
   let transaction;
   try {
     const pool = await poolPromise;
+    if (!['COT', 'REM', 'VTA'].includes(fac_tip_cod)) throw errorNegocio(`Tipo de documento no soportado: ${fac_tip_cod}`, 400);
+    // SPEC-014 §5.1: la naturaleza la decide el tipo, nunca el payload (COT 'C', REM/VTA '-').
+    const karNat = naturalezaKardex(fac_tip_cod);
     // expandirBundles evita duplicar componentes: si llegan bundle + componentes (COT→VTA),
     // las líneas que ya fueron añadidas como componentes se omiten.
-    // Pasar fac_tip_cod para que use 'C' en cotizaciones (no afecta kardex)
-    const detallesExpandidos = await expandirBundles(pool, detalles, fac_tip_cod);
+    const detallesExpandidos = await expandirBundles(pool, detalles, karNat);
 
     transaction = new sql.Transaction(pool);
     await transaction.begin();
+
+    // SPEC-014 §2.2: origen (COT) activo y libre; nunca una REM por este camino.
+    const origenes = await validarOrigenes(transaction, fac_tip_cod, detallesExpandidos);
+    const cotOrigen = origenes.length === 1 ? origenes[0] : null;
 
     // Validación previa para facturas de venta
     if (fac_tip_cod === 'VTA' && fac_nro_woo) {
@@ -747,8 +877,8 @@ const _createCompleteOrderInternal = async ({
 
     // Remisión web (SPEC-013): una sola REM vigente (activa o ya facturada) por pedido Woo.
     // El índice UX_factura_woo_vigente lo garantiza en BD; esta validación da un error legible.
-    if (fac_tip_cod === 'REM') {
-      if (!fac_nro_woo) throw new Error('Una remisión web (REM) requiere fac_nro_woo');
+    // SPEC-014: una REM manual (POS) no tiene fac_nro_woo y no pasa por aquí.
+    if (fac_tip_cod === 'REM' && fac_nro_woo) {
       const remRes = await new sql.Request(transaction)
         .input('fac_nro_woo', sql.VarChar(16), String(fac_nro_woo))
         .query(`
@@ -804,11 +934,13 @@ const _createCompleteOrderInternal = async ({
     const FinalFacNro = fac_tip_cod + String(NewConsecFacNro);
 
     // 4. Insertar el encabezado en la tabla factura
+    // SPEC-014: fac_vence_el solo para REM (spec §2.5); fac_nro_origen = COT de la que nace (§2.2).
+    const venceEl = fac_tip_cod === 'REM' ? (fac_vence_el === undefined ? calcularVencimientoRem() : fac_vence_el) : null;
     const insertHeaderQuery = `
       INSERT INTO dbo.factura 
-        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs, fac_est_woo, fac_descuento_general, fac_total_woo)
+        (fac_sec, fac_fec, f_tip_cod, fac_tip_cod, nit_sec, fac_nro, fac_est_fac, fac_fch_cre, fac_usu_cod_cre, fac_nro_woo, fac_obs, fac_est_woo, fac_descuento_general, fac_total_woo, fac_vence_el, fac_nro_origen)
       VALUES
-        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs, @fac_est_woo, @fac_descuento_general, @fac_total_woo);
+        (@NewFacSec, @fac_fec, @fac_tip_cod, @fac_tip_cod, @nit_sec, @FinalFacNro, 'A', GETDATE(), @fac_usu_cod_cre, @fac_nro_woo, @fac_obs, @fac_est_woo, @fac_descuento_general, @fac_total_woo, @fac_vence_el, @fac_nro_origen);
     `;
     await request.input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
       .input('fac_tip_cod', sql.VarChar(5), fac_tip_cod)
@@ -821,6 +953,8 @@ const _createCompleteOrderInternal = async ({
       .input('fac_est_woo', sql.VarChar(50), fac_est_woo ?? null) // null salvo que lo mande el importador (REM)
       .input('fac_descuento_general', sql.Decimal(17, 2), fac_descuento_general || 0) // Usar el valor proporcionado o 0 por defecto
       .input('fac_total_woo', sql.Decimal(17, 2), fac_total_woo != null && Number(fac_total_woo) > 0 ? Number(fac_total_woo) : null)
+      .input('fac_vence_el', sql.DateTime2(0), venceEl)
+      .input('fac_nro_origen', sql.NVarChar(15), cotOrigen ? cotOrigen.fac_nro : null)
       .query(insertHeaderQuery);
 
     // 4.5 Obtener costos promedio de todos los artículos en una sola query
@@ -978,10 +1112,8 @@ const _createCompleteOrderInternal = async ({
       insertRequest.input('fac_sec', sql.Decimal(18, 0), NewFacSec);
       insertRequest.input('NewKarSec', sql.Int, NewKarSec);
       insertRequest.input('art_sec', sql.VarChar(30), detalle.art_sec);
-      // kar_nat: 'C' para cotizaciones (no afecta kardex), '-' para ventas, '+' para entradas
-      // Las cotizaciones (COT) NO deben afectar el inventario/kardex
-      const karNatDefault = fac_tip_cod === 'COT' ? 'C' : '-';
-      insertRequest.input('kar_nat', sql.VarChar(1), detalle.kar_nat || karNatDefault);
+      // SPEC-014 §5.1: naturaleza del documento (expandirBundles ya la puso en cada línea).
+      insertRequest.input('kar_nat', sql.VarChar(1), detalle.kar_nat || karNat);
       insertRequest.input('kar_uni', sql.Decimal(17, 2), detalle.kar_uni);
       insertRequest.input('kar_pre_pub', sql.Decimal(17, 2), detalle.kar_pre_pub);
       insertRequest.input('kar_des_uno', sql.Decimal(11, 5), kar_des_uno_create);
@@ -1037,32 +1169,34 @@ const _createCompleteOrderInternal = async ({
            @kar_pre_pub_detal, @kar_pre_pub_mayor, @kar_tiene_oferta, @kar_precio_oferta, @kar_descuento_porcentaje, @kar_codigo_promocion, @kar_descripcion_promocion, @kar_bundle_padre, @kar_cos)
       `;
       await insertRequest.query(insertDetailQuery);
+    }
 
-      // Si existe kar_fac_sec_ori, actualizar fac_nro_origen en la tabla factura
-      if (detalle.kar_fac_sec_ori && fac_tip_cod === 'VTA') {
-        const updateOriginRequest = new sql.Request(transaction);
-        const updateOriginQuery = `
-          UPDATE f
-          SET f.fac_nro_origen = @FinalFacNro
-          FROM dbo.factura f
-          WHERE f.fac_sec = @kar_fac_sec_ori
-            AND f.fac_tip_cod = 'COT'
-        `;
-        await updateOriginRequest
-          .input('kar_fac_sec_ori', sql.Decimal(18, 0), detalle.kar_fac_sec_ori)
-          .input('FinalFacNro', sql.VarChar(20), FinalFacNro)
-          .query(updateOriginQuery);
+    // 6. Cruce con la cotización de origen (SPEC-014 §2.2): la COT queda apuntando a este documento
+    //    (REM o VTA) y desde ese momento está bloqueada mientras este siga activo.
+    if (fac_tip_cod !== 'COT') {
+      for (const o of origenes) {
+        await new sql.Request(transaction)
+          .input('cot_sec', sql.Decimal(18, 0), o.fac_sec)
+          .input('FinalFacNro', sql.NVarChar(15), FinalFacNro)
+          .query(`UPDATE dbo.factura SET fac_nro_origen = @FinalFacNro WHERE fac_sec = @cot_sec AND fac_tip_cod = 'COT'`);
       }
     }
 
     await transaction.commit();
 
-    // Si se confirma como factura (fac_tip_cod = 'VTA'): stock + estado del pedido en WooCommerce (post-commit, punto único)
+    // Post-commit, punto único (SPEC-013). VTA: stock + estado del pedido Woo. REM: stock (REM_CREADA).
+    let push = null;
     if (fac_tip_cod === 'VTA') {
-      await postCommitVentaWoo({ detalles, fac_nro: FinalFacNro, fac_nro_woo, origen: 'VTA', usuario: fac_usu_cod_cre });
+      push = await postCommitVentaWoo({ detalles, fac_nro: FinalFacNro, fac_nro_woo, origen: 'VTA', usuario: fac_usu_cod_cre });
+    } else if (fac_tip_cod === 'REM' && pushWoo) {
+      try {
+        push = await sincronizarDocumentoWoo({ fac_nro: FinalFacNro, origen: 'REM_CREADA', usuario: fac_usu_cod_cre });
+      } catch (e) {
+        console.error(`[WOO] push tras ${FinalFacNro} falló:`, e.message);
+      }
     }
 
-    return { fac_sec: NewFacSec, fac_nro: FinalFacNro };
+    return { fac_sec: NewFacSec, fac_nro: FinalFacNro, fac_vence_el: venceEl, fac_nro_origen: cotOrigen ? cotOrigen.fac_nro : null, push };
   } catch (error) {
     if (transaction) {
       try {
@@ -1087,18 +1221,26 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs, usuario = null }
     const headerRes = await pool.request()
       .input('fac_nro', sql.VarChar(15), fac_nro)
       .query(`
-        SELECT fac_sec, fac_nro_woo, fac_fec, fac_est_woo, fac_est_fac, fac_tip_cod AS tipo_real
+        SELECT fac_sec, fac_nro_woo, fac_fec, fac_est_woo, fac_est_fac, fac_tip_cod AS tipo_real, fac_nro_origen
         FROM dbo.factura 
         WHERE fac_nro = @fac_nro
       `);
 
     if (headerRes.recordset.length === 0) {
-      throw new Error("Documento no encontrado.");
+      throw errorNegocio("Documento no encontrado.", 404);
     }
 
-    const { fac_sec, fac_nro_woo, fac_fec, fac_est_woo, fac_est_fac, tipo_real } = headerRes.recordset[0];
+    const { fac_sec, fac_nro_woo, fac_fec, fac_est_woo, fac_est_fac, tipo_real, fac_nro_origen } = headerRes.recordset[0];
     if (fac_est_fac !== 'A') {
-      throw new Error(`El documento ${fac_nro} no está activo (estado ${fac_est_fac}); no se puede anular.`);
+      throw errorNegocio(`El documento ${fac_nro} no está activo (estado ${fac_est_fac}); no se puede anular.`);
+    }
+    if (fac_tip_cod && fac_tip_cod !== tipo_real) {
+      throw errorNegocio(`${fac_nro} es una ${tipo_real}, no una ${fac_tip_cod}.`, 400);
+    }
+    // SPEC-014 §2.2: el origen no se anula mientras su destino esté activo (COT con REM/VTA, REM con VTA).
+    const destino = await destinoActivo(pool, { fac_sec: Number(fac_sec) });
+    if (destino) {
+      throw errorNegocio(`${fac_nro} está cruzada con ${destino.fac_nro} (${destino.fac_tip_cod} activa); anule ${destino.fac_nro} primero.`);
     }
     
     console.log(`[ANULAR_DOCUMENTO] Estado actual del documento ${fac_nro}:`, {
@@ -1135,7 +1277,7 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs, usuario = null }
 
     let detalles = [];
     // Documentos que mueven kardex: al anularlos hay que empujar la existencia a Woo.
-    if (fac_tip_cod === 'VTA' || fac_tip_cod === 'AJT' || fac_tip_cod === 'REM') {
+    if (tipo_real === 'VTA' || tipo_real === 'AJT' || tipo_real === 'REM') {
       const detallesRequest = new sql.Request(transaction);
       const detallesResult = await detallesRequest
         .input('fac_sec', sql.Decimal(18, 0), fac_sec)
@@ -1156,25 +1298,42 @@ const anularDocumento = async ({ fac_nro, fac_tip_cod, fac_obs, usuario = null }
 
       detalles = detallesResult.recordset;
     }
+    // SPEC-014 §5.5: una VTA respaldada por remisión (líneas 'R') no movió kardex; al anularla no hay
+    // nada que empujar y la REM de origen vuelve a quedar editable/facturable (sigue descontando).
+    const vtaRespaldada = tipo_real === 'VTA' && detalles.length > 0 && detalles.every((d) => d.kar_nat === NATURALEZA.RESPALDADA);
 
     await transaction.commit();
 
     // Solo stock (punto único). El estado del pedido en Woo NO se toca al anular: el camino anterior
     // reutilizaba el mapeo de facturación y, para on-hold, mandaba 'completed' (specs/013 §5, Tarea 2).
-    if (detalles.length > 0) {
-      await sincronizarExistenciasWoo({
+    let push = null;
+    if (detalles.length > 0 && !vtaRespaldada) {
+      push = await sincronizarExistenciasWoo({
         art_secs: detalles.map((d) => d.art_sec),
-        origen: fac_tip_cod === 'REM' ? 'REM_ANULADA' : 'ANULACION',
+        origen: tipo_real === 'REM' ? 'REM_ANULADA' : 'ANULACION',
         referencia: fac_nro,
         usuario
       });
+    }
+    if (vtaRespaldada) {
+      if (fac_nro_woo) {
+        await agregarNotaPedidoWoo(fac_nro_woo, `Factura ${fac_nro} anulada en el ERP${usuario ? ` por ${usuario}` : ''}; la remisión ${fac_nro_origen || ''} sigue reservando el stock.`);
+      }
+      try {
+        const { registrarVtaAnulada } = await pedidosWebModel();
+        await registrarVtaAnulada({ fac_nro_vta: fac_nro, fac_nro_rem: fac_nro_origen, fac_nro_woo, usuario });
+      } catch (e) {
+        console.error(`[ANULAR_DOCUMENTO] seguimiento de pedidos web no actualizado tras anular ${fac_nro}:`, e.message);
+      }
     }
 
     return {
       message: "Documento anulado exitosamente.",
       fac_nro,
       fac_est_fac: 'I',
-      tipo: fac_tip_cod
+      tipo: tipo_real,
+      rem_liberada: vtaRespaldada ? fac_nro_origen : null,
+      push
     };
 
   } catch (error) {

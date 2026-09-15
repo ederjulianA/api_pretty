@@ -42,7 +42,12 @@ const validarBundles = async (detalles) => {
 };
 
 
-const validarExistenciasVTA = async (detalles) => {
+/**
+ * Artículos sin existencia para un documento que mueve kardex (VTA o REM).
+ * @param {string} [fac_nro_excluir]  al EDITAR una REM/VTA, lo que ese mismo documento ya descontó
+ *   sigue disponible para él (SPEC-014 §5.10): se suma de vuelta antes de comparar.
+ */
+const validarExistenciasVTA = async (detalles, { fac_nro_excluir = null, tipo = 'factura' } = {}) => {
   if (!detalles?.length) return;
   const pool = await poolPromise;
 
@@ -51,20 +56,28 @@ const validarExistenciasVTA = async (detalles) => {
 
   const request = pool.request();
   artSecs.forEach((sec, i) => request.input(`p${i}`, sql.VarChar(30), sec));
+  request.input('fac_nro_excluir', sql.VarChar(15), fac_nro_excluir || null);
 
   // Excluir bundles padre — su stock se valida por componentes en validarBundles()
   const result = await request.query(`
-    SELECT a.art_sec, a.art_cod, a.art_nom, ISNULL(e.existencia, 0) AS existencia
+    SELECT a.art_sec, a.art_cod, a.art_nom,
+           ISNULL(e.existencia, 0) + ISNULL(propio.reservado, 0) AS existencia
     FROM dbo.articulos a
     LEFT JOIN dbo.vwExistencias e ON a.art_sec = e.art_sec
+    OUTER APPLY (
+      SELECT SUM(k.kar_uni) AS reservado
+      FROM dbo.facturakardes k INNER JOIN dbo.factura f ON f.fac_sec = k.fac_sec
+      WHERE @fac_nro_excluir IS NOT NULL AND f.fac_nro = @fac_nro_excluir AND f.fac_est_fac = 'A'
+        AND k.art_sec = a.art_sec AND k.kar_nat = '-'
+    ) propio
     WHERE a.art_sec IN (${artSecs.map((_, i) => `@p${i}`).join(',')})
       AND ISNULL(a.art_bundle, 'N') != 'S'
-      AND ISNULL(e.existencia, 0) <= 0
+      AND ISNULL(e.existencia, 0) + ISNULL(propio.reservado, 0) <= 0
   `);
 
   if (result.recordset.length > 0) {
     const lista = result.recordset.map(r => `${r.art_nom} (${r.art_cod})`).join(', ');
-    const err = new Error(`No se puede generar la factura. Los siguientes artículos no tienen existencia: ${lista}`);
+    const err = new Error(`No se puede generar la ${tipo}. Los siguientes artículos no tienen existencia: ${lista}`);
     err.statusCode = 400;
     throw err;
   }
@@ -83,12 +96,13 @@ const updateOrderEndpoint = async (req, res) => {
       });
     }
 
-    if (fac_tip_cod === 'VTA') {
-      await validarExistenciasVTA(detalles);
+    // VTA y REM mueven kardex: lo que este mismo documento ya descontó sigue disponible para él.
+    if (fac_tip_cod === 'VTA' || fac_tip_cod === 'REM') {
+      await validarExistenciasVTA(detalles, { fac_nro_excluir: fac_nro, tipo: fac_tip_cod === 'REM' ? 'remisión' : 'factura' });
     }
 
     // Se espera que cada ítem de details tenga: art_sec, kar_uni, precio_de_venta y kar_lis_pre_cod
-    const result = await updateOrder({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_descuento_general, fac_est_woo });
+    const result = await updateOrder({ fac_nro, fac_tip_cod, nit_sec, fac_est_fac, detalles, descuento, fac_nro_woo, fac_obs, fac_descuento_general, fac_est_woo, usuario: req.user?.usu_cod || req.body.fac_usu_cod_cre || null });
     return res.json({ success: true, ...result });
   } catch (error) {
     console.error("Error al actualizar el pedido:", error);
@@ -110,8 +124,9 @@ const createCompleteOrder = async (req, res) => {
       await validarBundles(detalles);
     }
 
-    if (fac_tip_cod === 'VTA') {
-      await validarExistenciasVTA(detalles);
+    // VTA y REM mueven kardex (SPEC-014: REMISIONAR desde el POS valida igual que FACTURAR)
+    if (fac_tip_cod === 'VTA' || fac_tip_cod === 'REM') {
+      await validarExistenciasVTA(detalles, { tipo: fac_tip_cod === 'REM' ? 'remisión' : 'factura' });
     }
 
     const result = await orderModel.createCompleteOrder({ nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general, fac_fec });
@@ -202,7 +217,7 @@ const anularDocumentoEndpoint = async (req, res) => {
     }
 
     // Validar que fac_tip_cod sea válido
-    const tiposValidos = ['VTA', 'AJT', 'PED', 'COT']; // Agregar otros tipos válidos si existen
+    const tiposValidos = ['VTA', 'AJT', 'PED', 'COT', 'REM'];
     if (!tiposValidos.includes(fac_tip_cod)) {
       return res.status(400).json({
         success: false,
@@ -210,14 +225,21 @@ const anularDocumentoEndpoint = async (req, res) => {
       });
     }
 
-    const result = await anularDocumento({
-      fac_nro,
-      fac_tip_cod,
-      fac_obs,
-      // Queda en fac_usu_cod_mod y en woo_sync_logs.usuario (SPEC-013). Es null mientras
-      // la ruta no exija token (SEC-11).
-      usuario: req.user?.usu_cod || null
-    });
+    // Queda en fac_usu_cod_mod y en woo_sync_logs.usuario (SPEC-013). Es null mientras
+    // la ruta no exija token (SEC-11).
+    const usuario = req.user?.usu_cod || req.body.usuario || null;
+
+    // SPEC-014 §5.5: la REM de un pedido web se anula "Woo primero" (cancela el pedido y luego el ERP);
+    // una REM manual sigue el camino común. anularRemision ya valida bloqueo por VTA activa.
+    if (fac_tip_cod === 'REM') {
+      const cab = await poolPromise.then((pool) => pool.request().input('n', sql.VarChar(15), fac_nro).query("SELECT fac_nro_woo FROM dbo.factura WHERE fac_nro = @n AND fac_tip_cod = 'REM'"));
+      if (!cab.recordset.length) return res.status(404).json({ success: false, error: `Remisión ${fac_nro} no existe` });
+      const { anularRemision } = await import('../models/pedidosWebModel.js');
+      const r = await anularRemision({ fac_nro_rem: fac_nro, motivo: fac_obs, usuario: usuario || 'POS', notificarWoo: !!cab.recordset[0].fac_nro_woo });
+      return res.json({ success: true, message: r.ya_anulada ? `La remisión ${fac_nro} ya estaba anulada` : 'Documento anulado exitosamente.', fac_nro, fac_est_fac: 'I', tipo: 'REM', ...r });
+    }
+
+    const result = await anularDocumento({ fac_nro, fac_tip_cod, fac_obs, usuario });
 
     return res.json({
       success: true,
@@ -226,7 +248,7 @@ const anularDocumentoEndpoint = async (req, res) => {
 
   } catch (error) {
     console.error(`Error en anularDocumentoEndpoint: ${error.message}`);
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       success: false,
       error: error.message
     });
