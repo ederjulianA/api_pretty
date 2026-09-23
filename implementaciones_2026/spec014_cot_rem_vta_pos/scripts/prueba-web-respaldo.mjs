@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import axios from 'axios';
 import { poolPromise } from '../../../db.js';
+import { exigirPruebas } from './_solo-pruebas.mjs';
 
 const API = 'http://localhost:3001/api';
 const WC = axios.create({ baseURL: `${process.env.WC_URL}/wp-json/wc/v3`, auth: { username: process.env.WC_CONSUMER_KEY, password: process.env.WC_CONSUMER_SECRET }, timeout: 60000 });
@@ -22,6 +23,7 @@ const checks = []; const ok = (n, c, d = '') => { checks.push(!!c); console.log(
 
 const ART = '1757', PID = 8053, QTY = 2; // 4523 Rubor Vergüenza (existencia 34)
 (async () => {
+  await exigirPruebas();
   const e0 = await erpStock(ART), w0 = await wooStock(PID);
   console.log(`inicio: ERP=${e0} Woo=${w0}`);
   const { data: o } = await WC.post('orders', {

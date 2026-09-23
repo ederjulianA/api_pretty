@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import axios from 'axios';
 import { poolPromise } from '../../../db.js';
+import { exigirPruebas } from './_solo-pruebas.mjs';
 
 const API = 'http://localhost:3001/api';
 const WC = axios.create({ baseURL: `${process.env.WC_URL}/wp-json/wc/v3`, auth: { username: process.env.WC_CONSUMER_KEY, password: process.env.WC_CONSUMER_SECRET }, timeout: 60000 });
@@ -24,6 +25,7 @@ const A = { art_sec: '1757', pid: 8053, precio: 13500, cod: '4523' }; // Rubor (
 const B = { art_sec: '1835', pid: 8688, precio: 8000, cod: '4599' };  // Cherry Boom (11)
 const C = { art_sec: '1737', pid: 7909, precio: 27900, cod: '4503' }; // Luxury Pink (10)
 (async () => {
+  await exigirPruebas();
   const e0 = { A: await erp(A.art_sec), B: await erp(B.art_sec), C: await erp(C.art_sec) };
   console.log('inicio ERP:', e0, 'Woo:', { A: await woo(A.pid), B: await woo(B.pid), C: await woo(C.pid) });
   const { data: o } = await WC.post('orders', {
