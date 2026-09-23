@@ -48,3 +48,63 @@ Front: `src/POS2.jsx` · `src/components/pos/BotoneraDocumento.jsx` (nuevo) · `
 4. Verificar en producción: Órdenes con REMISIONES, una REM manual desde el POS, `GET /pedidos-web/salud`, reconciliación manual (`doble_kardex = 0`).
 5. `REM_FACTURA_SIN_KARDEX=true` + `pm2 restart index --update-env`. Desde ahí las VTA de REM nacen `R`.
 6. Rollback: bandera a `false` (las VTA `R` ya creadas siguen contándose por la vista) o `git revert` + `update-app.bat`. La columna y la vista no se revierten.
+
+---
+
+# Quitar el estado 'F' de las remisiones (22/sep/2026)
+
+**Regla de negocio fijada por Eder:** `factura.fac_est_fac` solo indica **Activo (`A`) / Inactivo (`I`) / Pendiente (`P`)**. "Facturada" no es un estado: se determina por el **vínculo cruzado** (`fac_nro_origen` ↔ el documento destino activo), que es lo que la grilla de Órdenes muestra como "Cruzada con".
+
+Detonante: `/orders` filtrando REMISIONES + Activo no mostraba nada. No era un bug de la pantalla — en producción las 28 REM de septiembre estaban en `F` (18, relevo legado de SPEC-013) o `I` (10), ninguna en `A`, y el desplegable de Estado solo ofrece A/P/I. `F` era una anomalía de 18 filas: ningún otro documento del ERP lo ha usado en 4 años.
+
+## Qué se hace
+
+1. **Encender `REM_FACTURA_SIN_KARDEX=true`** (§8 paso 5, ya desplegado pero apagado): desde ahí ninguna REM vuelve a caer en `F`.
+2. **Migrar las que ya están en `F`** con `scripts/migrar-rem-estado-F.mjs` + `sql/2026-09-22_spec014_quitar_estado_F.sql`. Dos caminos, los dos **neutros en inventario**:
+   - **A. REM `F` con VTA activa cruzada y equivalente** → líneas de la VTA `-` → `R`, la REM vuelve a `A` y deja de vencer. El descuento se mueve de la VTA a la REM; `vwExistencias` solo suma `+`/`-` sobre documentos `A`, así que el neto por artículo no cambia.
+   - **B. REM `F` cuya VTA fue anulada** → la REM pasa a `I`. Ni `F` ni `I` entran en la vista: cero movimiento.
+   - Cualquier otro caso se reporta como **omitida** y no se toca (aborta la corrida salvo `--permitir-omitidas`).
+3. **Pendiente, en 2–3 días:** sacar `'F'` del código, ya sin valor de rollback — la rama de relevo en `pedidosWebModel.js:435`, los seis `IN ('A','F')` de tolerancia (`orderModel.js:887`, `cierreMesModel.js:170`, `cierreMesController.js:395`, `pedidosWebModel.js:73,86,369,690`) y el filtro del índice `UX_factura_woo_vigente`, que hoy dice `fac_est_fac IN ('A','F')`.
+
+## Cómo se corre
+
+```bash
+cd api_pretty
+# en seco: no cambia nada, muestra exactamente qué haría y verifica que sería neutro
+DOTENV_CONFIG_PATH=.env.pruebas node -r dotenv/config \
+  implementaciones_2026/spec014_cot_rem_vta_pos/scripts/migrar-rem-estado-F.mjs PSDATA_PRUEBAS
+# aplicando
+… migrar-rem-estado-F.mjs PSDATA_PRUEBAS --aplicar
+# producción, SOLO con backup previo y OK de Eder
+CONFIRMO_PRODUCCION=si node … migrar-rem-estado-F.mjs PSDATAFEB2024 --aplicar
+```
+
+El runner abre **una** transacción, toma foto de `vwExistencias` (todos los artículos) y de `vw_ventas_dashboard` por mes antes y después, y **revierte** si algo se movió. Sin `--aplicar` siempre revierte: la corrida en seco es la que se revisa antes de tocar producción. Es idempotente (segunda corrida: 0 filas).
+
+## Probado en PSDATA_PRUEBAS (22/sep/2026)
+
+- Migración: 22 REM en `F` → **21 a respaldo + 1 a inactiva** (REM39, su VTA2235 estaba anulada). `estados_invalidos` 22 → 0. Existencia idéntica en **2.076 artículos**; ventas idénticas mes a mes (ene–sep 2026). Segunda corrida: sin cambios.
+- `GET /api/ordenes` con `fue_cod=6` + `fac_est_fac=A`: **28 remisiones**, cada una con `documentos` = la VTA que la cruzó (o vacío si sigue viva). El síntoma original queda resuelto **sin tocar el front**.
+- Arneses con la bandera en `true`: `prueba-web-respaldo` 17/17 · `prueba-backend-spec014` 41/41 · `prueba-editar-rem-woo` 19/19 (**77/77**).
+
+## Ejecutado en producción el 22/sep/2026
+
+Orden seguido (la bandera va **antes** que la migración: migrar con la bandera apagada haría que la siguiente REM facturada creara un `F` nuevo).
+
+1. `REM_FACTURA_SIN_KARDEX=true` + `pm2 restart index --update-env` — **lo hizo Eder** en el Windows.
+2. Backup `COPY_ONLY`: `C:\Ed\PSDATAFEB2024_20260922_pre_quitar_estado_F.bak` (87,1 MB, `VERIFYONLY` válido).
+3. Corrida **en seco** contra `PSDATAFEB2024`: 18 a respaldo, 0 omitidas, 7/7 verificaciones.
+4. `--aplicar`: **18 REM migradas** (REM2, REM4-6, REM8-10, REM12-17, REM19, REM20, REM26-28 con sus VTA2208-2227). `rem_F` 18 → 0, `estados_invalidos` 18 → 0, `lineas_R` 0 → 120. Existencia idéntica en **2.083 artículos**; ventas idénticas mes a mes.
+5. Verificación:
+   - `GET /api/ordenes` con `fue_cod=6` + `fac_est_fac=A` → **18 remisiones**, cada una con su "Cruzada con: VTAxxxx". El síntoma original queda resuelto sin tocar el front.
+   - Reconciliación manual (id 17, 1.529 comparados): **`doble_kardex = 0`**, `rem_vencidas_sin_anular = 0`, `pedidos_comprometidos_sin_documento = 0`. Las 17 diferencias y los 41 negativos siguen igual que antes (la migración es neutra); los negativos se reclasifican a 39 "sin pedido web" + 2 "con pedido web", porque ahora hay REM activas que los explican.
+
+**No se pudo confirmar la bandera desde fuera:** ni el banner de arranque (`index.js:192-202`) ni `GET /api/pedidos-web/salud` exponen `REM_FACTURA_SIN_KARDEX`, y desde la migración no se ha facturado ninguna REM nueva. Confirmarlo con `pm2 env <id> | findstr REM_FACTURA_SIN_KARDEX` en el Windows, o mirando la primera REM que se facture: debe quedar en `A` con su VTA en `R`. **Vale la pena agregarlo al banner y a `/salud`** en la limpieza pendiente — son dos líneas y deja el dato verificable para siempre.
+
+Rollback: la bandera a `false` devuelve el relevo para documentos **nuevos**; las REM ya migradas se quedan en el modelo de respaldo, que es correcto en inventario con o sin bandera. Para deshacer la migración en sí, restaurar el backup.
+
+## Trampa encontrada (guarda añadida)
+
+Los arneses hablan con el backend por HTTP (`:3001`, que sí carga `.env.pruebas`) pero consultan y **escriben** la BD directo vía `db.js`, que hace `require('dotenv').config()` y por lo tanto lee `.env` — **producción** — cuando falta el preload. `index.js` tiene el mismo patrón: arrancarlo sin `-r dotenv/config` lo apunta a producción en el puerto 3000.
+
+Mitigado con `scripts/_solo-pruebas.mjs`: los tres arneses abortan con un mensaje explícito si `DB_NAME()` no es `PSDATA_PRUEBAS`. Verificado que dispara.

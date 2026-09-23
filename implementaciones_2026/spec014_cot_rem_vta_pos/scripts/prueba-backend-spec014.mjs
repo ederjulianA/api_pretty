@@ -11,6 +11,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { poolPromise, sql } from '../../../db.js';
+import { exigirPruebas } from './_solo-pruebas.mjs';
 
 const BASE = process.env.API_BASE || 'http://localhost:3001/api';
 const secretKey = crypto.createHash('sha256').update(process.env.JWT_SECRET).digest();
@@ -33,6 +34,7 @@ const ultimoPush = async (ref) => (await q(`SELECT TOP 1 origen, status, fac_nro
 const det = (items) => items.map((i) => ({ art_sec: i.art_sec, kar_uni: i.kar_uni, kar_pre_pub: i.precio, kar_lis_pre_cod: 2, kar_kar_sec_ori: i.kar_kar_sec_ori ?? null, kar_fac_sec_ori: i.kar_fac_sec_ori ?? null }));
 
 (async () => {
+  await exigirPruebas();
   console.log('REM_FACTURA_SIN_KARDEX =', process.env.REM_FACTURA_SIN_KARDEX);
   const eA0 = await exist(A.art_sec), eB0 = await exist(B.art_sec);
   console.log(`existencias iniciales: ${A.cod}=${eA0} ${B.cod}=${eB0}`);
