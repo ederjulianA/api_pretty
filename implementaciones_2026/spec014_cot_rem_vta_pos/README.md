@@ -87,13 +87,19 @@ El runner abre **una** transacción, toma foto de `vwExistencias` (todos los art
 - `GET /api/ordenes` con `fue_cod=6` + `fac_est_fac=A`: **28 remisiones**, cada una con `documentos` = la VTA que la cruzó (o vacío si sigue viva). El síntoma original queda resuelto **sin tocar el front**.
 - Arneses con la bandera en `true`: `prueba-web-respaldo` 17/17 · `prueba-backend-spec014` 41/41 · `prueba-editar-rem-woo` 19/19 (**77/77**).
 
-## Para producción (orden importa)
+## Ejecutado en producción el 22/sep/2026
 
-1. Backup `COPY_ONLY` de `PSDATAFEB2024`.
-2. Corrida **en seco** de la migración contra producción (no escribe; confirma 18 a respaldo, 0 omitidas).
-3. `REM_FACTURA_SIN_KARDEX=true` en el `.env` + `pm2 restart index --update-env`. **Primero la bandera**: si se migra con la bandera apagada, la siguiente REM que se facture vuelve a crear un `F`.
-4. Aplicar la migración (`--aplicar`).
-5. Verificar: `/orders` con REMISIONES + Activo lista las 18 con su "Cruzada con"; reconciliación manual con `doble_kardex = 0`.
+Orden seguido (la bandera va **antes** que la migración: migrar con la bandera apagada haría que la siguiente REM facturada creara un `F` nuevo).
+
+1. `REM_FACTURA_SIN_KARDEX=true` + `pm2 restart index --update-env` — **lo hizo Eder** en el Windows.
+2. Backup `COPY_ONLY`: `C:\Ed\PSDATAFEB2024_20260922_pre_quitar_estado_F.bak` (87,1 MB, `VERIFYONLY` válido).
+3. Corrida **en seco** contra `PSDATAFEB2024`: 18 a respaldo, 0 omitidas, 7/7 verificaciones.
+4. `--aplicar`: **18 REM migradas** (REM2, REM4-6, REM8-10, REM12-17, REM19, REM20, REM26-28 con sus VTA2208-2227). `rem_F` 18 → 0, `estados_invalidos` 18 → 0, `lineas_R` 0 → 120. Existencia idéntica en **2.083 artículos**; ventas idénticas mes a mes.
+5. Verificación:
+   - `GET /api/ordenes` con `fue_cod=6` + `fac_est_fac=A` → **18 remisiones**, cada una con su "Cruzada con: VTAxxxx". El síntoma original queda resuelto sin tocar el front.
+   - Reconciliación manual (id 17, 1.529 comparados): **`doble_kardex = 0`**, `rem_vencidas_sin_anular = 0`, `pedidos_comprometidos_sin_documento = 0`. Las 17 diferencias y los 41 negativos siguen igual que antes (la migración es neutra); los negativos se reclasifican a 39 "sin pedido web" + 2 "con pedido web", porque ahora hay REM activas que los explican.
+
+**No se pudo confirmar la bandera desde fuera:** ni el banner de arranque (`index.js:192-202`) ni `GET /api/pedidos-web/salud` exponen `REM_FACTURA_SIN_KARDEX`, y desde la migración no se ha facturado ninguna REM nueva. Confirmarlo con `pm2 env <id> | findstr REM_FACTURA_SIN_KARDEX` en el Windows, o mirando la primera REM que se facture: debe quedar en `A` con su VTA en `R`. **Vale la pena agregarlo al banner y a `/salud`** en la limpieza pendiente — son dos líneas y deja el dato verificable para siempre.
 
 Rollback: la bandera a `false` devuelve el relevo para documentos **nuevos**; las REM ya migradas se quedan en el modelo de respaldo, que es correcto en inventario con o sin bandera. Para deshacer la migración en sí, restaurar el backup.
 
