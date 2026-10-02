@@ -99,7 +99,13 @@ Orden seguido (la bandera va **antes** que la migración: migrar con la bandera 
    - `GET /api/ordenes` con `fue_cod=6` + `fac_est_fac=A` → **18 remisiones**, cada una con su "Cruzada con: VTAxxxx". El síntoma original queda resuelto sin tocar el front.
    - Reconciliación manual (id 17, 1.529 comparados): **`doble_kardex = 0`**, `rem_vencidas_sin_anular = 0`, `pedidos_comprometidos_sin_documento = 0`. Las 17 diferencias y los 41 negativos siguen igual que antes (la migración es neutra); los negativos se reclasifican a 39 "sin pedido web" + 2 "con pedido web", porque ahora hay REM activas que los explican.
 
-**No se pudo confirmar la bandera desde fuera:** ni el banner de arranque (`index.js:192-202`) ni `GET /api/pedidos-web/salud` exponen `REM_FACTURA_SIN_KARDEX`, y desde la migración no se ha facturado ninguna REM nueva. Confirmarlo con `pm2 env <id> | findstr REM_FACTURA_SIN_KARDEX` en el Windows, o mirando la primera REM que se facture: debe quedar en `A` con su VTA en `R`. **Vale la pena agregarlo al banner y a `/salud`** en la limpieza pendiente — son dos líneas y deja el dato verificable para siempre.
+### Confirmado el 2/oct/2026 (10 días de operación real)
+
+- **0 documentos en `F`** y `estados_invalidos = 0` sostenido. La bandera estaba bien puesta.
+- 9 REM nuevas por el importador; las 3 facturadas (REM30→VTA2233, REM33→VTA2236, REM34→VTA2235) quedaron en `A` con su VTA en `R`. 25 REM activas; `lineas_R` 120 → 156.
+- **10 reconciliaciones nocturnas seguidas con `doble_kardex = 0`** y `rem_vencidas_sin_anular = 0`. Diferencias 17 → 16, negativos 41 → 39 (siguen pendientes de conteo, no tienen que ver con esto).
+
+**Lo que no se pudo confirmar el 22/sep (y ahora confirma el comportamiento):** ni el banner de arranque (`index.js:192-202`) ni `GET /api/pedidos-web/salud` exponen `REM_FACTURA_SIN_KARDEX`, y desde la migración no se ha facturado ninguna REM nueva. Confirmarlo con `pm2 env <id> | findstr REM_FACTURA_SIN_KARDEX` en el Windows, o mirando la primera REM que se facture: debe quedar en `A` con su VTA en `R`. **Vale la pena agregarlo al banner y a `/salud`** en la limpieza pendiente — son dos líneas y deja el dato verificable para siempre.
 
 Rollback: la bandera a `false` devuelve el relevo para documentos **nuevos**; las REM ya migradas se quedan en el modelo de respaldo, que es correcto en inventario con o sin bandera. Para deshacer la migración en sí, restaurar el backup.
 
