@@ -609,6 +609,15 @@ export const editarLineasRemisionWoo = async ({ fac_nro_rem, nit_sec = null, det
   }
   if (lineItems.length === 0) return { fac_nro_rem, fac_nro_woo: rem.fac_nro_woo, sin_cambios: true, cambios };
 
+  // SPEC-015 E2: un PUT de line_items no reaplica el cupón en Woo (las líneas tocadas quedan con el
+  // total que mande el ERP) y cambiar cantidades puede cruzar un escalón del descuento por monto.
+  // Ese cálculo es de la web: el pedido con cupón se edita en wp-admin ("Recalcular" reaplica el
+  // cupón) y el importador baja el cambio. Sin cambios (arriba) sí se deja pasar, para facturar.
+  const cupones = (order.coupon_lines || []).map((c) => String(c.code || '').toUpperCase()).filter(Boolean);
+  if (cupones.length) {
+    throw errorNegocio(`El pedido #${rem.fac_nro_woo} tiene el cupón ${cupones.join(', ')}: para cambiar productos o cantidades, edítalo en WooCommerce (wp-admin → Recalcular) y el ERP actualizará ${fac_nro_rem} solo. La remisión no cambió.`);
+  }
+
   // 4. Woo primero
   const resumen = [cambios.agregados.length ? `+${cambios.agregados.join(', ')}` : '', cambios.quitados.length ? `−${cambios.quitados.join(', ')}` : '', cambios.modificados.length ? `Δ ${cambios.modificados.join(', ')}` : ''].filter(Boolean).join(' · ');
   let respuesta;
