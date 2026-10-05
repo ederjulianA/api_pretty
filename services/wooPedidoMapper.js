@@ -316,22 +316,29 @@ export const mapearPedidoWoo = async (order, { prefijoObs = null } = {}) => {
 /**
  * Compara las líneas vendibles de un documento del ERP con las del pedido mapeado.
  * Se usa para detectar un pedido editado en Woo mientras la REM está activa (§4.6).
- * Solo compara líneas "de cara al cliente" (sin componentes de bundle): art_sec + cantidad.
+ * Solo compara líneas "de cara al cliente" (sin componentes de bundle): art_sec + cantidad y, por
+ * artículo, el total cobrado (SPEC-015 E5: un cupón agregado o quitado en wp-admin cambia los totales
+ * sin cambiar cantidades). Tolerancia de $1 por redondeo; el padre de un bundle guarda el total de Woo.
  */
 export const lineasDifieren = (lineasErp, detallesMapeados) => {
   const clave = (a, u) => `${String(a)}|${Number(u)}`;
   const erp = new Map();
+  const totalErp = new Map();
   for (const l of lineasErp) {
     if (l.kar_bundle_padre) continue;
     const k = clave(l.art_sec, l.kar_uni);
     erp.set(k, (erp.get(k) || 0) + 1);
+    totalErp.set(String(l.art_sec), (totalErp.get(String(l.art_sec)) || 0) + (Number(l.kar_total) || 0));
   }
   const woo = new Map();
+  const totalWoo = new Map();
   for (const d of detallesMapeados) {
     const k = clave(d.art_sec, d.kar_uni);
     woo.set(k, (woo.get(k) || 0) + 1);
+    totalWoo.set(String(d.art_sec), (totalWoo.get(String(d.art_sec)) || 0) + (Number(d.kar_total) || 0));
   }
   if (erp.size !== woo.size) return true;
   for (const [k, n] of erp) if (woo.get(k) !== n) return true;
+  for (const [a, t] of totalErp) if (Math.abs(t - (totalWoo.get(a) || 0)) >= 1) return true;
   return false;
 };
