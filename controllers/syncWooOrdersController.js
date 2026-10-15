@@ -129,29 +129,55 @@ const createClient = async (clientData) => {
 /**
  * Valida si existe un pedido por número de WooCommerce
  * @param {string} wooOrderNumber - Número de pedido de WooCommerce
- * @returns {Promise<{exists: boolean, fac_sec: number, isInvoiced: boolean}>} - Información del pedido
+ * @returns {Promise<{exists: boolean, fac_sec: number, isInvoiced: boolean, motivo?: string}>} - Información del pedido.
+ *   `motivo` viene cuando el pedido no se debe tocar aunque no tenga una COT facturada (ver abajo).
  */
 const validateOrder = async (wooOrderNumber) => {
     const startTime = Date.now();
     console.log(`[${new Date().toISOString()}] 🔍 Iniciando validación de pedido: ${wooOrderNumber}`);
-    
+
     try {
         const pool = await poolPromise;
-        
-        // Primera consulta: verificar si existe el pedido (más simple)
+
+        // SPEC-013/014: el importador crea REM y VTA para los pedidos web, sin COT. Si el pedido ya tiene
+        // una REM o VTA activa, crear una COT la duplica: el cierre de mes la lista como pendiente y
+        // facturarla repite la venta y el descuento de inventario (caso COT1936–1945, 9/oct/2026).
+        const docWebResult = await pool.request()
+            .input('wooOrderNumber', sql.NVarChar(50), wooOrderNumber)
+            .query(`
+                SELECT TOP 1 fac_nro
+                FROM dbo.factura
+                WHERE TRIM(fac_nro_woo) = TRIM(@wooOrderNumber)
+                AND fac_tip_cod IN ('REM', 'VTA')
+                AND fac_est_fac = 'A'
+                ORDER BY CASE fac_tip_cod WHEN 'VTA' THEN 0 ELSE 1 END
+            `);
+        if (docWebResult.recordset.length > 0) {
+            const documento = docWebResult.recordset[0].fac_nro;
+            console.log(`[${new Date().toISOString()}] 📋 Pedido ya registrado en ${documento}; no se crea COT`);
+            return {
+                exists: true,
+                fac_sec: null,
+                isInvoiced: true,
+                motivo: `ya está en el ERP como ${documento}`
+            };
+        }
+
+        // Primera consulta: verificar si existe el pedido (más simple). La COT activa va primero.
         const orderStartTime = Date.now();
         const orderResult = await pool.request()
             .input('wooOrderNumber', sql.NVarChar(50), wooOrderNumber)
             .query(`
-                SELECT fac_sec, fac_tip_cod
-                FROM dbo.factura 
+                SELECT fac_sec, fac_tip_cod, fac_nro, fac_est_fac
+                FROM dbo.factura
                 WHERE TRIM(fac_nro_woo) = TRIM(@wooOrderNumber)
                 AND fac_tip_cod = 'COT'
+                ORDER BY CASE fac_est_fac WHEN 'A' THEN 0 ELSE 1 END, fac_sec DESC
             `);
-        
+
         const orderTime = Date.now() - orderStartTime;
         console.log(`[${new Date().toISOString()}] ✅ Consulta de pedido completada en ${orderTime}ms`);
-        
+
         if (orderResult.recordset.length === 0) {
             console.log(`[${new Date().toISOString()}] 📋 Pedido no encontrado`);
             return {
@@ -160,7 +186,19 @@ const validateOrder = async (wooOrderNumber) => {
                 isInvoiced: false
             };
         }
-        
+
+        // Una COT anulada es una decisión de alguien: no se reescribe ni se crea otra encima.
+        if (orderResult.recordset[0].fac_est_fac !== 'A') {
+            const anulada = orderResult.recordset[0].fac_nro;
+            console.log(`[${new Date().toISOString()}] 📋 Pedido con ${anulada} anulada; no se toca`);
+            return {
+                exists: true,
+                fac_sec: null,
+                isInvoiced: true,
+                motivo: `tiene la cotización ${anulada} anulada`
+            };
+        }
+
         const facSec = orderResult.recordset[0].fac_sec;
         console.log(`[${new Date().toISOString()}] 📋 Pedido encontrado con fac_sec: ${facSec}`);
         
@@ -1365,7 +1403,9 @@ export const syncWooOrders = async (req, res) => {
                         
                         if (orderValidation.exists && orderValidation.isInvoiced) {
                             console.log(`[${new Date().toISOString()}] ⚠️ Pedido ya facturado, no se puede modificar`);
-                            addMessage(messages, `Pedido ${orderData.number} Ya facturado, no se puede modificar`);
+                            addMessage(messages, orderValidation.motivo
+                                ? `Pedido ${orderData.number} ${orderValidation.motivo}, no se modifica`
+                                : `Pedido ${orderData.number} Ya facturado, no se puede modificar`);
                             continue;
                         }
                         
