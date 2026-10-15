@@ -38,6 +38,28 @@ const ESTADOS_CONFIRMADOS = Object.freeze([
  */
 const ESTADOS_CANCELADOS = Object.freeze(['cancelled']);
 
+/**
+ * Documento web (REM/VTA activo) del mismo pedido Woo con el que una COT nunca se cruzo.
+ * Es una COT duplicada: la creo "Sincronizar faltantes" del cierre (endpoint legado
+ * /woo/sync-orders) para un pedido que el importador ya habia registrado como REM -> VTA
+ * (caso COT1936-1945, 9/oct/2026). Facturarla falla —createCompleteOrder no admite una
+ * segunda VTA para el mismo pedido— asi que la salida es anularla.
+ * Uso: OUTER APPLY (${SQL_DOCUMENTO_WEB_DE_COT}) dup, con la COT bajo el alias f.
+ */
+const SQL_DOCUMENTO_WEB_DE_COT = `
+  SELECT TOP 1 d.fac_nro
+  FROM dbo.factura d
+  WHERE f.fac_tip_cod = 'COT'
+    AND f.fac_nro_origen IS NULL
+    AND ISNULL(LTRIM(RTRIM(f.fac_nro_woo)), '') <> ''
+    AND d.fac_sec <> f.fac_sec
+    AND d.fac_tip_cod IN ('REM', 'VTA')
+    AND d.fac_est_fac = 'A'
+    AND LTRIM(RTRIM(d.fac_nro_woo)) = LTRIM(RTRIM(f.fac_nro_woo))
+    AND ISNULL(d.fac_nro_origen, '') <> f.fac_nro
+  ORDER BY CASE d.fac_tip_cod WHEN 'VTA' THEN 0 ELSE 1 END
+`;
+
 /** Un pedido esta resuelto si se confirmo el pago o si se cancelo. */
 const estaResuelto = (fac_est_woo) =>
   ESTADOS_CONFIRMADOS.includes(fac_est_woo) || ESTADOS_CANCELADOS.includes(fac_est_woo);
@@ -164,12 +186,15 @@ const obtenerPedidosPeriodo = async (anio, mes) => {
           AND f2.fac_fec <  @fec_fin
         GROUP BY fk.fac_sec
       ) t ON t.fac_sec = f.fac_sec
+      -- El pedido ya cuenta por su REM: una COT duplicada lo contaria dos veces.
+      OUTER APPLY (${SQL_DOCUMENTO_WEB_DE_COT}) dup
       -- SPEC-013: las remisiones web (REM) son el nuevo documento de pedido web. Con el relevo
       -- (legado) una REM facturada queda en 'F'; con el respaldo (SPEC-014) sigue en 'A'.
       WHERE f.fac_tip_cod IN ('COT', 'REM')
         AND f.fac_est_fac IN ('A', 'F')
         AND f.fac_nro_woo IS NOT NULL
         AND f.fac_nro_woo <> ''
+        AND dup.fac_nro IS NULL
         AND f.fac_fec >= @fec_ini
         AND f.fac_fec <  @fec_fin
       ORDER BY f.fac_fec, f.fac_nro
@@ -214,7 +239,8 @@ const obtenerCotizacionesPendientes = async (anio, mes) => {
         n.nit_nom,
         f.fac_fec,
         f.fac_est_woo,
-        ISNULL(t.total, 0) AS total
+        ISNULL(t.total, 0) AS total,
+        dup.fac_nro AS duplicada_de
       FROM dbo.factura f
       LEFT JOIN dbo.nit n ON n.nit_sec = f.nit_sec
       LEFT JOIN (
@@ -226,6 +252,7 @@ const obtenerCotizacionesPendientes = async (anio, mes) => {
           AND f2.fac_fec <  @fec_fin
         GROUP BY fk.fac_sec
       ) t ON t.fac_sec = f.fac_sec
+      OUTER APPLY (${SQL_DOCUMENTO_WEB_DE_COT}) dup
       WHERE f.fac_tip_cod IN ('COT', 'REM')   -- SPEC-013: REM activa sin facturar = pedido web pendiente
         AND f.fac_est_fac = 'A'
         -- SPEC-014 §2.2: pendiente = sin destino activo. Una COT remisionada (REM activa) no está pendiente
@@ -249,7 +276,9 @@ const obtenerCotizacionesPendientes = async (anio, mes) => {
     nit_nom: r.nit_nom,
     fac_fec: r.fac_fec,
     fac_est_woo: r.fac_est_woo,
-    total: redondear2(r.total)
+    total: redondear2(r.total),
+    // Sigue bloqueando el cierre hasta que se anule; el wizard no deja facturarla.
+    duplicada_de: r.duplicada_de || null
   }));
 };
 
