@@ -10,7 +10,7 @@ const inventarioGrupoController = require('../controllers/inventarioGrupoControl
 
 // Listar categorías con paginación y filtros
 // GET /api/categorias?page=1&limit=10&inv_gru_cod=1&inv_gru_nom=Maquillaje
-router.get('/', inventarioGrupoController.getAllCategories);
+router.get('/', auth, inventarioGrupoController.getAllCategories);
 
 // Obtener una categoría específica por código
 // GET /api/categorias/1
