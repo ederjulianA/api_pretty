@@ -3,6 +3,7 @@ import { updateArticleImagesFromWoo } from '../jobs/updateArticleImagesFromWoo.j
 import { updateWooProductWeightDimensions } from '../jobs/updateWooProductWeightDimensions.js';
 import { poolPromise, sql } from '../db.js';
 import wcPkg from "@woocommerce/woocommerce-rest-api";
+import { verifyToken } from '../middlewares/authMiddleware.js';
 const WooCommerceRestApi = wcPkg.default || wcPkg;
 
 const router = express.Router();
@@ -16,7 +17,7 @@ const wcApi = new WooCommerceRestApi({
 });
 
 // Endpoint para actualizar imágenes de artículos
-router.post('/update-article-images', async (req, res) => {
+router.post('/update-article-images', verifyToken, async (req, res) => {
     try {
         const { batchSize } = req.body;
         const result = await updateArticleImagesFromWoo(batchSize || 10);
@@ -129,7 +130,7 @@ router.post('/sync-article-image/:art_cod', async (req, res) => {
 // Sincroniza peso/dimensiones (weight/dimensions nativos) hacia WooCommerce en batch.
 // Body opcional: { art_cods: ["LAB001", "LAB002"] } — si se omite, procesa todos los
 // productos simples/padres variables con al menos un campo de peso/dimensiones cargado en BD.
-router.post('/sync-weight-dimensions', async (req, res) => {
+router.post('/sync-weight-dimensions', verifyToken, async (req, res) => {
     try {
         const { art_cods } = req.body || {};
 

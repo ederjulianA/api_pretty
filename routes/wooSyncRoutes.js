@@ -5,6 +5,7 @@ import {
     fixProductCategory,
     fixAllCategories
 } from '../controllers/wooSyncController.js';
+import { verifyToken } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ router.post('/sync', syncWooProducts);
  * @query onlyMismatches=true - Muestra solo productos con discrepancias
  * @access Private
  */
-router.get('/audit-categories', auditCategories);
+router.get('/audit-categories', verifyToken, auditCategories);
 
 /**
  * @route POST /api/woo/fix-category
@@ -35,7 +36,7 @@ router.get('/audit-categories', auditCategories);
  * @body action (string) - "sync-from-woo" (recomendado) o "sync-to-woo"
  * @access Private
  */
-router.post('/fix-category', fixProductCategory);
+router.post('/fix-category', verifyToken, fixProductCategory);
 
 /**
  * @route POST /api/woo/fix-all-categories
@@ -43,6 +44,6 @@ router.post('/fix-category', fixProductCategory);
  * @query dry_run - 'true' (default, solo simular) | 'false' (aplicar cambios reales)
  * @access Private
  */
-router.post('/fix-all-categories', fixAllCategories);
+router.post('/fix-all-categories', verifyToken, fixAllCategories);
 
 export default router; 

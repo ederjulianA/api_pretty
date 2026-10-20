@@ -4,6 +4,7 @@ import {
   compareProductsForSpecialDeals, 
   diagnoseMultipleProducts 
 } from '../utils/wooDiagnosticUtils.js';
+import { verifyToken } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const router = express.Router();
  * GET /api/diagnostic/product/:sku
  * Obtiene datos completos de un producto desde WooCommerce
  */
-router.get('/product/:sku', async (req, res) => {
+router.get('/product/:sku', verifyToken, async (req, res) => {
   try {
     const { sku } = req.params;
     
@@ -47,7 +48,7 @@ router.get('/product/:sku', async (req, res) => {
  * Compara dos productos para identificar diferencias
  * Body: { sku1: "string", sku2: "string" }
  */
-router.post('/compare', async (req, res) => {
+router.post('/compare', verifyToken, async (req, res) => {
   try {
     const { sku1, sku2 } = req.body;
     
@@ -90,7 +91,7 @@ router.post('/compare', async (req, res) => {
  * Diagnostica múltiples productos
  * Body: { skus: ["sku1", "sku2", "sku3"] }
  */
-router.post('/multiple', async (req, res) => {
+router.post('/multiple', verifyToken, async (req, res) => {
   try {
     const { skus } = req.body;
     
@@ -126,7 +127,7 @@ router.post('/multiple', async (req, res) => {
  * Diagnostica todos los productos de una promoción específica
  * Body: { pro_sec: number }
  */
-router.post('/promotion', async (req, res) => {
+router.post('/promotion', verifyToken, async (req, res) => {
   try {
     const { pro_sec } = req.body;
     
