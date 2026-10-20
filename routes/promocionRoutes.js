@@ -16,13 +16,13 @@ const router = express.Router();
 // Rutas básicas de promociones
 router.post('/', verifyToken, crearPromocion);
 router.put('/:pro_sec', verifyToken, actualizarPromocion);
-router.get('/', obtenerPromociones);
-router.get('/:pro_sec', obtenerPromocionPorId);
+router.get('/', verifyToken, obtenerPromociones);
+router.get('/:pro_sec', verifyToken, obtenerPromocionPorId);
 
 // Rutas de sincronización de precios
 router.post('/:pro_sec/sincronizar-precios', sincronizarPreciosPromocion);
 router.post('/sincronizar-multiples', sincronizarPreciosMultiplesPromociones);
-router.get('/:pro_sec/articulos-sincronizacion', obtenerArticulosParaSincronizacion);
+router.get('/:pro_sec/articulos-sincronizacion', verifyToken, obtenerArticulosParaSincronizacion);
 
 // Ruta de test para sincronización directa
 router.post('/test/sincronizacion-directa', testSincronizacionDirecta);
