@@ -20,11 +20,11 @@ router.get('/', verifyToken, obtenerPromociones);
 router.get('/:pro_sec', verifyToken, obtenerPromocionPorId);
 
 // Rutas de sincronización de precios
-router.post('/:pro_sec/sincronizar-precios', sincronizarPreciosPromocion);
-router.post('/sincronizar-multiples', sincronizarPreciosMultiplesPromociones);
+router.post('/:pro_sec/sincronizar-precios', verifyToken, sincronizarPreciosPromocion);
+router.post('/sincronizar-multiples', verifyToken, sincronizarPreciosMultiplesPromociones);
 router.get('/:pro_sec/articulos-sincronizacion', verifyToken, obtenerArticulosParaSincronizacion);
 
 // Ruta de test para sincronización directa
-router.post('/test/sincronizacion-directa', testSincronizacionDirecta);
+router.post('/test/sincronizacion-directa', verifyToken, testSincronizacionDirecta);
 
 export default router; 
