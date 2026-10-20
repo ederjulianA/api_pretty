@@ -137,6 +137,15 @@ docker logs --tail 100 pretty-api
 $C up -d --build pretty-api
 ```
 
+**Consultar la base de producción desde la Mac** (el contenedor no publica puertos; se entra por un túnel SSH):
+```bash
+deploy/scripts/tunel_bd.sh abrir        # 127.0.0.1:14335 → pretty-mssql (IP interna resuelta en cada apertura)
+DOTENV_CONFIG_PATH=.env.vps node -r dotenv/config scripts/db-query.js "SELECT TOP 5 * FROM dbo.articulos"
+deploy/scripts/tunel_bd.sh cerrar
+```
+`.env.vps` (600, fuera de git) apunta al túnel. **El `.env` de siempre apunta al Windows viejo, que desde el corte
+es una copia congelada, no producción.**
+
 ## 4. Montado en el VPS (20-10-2026, 16:10-16:15)
 
 `main` `08bd776` en `/opt/pretty/source`; copia del 20-10 restaurada (CHECKDB limpio, conteos iguales al origen);
