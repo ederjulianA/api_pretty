@@ -33,9 +33,13 @@ VPS ─ compose «pretty» (red propia, sin puertos) ─────────
    - Revisar si la zona tiene *Bot Fight Mode* (Security → Bots): las peticiones llegan desde los servidores de
      Vercel y Cloudflare las podría desafiar. En el plan gratuito no se puede eximir un subdominio con una regla
      (solo con Super Bot Fight Mode, de pago): probar primero con el preview de Vercel y decidir con el resultado.
-2. **Respaldos:** decidir la cuenta de Azure (recomendado: la de Pretty, la de `AZURE_STORAGE_CONNECTION_STRING`,
-   para no mezclar datos de clientes) y crear el contenedor `respaldos-pretty` con una SAS `sp=cw` de un año.
-   La llave GPG puede ser la misma de AkaSuite (`respaldos@akasuite.com`, la pública ya está en el VPS).
+2. **Respaldos — ✅ listo (20-10-2026):** cuenta `prettycol`, contenedor privado `respaldos-pretty` con
+   inmutabilidad de 30 días y ciclo de vida (`diario/` 31 días, `mensual/` a Cool a los 30 y borrado a los 365).
+   SAS `sp=cw`, solo HTTPS y solo el contenedor, **vence el 2027-10-20**: está en `~/pretty_vps/azure_sas.txt`
+   (600) con `AZURE_CUENTA`, `AZURE_CONTENEDOR` y `AZURE_SAS` listos para `respaldo.env`. La llave GPG es la de
+   AkaSuite (`respaldos@akasuite.com`, la pública ya está en el VPS).
+   - Por la inmutabilidad, un respaldo de prueba no se puede borrar durante 30 días.
+   - Rotar la llave de `prettycol` con la que se firmó revoca la SAS: hacerlo solo junto con una SAS nueva.
 3. **Env files:** `python3 deploy/scripts/preparar_env.py .env ~/pretty_vps` y pegar el `TUNNEL_TOKEN` en
    `~/pretty_vps/env.compose`.
 
@@ -95,9 +99,10 @@ curl -s -o /dev/null -w '%{http_code}\n' https://api-pos.prettymakeupcol.com/api
   RETENCION_LOCAL_DIAS=3
   MIN_FILAS=100000
   GPG_DESTINATARIO=respaldos@akasuite.com
-  AZURE_CUENTA=<cuenta>
+  # estas tres líneas salen tal cual de ~/pretty_vps/azure_sas.txt
+  AZURE_CUENTA=prettycol
   AZURE_CONTENEDOR=respaldos-pretty
-  AZURE_SAS='<sp=cw, https, 1 año>'
+  AZURE_SAS='<sp=cw, vence 2027-10-20>'
   AVISO_PARA=ederalvarez2091057@gmail.com
   SMTP_ENV=/opt/akasuite/backend/env.prod
   ```
