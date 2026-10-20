@@ -113,7 +113,9 @@ const updateOrderEndpoint = async (req, res) => {
 
 const createCompleteOrder = async (req, res) => {
   try {
-    const { nit_sec, fac_usu_cod_cre, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general, fac_fec } = req.body;
+    const { nit_sec, fac_tip_cod, detalles, descuento, lis_pre_cod, fac_nro_woo, fac_obs, fac_descuento_general, fac_fec } = req.body;
+    // El creador sale del token (SEC-05/SEC-11): el body se puede falsificar.
+    const fac_usu_cod_cre = req.user?.usu_cod || req.body.fac_usu_cod_cre;
     // Trazabilidad sin volcar el pedido: el body lleva datos del cliente.
     console.log(`[ORDEN] crear tipo=${fac_tip_cod || 'N/D'} nit_sec=${nit_sec} items=${Array.isArray(detalles) ? detalles.length : 0}`);
     // Validar que se envíe el nit del cliente y al menos un detalle
@@ -226,8 +228,7 @@ const anularDocumentoEndpoint = async (req, res) => {
       });
     }
 
-    // Queda en fac_usu_cod_mod y en woo_sync_logs.usuario (SPEC-013). Es null mientras
-    // la ruta no exija token (SEC-11).
+    // Queda en fac_usu_cod_mod y en woo_sync_logs.usuario (SPEC-013).
     const usuario = req.user?.usu_cod || req.body.usuario || null;
 
     // SPEC-014 §5.5: la REM de un pedido web se anula "Woo primero" (cancela el pedido y luego el ERP);
