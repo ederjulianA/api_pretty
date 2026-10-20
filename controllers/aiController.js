@@ -284,8 +284,11 @@ const batchOptimize = async (req, res) => {
     const { sql, poolPromise } = require('../db');
     const pool = await poolPromise;
     
+    // TOP con parametro (SEC-25): limit viene del body y antes se interpolaba en el SQL.
+    const topN = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+
     let query = `
-      SELECT TOP ${limit} 
+      SELECT TOP (@topN) 
         a.art_sec, a.art_cod, a.art_nom,
         ISNULL(ad1.art_bod_pre, 0) AS precio_detal,
         ISNULL(ad2.art_bod_pre, 0) AS precio_mayor
@@ -298,6 +301,7 @@ const batchOptimize = async (req, res) => {
     `;
 
     const request = pool.request();
+    request.input('topN', sql.Int, topN);
     
     if (subcategoria) {
       query += ' AND a.inv_sub_gru_cod = @subcategoria';

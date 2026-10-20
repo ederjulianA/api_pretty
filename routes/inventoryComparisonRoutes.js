@@ -1,10 +1,11 @@
 import express from 'express';
 import { getInventoryDifferences } from '../models/inventoryComparisonModel.js';
+import { verifyToken } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
 // GET /api/inventory-comparison
-router.get('/', async (req, res) => {
+router.get('/', verifyToken, async (req, res) => {
     try {
         const {
             page = 1,

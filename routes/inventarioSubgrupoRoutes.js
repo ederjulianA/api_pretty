@@ -62,6 +62,6 @@ router.get('/:inv_sub_gru_cod/productos/exists', auth, inventarioSubgrupoControl
  * @access  Public (mantener compatibilidad con código existente)
  * @query   inv_gru_cod - Filtro opcional por categoría padre
  */
-router.get('/old', inventarioSubgrupoController.getInventarioSubgruposEndpoint);
+router.get('/old', auth, inventarioSubgrupoController.getInventarioSubgruposEndpoint);
 
 module.exports = router;

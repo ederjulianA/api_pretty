@@ -1,0 +1,33 @@
+# Secretos: nunca dentro de la imagen
+.env
+.env.*
+deploy/env.*
+!deploy/env.example
+
+# Dependencias y basura local
+node_modules
+logs
+cache
+poc-catalogo-pdf/cache
+.git
+.DS_Store
+*.log
+*.rar
+*.bak
+
+# Documentación y herramientas de desarrollo
+.claude
+.agent
+.agents
+.cursor
+documentacion
+implementaciones_2026
+implementaciones_ia_2026
+analisis_2026
+Fixes_2026
+impactos
+implementacion
+revision_seguridad
+consultasSql
+EstructuraDatos
+*.md

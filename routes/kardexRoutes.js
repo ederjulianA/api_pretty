@@ -1,10 +1,11 @@
 import express from 'express';
 import { getArticleKardex } from '../models/kardexModel.js';
+import { verifyToken } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
 // GET /api/kardex/:art_cod
-router.get('/:art_cod', async (req, res) => {
+router.get('/:art_cod', verifyToken, async (req, res) => {
     try {
         const { art_cod } = req.params;
         const { startDate, endDate } = req.query;

@@ -1,0 +1,72 @@
+# Pretty en el VPS de AkaSuite — fase 1 (ver implementaciones_2026/migracion_servidor_linux/PLAN.md)
+#
+#   cd /opt/pretty/source && docker compose -f deploy/docker-compose.yml --env-file /opt/pretty/env.compose up -d --build
+#
+# Reglas del VPS que este archivo respeta:
+# - Ningún puerto publicado: la API sale a internet solo por el túnel de Cloudflare.
+# - Red propia: no ve a los contenedores de AkaSuite ni ellos a Pretty.
+# - Límites de memoria para no competir con producción de AkaSuite (Hawars).
+name: pretty
+
+services:
+  pretty-mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: pretty-mssql
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Express
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?falta MSSQL_SA_PASSWORD}
+      MSSQL_MEMORY_LIMIT_MB: "1700"
+      # La base de origen vive en hora de Colombia y la API compara fechas con GETDATE()
+      TZ: America/Bogota
+    volumes:
+      - pretty-mssql-data:/var/opt/mssql
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+    networks: [pretty]
+
+  pretty-api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: pretty-api:local
+    container_name: pretty-api
+    restart: unless-stopped
+    # Secretos de la API (JWT, Woo, Cloudinary, OpenAI, Azure...). 600, fuera del repo. Ver deploy/env.example
+    env_file: ${PRETTY_API_ENV:-/opt/pretty/env.api}
+    environment:
+      PORT: "3000"
+      DB_SERVER: pretty-mssql
+      DB_PORT: "1433"
+      TZ: America/Bogota
+    depends_on:
+      pretty-mssql:
+        condition: service_healthy
+    mem_limit: 768m
+    networks: [pretty]
+
+  pretty-tunel:
+    image: cloudflare/cloudflared:2025.10.0
+    container_name: pretty-tunel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on: [pretty-api]
+    mem_limit: 128m
+    networks: [pretty]
+    # En la Mac no hay túnel: solo arranca con --profile tunel
+    profiles: [tunel]
+
+volumes:
+  pretty-mssql-data:
+
+networks:
+  pretty:
+    name: pretty

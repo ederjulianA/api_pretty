@@ -2,7 +2,7 @@
   "plan": "hardening-seguridad-2026-09",
   "version": 1,
   "creado": "2026-09-10",
-  "actualizado": "2026-09-10",
+  "actualizado": "2026-10-20",
   "informe_base": "revision_seguridad/INFORME_SEGURIDAD_2026-09-10.md",
   "repos": {
     "backend": {
@@ -403,7 +403,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "Grupo C del informe de agosto",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -431,17 +431,18 @@
       "gate": "Cada endpoint del lote lleva >=7 dias con cero requests sin token en el log de auditoria. Tras proteger: 401 sin token, 200 con token.",
       "progreso": {
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-10-huerfanos-auth",
+          "commit": "f507ee6",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
       "notas": [
         "Si la auditoria detecta trafico en alguno, sacarlo del lote e investigar el consumidor antes de tocarlo.",
-        "[2026-09-10] Usar 'python3 revision_seguridad/plan/analizar-auditoria.py' para el veredicto por endpoint. Cruza el trafico observado con las rutas sin verifyToken y clasifica en SEGURO PROTEGER / CORREGIR FRONT PRIMERO / HUERFANO. Avisa solo si el periodo de observacion es menor a 7 dias."
+        "[2026-09-10] Usar 'python3 revision_seguridad/plan/analizar-auditoria.py' para el veredicto por endpoint. Cruza el trafico observado con las rutas sin verifyToken y clasifica en SEGURO PROTEGER / CORREGIR FRONT PRIMERO / HUERFANO. Avisa solo si el periodo de observacion es menor a 7 dias.",
+        "[2026-10-20] [2026-10-20] Protegidos SIN la ventana de 7 dias del log de SEC-00: el servidor Windows se perdio (sin acceso a sus logs) y la API se muda al VPS. Ningun consumidor externo llama a la API (no recibe webhooks; usuarios solo Eder y Laura). Validado con verificar-auth.mjs contra la copia restaurada."
       ]
     },
     {
@@ -450,7 +451,7 @@
       "severidad": "critica",
       "fase": 2,
       "hallazgo": "CRITICO-3a",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -479,24 +480,26 @@
       "gate": "FRONT: crear pedido, editar pedido y anular documento funcionan en vivo tras el deploy de Vercel. BACKEND (despues): esas mismas 3 operaciones siguen funcionando y sin token dan 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
-          "en_main": false
+          "estado": "en_main",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
+          "en_main": true,
+          "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-11-order-auth",
+          "commit": "2258991",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
       "notas": [
         "POS2.jsx es inconsistente: linea 731 manda token y 497 no. Revisar las 4 llamadas.",
-        "[2026-09-10] Al proteger /api/order/, completar SEC-05: cambiar fac_usu_cod_cre para que salga de req.user.usu_cod y no del body (orderController.js:101,117). Hoy no se puede porque el endpoint no tiene auth."
+        "[2026-09-10] Al proteger /api/order/, completar SEC-05: cambiar fac_usu_cod_cre para que salga de req.user.usu_cod y no del body (orderController.js:101,117). Hoy no se puede porque el endpoint no tiene auth.",
+        "[2026-10-20] [2026-10-20] fac_usu_cod_cre ya sale de req.user (completa SEC-05). Verificado: POST /api/order con fac_usu_cod_cre=FALSO por body queda como LAURA en factura."
       ]
     },
     {
@@ -505,7 +508,7 @@
       "severidad": "alta",
       "fase": 2,
       "hallazgo": "ALTA-4",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -530,18 +533,19 @@
       "gate": "FRONT: crear cliente funciona en vivo. BACKEND: crear y buscar cliente funcionan; sin token da 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
-          "en_main": false
+          "estado": "en_main",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
+          "en_main": true,
+          "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-12-nits-auth",
+          "commit": "4671bcb",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -555,7 +559,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-12",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -580,22 +584,25 @@
       "gate": "FRONT: subir, marcar principal, reordenar y borrar foto funcionan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
-          "en_main": false
+          "estado": "en_main",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
+          "en_main": true,
+          "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-13-fotos-auth",
+          "commit": "f9812b6",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
-      "notas": []
+      "notas": [
+        "[2026-10-20] [2026-10-20] Hecho solo el verifyToken de las 6 rutas. PENDIENTE: bajar el limite de express-fileupload (50MB) y validar magic bytes. Ojo: las fotos de celular pesan 5-10 MB, medir antes de fijar el limite."
+      ]
     },
     {
       "id": "SEC-14",
@@ -603,7 +610,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "Grupo B",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -629,18 +636,19 @@
       "gate": "FRONT: crear conteo, agregar detalle, editar cantidad, cambiar estado y listar funcionan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
-          "en_main": false
+          "estado": "en_main",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
+          "en_main": true,
+          "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-14-conteo-auth",
+          "commit": "87ca19e",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -654,7 +662,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-15",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -679,18 +687,19 @@
       "gate": "FRONT: el modal de movimientos carga en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
-          "en_main": false
+          "estado": "en_main",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
+          "en_main": true,
+          "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-15-kardex-auth",
+          "commit": "8b5112d",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -702,7 +711,7 @@
       "severidad": "baja",
       "fase": 2,
       "hallazgo": "Grupo B",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -729,18 +738,19 @@
       "gate": "FRONT: el selector de ciudad y el de categorias cargan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
-          "en_main": false
+          "estado": "en_main",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
+          "en_main": true,
+          "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-16-catalogos-auth",
+          "commit": "f2ebf83",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -754,7 +764,7 @@
       "severidad": "alta",
       "fase": 2,
       "hallazgo": "ALTA-8",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -785,18 +795,19 @@
       "gate": "FRONT: sincronizar diferencia de inventario, sincronizar imagen de producto y actualizar inventario por documento funcionan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
-          "en_main": false
+          "estado": "en_main",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
+          "en_main": true,
+          "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-17-woo-sync-auth",
+          "commit": "87f3895",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -810,7 +821,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-15 / omitidos del informe de agosto",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -837,18 +848,19 @@
       "gate": "FRONT: las pantallas de diferencias de inventario y promociones cargan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
-          "en_main": false
+          "estado": "en_main",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
+          "en_main": true,
+          "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-18-lecturas-auth",
+          "commit": "d660405",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -1033,7 +1045,9 @@
       },
       "notas": [
         "Cierre del plan. No intentar antes de completar toda la fase 2.",
-        "[2026-09-10] ⚠️ CONFLICTO CON EL DESPLIEGUE: update-app.ps1 verifica el despliegue pidiendo GET http://localhost:PORT/ y hace ROLLBACK AUTOMATICO si no responde 200. Si la lista blanca de rutas publicas no incluye '/', el health check recibira 401 y CADA despliegue se revertira solo, incluido el de esta misma tarea. Al implementar SEC-23: incluir '/' en PUBLIC_PATHS (ya esta previsto en la propuesta del informe) y verificar el health check ANTES de mergear a main."
+        "[2026-09-10] ⚠️ CONFLICTO CON EL DESPLIEGUE: update-app.ps1 verifica el despliegue pidiendo GET http://localhost:PORT/ y hace ROLLBACK AUTOMATICO si no responde 200. Si la lista blanca de rutas publicas no incluye '/', el health check recibira 401 y CADA despliegue se revertira solo, incluido el de esta misma tarea. Al implementar SEC-23: incluir '/' en PUBLIC_PATHS (ya esta previsto en la propuesta del informe) y verificar el health check ANTES de mergear a main.",
+        "[2026-10-20] [2026-10-20] Implementada y validada en la rama seguridad/SEC-23-auth-por-defecto (no mergeada): lista blanca 'GET /' y 'POST /api/auth/login'; verificar-auth.mjs da 199 rutas con 401 y health 200. El CLI la bloquea hasta desplegar la fase 2; con la migracion al VPS todo se despliega junto, decide Eder si entra. El conflicto del health check con update-app.ps1 ya no aplica en el VPS (Docker usa GET /, que queda publico).",
+        "[2026-10-20] [2026-10-20] EDER AUTORIZO incluirla en el montaje del VPS saltando el orden del plan (todo se despliega junto; consumidores conocidos: solo el front, que manda token en todo). Mergeada en develop (0dcf9e4). Revalidada en develop: verificar-auth 199 rutas 401 + health 200; recorrido de 48 pantallas y flujo de escritura contra el contenedor con pretty_app, sin regresiones. El CLI la sigue mostrando bloqueada porque SEC-10..18 no estan desplegadas: el dia del VPS, tras marcar esas como desplegadas, registrar iniciar/validado/a-develop de SEC-23 con el commit 0dcf9e4."
       ]
     },
     {
@@ -1081,7 +1095,7 @@
       "severidad": "media",
       "fase": 3,
       "hallazgo": "MEDIA-11",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -1099,11 +1113,11 @@
       "gate": "limit parametrizado con sql.Int. Revisar el resto de aiController antes de descomentar la ruta.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-25-batch-optimize-sqli",
+          "commit": "641ac39",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -1340,7 +1354,8 @@
         }
       },
       "notas": [
-        "[2026-09-10] Descubierta durante la ejecucion del plan, no estaba en el informe original."
+        "[2026-09-10] Descubierta durante la ejecucion del plan, no estaba en el informe original.",
+        "[2026-10-20] [2026-10-20] Visto en el recorrido: Orders.jsx pide GET /api/users para el filtro de usuarios y a LAURA (Supervisor) le da 403 (requiere admin/manage_users desde SEC-21). La pantalla carga, pero el filtro queda vacio. Decidir: endpoint de solo nombres para el filtro o permiso al rol."
       ]
     }
   ],

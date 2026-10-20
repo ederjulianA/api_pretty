@@ -1,11 +1,12 @@
 import express from 'express';
 import { updateWooOrderStatusAndStock } from '../jobs/updateWooOrderStatusAndStock.js';
 import { poolPromise, sql } from '../db.js';
+import { verifyToken } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
 // Endpoint para probar la sincronización de inventario
-router.post('/test-sync', async (req, res) => {
+router.post('/test-sync', verifyToken, async (req, res) => {
     const logs = [];
     const startTime = new Date();
 
@@ -141,7 +142,7 @@ router.post('/test-sync', async (req, res) => {
 });
 
 // Endpoint para consultar logs de sincronización
-router.get('/sync-logs', async (req, res) => {
+router.get('/sync-logs', verifyToken, async (req, res) => {
     try {
         const {
             page = 1,
@@ -245,7 +246,7 @@ router.get('/sync-logs', async (req, res) => {
 });
 
 // Endpoint para obtener un log específico
-router.get('/sync-logs/:id', async (req, res) => {
+router.get('/sync-logs/:id', verifyToken, async (req, res) => {
     try {
         const pool = await poolPromise;
         const result = await pool.request()

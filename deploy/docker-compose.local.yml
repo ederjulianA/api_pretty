@@ -1,0 +1,10 @@
+# Solo para probar en la Mac: publica la API y la base en 127.0.0.1.
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml --env-file deploy/env.compose.local up -d --build
+# En el VPS NO se usa: allá no se publica ningún puerto.
+services:
+  pretty-mssql:
+    ports:
+      - "127.0.0.1:14334:1433"
+  pretty-api:
+    ports:
+      - "127.0.0.1:3010:3000"
