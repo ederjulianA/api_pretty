@@ -5,6 +5,7 @@ import {
     fixProductCategory,
     fixAllCategories
 } from '../controllers/wooSyncController.js';
+import { verifyToken } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -18,7 +19,7 @@ const router = express.Router();
  * @query process_images - 'true' | 'false' - Procesar imágenes (default: 'false' para optimizar)
  * @access Private
  */
-router.post('/sync', syncWooProducts);
+router.post('/sync', verifyToken, syncWooProducts);
 
 /**
  * @route GET /api/woo/audit-categories

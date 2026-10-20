@@ -3,6 +3,7 @@ import { updateArticleImagesFromWoo } from '../jobs/updateArticleImagesFromWoo.j
 import { updateWooProductWeightDimensions } from '../jobs/updateWooProductWeightDimensions.js';
 import { poolPromise, sql } from '../db.js';
 import wcPkg from "@woocommerce/woocommerce-rest-api";
+import { verifyToken } from '../middlewares/authMiddleware.js';
 const WooCommerceRestApi = wcPkg.default || wcPkg;
 
 const router = express.Router();
@@ -32,7 +33,7 @@ router.post('/update-article-images', async (req, res) => {
 });
 
 // Nuevo endpoint para sincronizar imagen de un artículo específico
-router.post('/sync-article-image/:art_cod', async (req, res) => {
+router.post('/sync-article-image/:art_cod', verifyToken, async (req, res) => {
     try {
         const { art_cod } = req.params;
         console.log('Iniciando sincronización de imagen para artículo:', art_cod);
