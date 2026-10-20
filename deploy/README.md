@@ -137,7 +137,15 @@ docker logs --tail 100 pretty-api
 $C up -d --build pretty-api
 ```
 
-## 4. Probado en la Mac (20-10-2026)
+## 4. Montado en el VPS (20-10-2026, 16:10-16:15)
+
+`main` `08bd776` en `/opt/pretty/source`; copia del 20-10 restaurada (CHECKDB limpio, conteos iguales al origen);
+los tres contenedores sanos (~770 MB en total) y ningún puerto nuevo en el host; `api-pos.prettymakeupcol.com`
+responde 200 en la raíz, 401 sin token y 200 con token (0,3-0,5 s). Primer respaldo subido a Azure
+(`diario/pretty-20261020-1613.bak.gpg`) con restauración de prueba ok, y cron a las 2:15. AkaSuite prod y QA sin
+cambios. **Falta el corte (§2).**
+
+## 5. Probado en la Mac (20-10-2026)
 
 - Restauración de la copia del 20-10 con `restaurar_bak.sh`: CHECKDB limpio, 64 tablas y 164.550 filas iguales al
   origen, `pretty_app` creado. SQL Server 2022 CU27, hora de Colombia en SQL y en Node.
