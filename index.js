@@ -11,6 +11,7 @@ import wooSyncRoutes from './routes/wooSyncRoutes.js';
 import syncWooOrdersRoutes from './routes/syncWooOrdersRoutes.js';
 import wooCategoriaRoutes from './routes/wooCategoriaRoutes.js';
 import documentoInventarioRoutes from './routes/documentoInventarioRoutes.js';
+import { verifyToken } from './middlewares/authMiddleware.js';
 dotenv.config();
 
 // Import CommonJS modules
@@ -126,6 +127,19 @@ app.use(fileUpload({
 // Instrumentacion temporal para decidir con evidencia que endpoints se pueden
 // proteger sin romper produccion. Ver revision_seguridad/plan/.
 app.use(authAudit);
+
+// Autenticacion por defecto (SEC-23): toda peticion exige token salvo las de
+// esta lista. Asi una ruta nueva no nace abierta por olvidar verifyToken. La
+// comparacion es exacta, asi que cualquier variante de la ruta queda cerrada.
+// '/' tiene que seguir publica: es el health check del despliegue.
+const RUTAS_PUBLICAS = new Set([
+  'GET /',
+  'POST /api/auth/login',
+]);
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS' || RUTAS_PUBLICAS.has(`${req.method} ${req.path}`)) return next();
+  return verifyToken(req, res, next);
+});
 
 // Rutas
 app.use("/api/woo", wooRoutes);
