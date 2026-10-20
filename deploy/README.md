@@ -30,8 +30,9 @@ VPS ─ compose «pretty» (red propia, sin puertos) ─────────
 1. **Túnel de Cloudflare** (Zero Trust → Networks → Tunnels → *Create a tunnel* → Cloudflared):
    - nombre `pretty-vps`; copiar el **token** del comando de instalación (lo que va después de `--token`);
    - *Public hostname*: `api-pos.prettymakeupcol.com` → servicio `HTTP` → `pretty-api:3000`.
-   - Si la zona tiene *Bot Fight Mode*, crear una regla que lo salte para `api-pos.prettymakeupcol.com`: las
-     peticiones llegan desde los servidores de Vercel y Cloudflare las podría desafiar.
+   - Revisar si la zona tiene *Bot Fight Mode* (Security → Bots): las peticiones llegan desde los servidores de
+     Vercel y Cloudflare las podría desafiar. En el plan gratuito no se puede eximir un subdominio con una regla
+     (solo con Super Bot Fight Mode, de pago): probar primero con el preview de Vercel y decidir con el resultado.
 2. **Respaldos:** decidir la cuenta de Azure (recomendado: la de Pretty, la de `AZURE_STORAGE_CONNECTION_STRING`,
    para no mezclar datos de clientes) y crear el contenedor `respaldos-pretty` con una SAS `sp=cw` de un año.
    La llave GPG puede ser la misma de AkaSuite (`respaldos@akasuite.com`, la pública ya está en el VPS).
