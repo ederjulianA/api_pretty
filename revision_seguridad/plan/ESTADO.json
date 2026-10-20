@@ -2,7 +2,7 @@
   "plan": "hardening-seguridad-2026-09",
   "version": 1,
   "creado": "2026-09-10",
-  "actualizado": "2026-09-10",
+  "actualizado": "2026-10-20",
   "informe_base": "revision_seguridad/INFORME_SEGURIDAD_2026-09-10.md",
   "repos": {
     "backend": {
@@ -403,7 +403,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "Grupo C del informe de agosto",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -431,11 +431,11 @@
       "gate": "Cada endpoint del lote lleva >=7 dias con cero requests sin token en el log de auditoria. Tras proteger: 401 sin token, 200 con token.",
       "progreso": {
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-10-huerfanos-auth",
+          "commit": "f507ee6",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -450,7 +450,7 @@
       "severidad": "critica",
       "fase": 2,
       "hallazgo": "CRITICO-3a",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -479,18 +479,18 @@
       "gate": "FRONT: crear pedido, editar pedido y anular documento funcionan en vivo tras el deploy de Vercel. BACKEND (despues): esas mismas 3 operaciones siguen funcionando y sin token dan 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
           "en_main": false
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-11-order-auth",
+          "commit": "2258991",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -505,7 +505,7 @@
       "severidad": "alta",
       "fase": 2,
       "hallazgo": "ALTA-4",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -530,18 +530,18 @@
       "gate": "FRONT: crear cliente funciona en vivo. BACKEND: crear y buscar cliente funcionan; sin token da 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
           "en_main": false
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-12-nits-auth",
+          "commit": "4671bcb",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -555,7 +555,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-12",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -580,18 +580,18 @@
       "gate": "FRONT: subir, marcar principal, reordenar y borrar foto funcionan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
           "en_main": false
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-13-fotos-auth",
+          "commit": "f9812b6",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -603,7 +603,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "Grupo B",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -629,18 +629,18 @@
       "gate": "FRONT: crear conteo, agregar detalle, editar cantidad, cambiar estado y listar funcionan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
           "en_main": false
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-14-conteo-auth",
+          "commit": "87ca19e",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -654,7 +654,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-15",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -679,18 +679,18 @@
       "gate": "FRONT: el modal de movimientos carga en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
           "en_main": false
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-15-kardex-auth",
+          "commit": "8b5112d",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -702,7 +702,7 @@
       "severidad": "baja",
       "fase": 2,
       "hallazgo": "Grupo B",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -729,18 +729,18 @@
       "gate": "FRONT: el selector de ciudad y el de categorias cargan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
           "en_main": false
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-16-catalogos-auth",
+          "commit": "f2ebf83",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -754,7 +754,7 @@
       "severidad": "alta",
       "fase": 2,
       "hallazgo": "ALTA-8",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -785,18 +785,18 @@
       "gate": "FRONT: sincronizar diferencia de inventario, sincronizar imagen de producto y actualizar inventario por documento funcionan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
           "en_main": false
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-17-woo-sync-auth",
+          "commit": "87f3895",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -810,7 +810,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-15 / omitidos del informe de agosto",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "frontend",
         "backend"
@@ -837,18 +837,18 @@
       "gate": "FRONT: las pantallas de diferencias de inventario y promociones cargan en vivo. BACKEND: idem, y sin token 401.",
       "progreso": {
         "frontend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "en_develop": false,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-1x-token-global",
+          "commit": "4091362",
+          "en_develop": true,
           "en_main": false
         },
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-18-lecturas-auth",
+          "commit": "d660405",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
@@ -1081,7 +1081,7 @@
       "severidad": "media",
       "fase": 3,
       "hallazgo": "MEDIA-11",
-      "estado": "pendiente",
+      "estado": "en_curso",
       "repos": [
         "backend"
       ],
@@ -1099,11 +1099,11 @@
       "gate": "limit parametrizado con sql.Int. Revisar el resto de aiController antes de descomentar la ruta.",
       "progreso": {
         "backend": {
-          "estado": "pendiente",
-          "rama": null,
-          "commit": null,
+          "estado": "en_develop",
+          "rama": "seguridad/SEC-25-batch-optimize-sqli",
+          "commit": "641ac39",
           "desplegado": false,
-          "en_develop": false,
+          "en_develop": true,
           "en_main": false
         }
       },
