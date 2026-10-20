@@ -403,7 +403,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "Grupo C del informe de agosto",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -431,10 +431,10 @@
       "gate": "Cada endpoint del lote lleva >=7 dias con cero requests sin token en el log de auditoria. Tras proteger: 401 sin token, 200 con token.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-10-huerfanos-auth",
           "commit": "f507ee6",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
@@ -443,7 +443,8 @@
       "notas": [
         "Si la auditoria detecta trafico en alguno, sacarlo del lote e investigar el consumidor antes de tocarlo.",
         "[2026-09-10] Usar 'python3 revision_seguridad/plan/analizar-auditoria.py' para el veredicto por endpoint. Cruza el trafico observado con las rutas sin verifyToken y clasifica en SEGURO PROTEGER / CORREGIR FRONT PRIMERO / HUERFANO. Avisa solo si el periodo de observacion es menor a 7 dias.",
-        "[2026-10-20] [2026-10-20] Protegidos SIN la ventana de 7 dias del log de SEC-00: el servidor Windows se perdio (sin acceso a sus logs) y la API se muda al VPS. Ningun consumidor externo llama a la API (no recibe webhooks; usuarios solo Eder y Laura). Validado con verificar-auth.mjs contra la copia restaurada."
+        "[2026-10-20] [2026-10-20] Protegidos SIN la ventana de 7 dias del log de SEC-00: el servidor Windows se perdio (sin acceso a sus logs) y la API se muda al VPS. Ningun consumidor externo llama a la API (no recibe webhooks; usuarios solo Eder y Laura). Validado con verificar-auth.mjs contra la copia restaurada.",
+        "[2026-10-20] [2026-10-20] 'Desplegado' = API en Docker en el VPS de AkaSuite (main 08bd776), en produccion desde el corte del 20-10 ~16:36 (vercel.json -> api-pos.prettymakeupcol.com). Ya no hay pm2 ni Windows."
       ]
     },
     {
@@ -452,7 +453,7 @@
       "severidad": "critica",
       "fase": 2,
       "hallazgo": "CRITICO-3a",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "frontend",
         "backend"
@@ -489,10 +490,10 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-11-order-auth",
           "commit": "2258991",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
@@ -510,7 +511,7 @@
       "severidad": "alta",
       "fase": 2,
       "hallazgo": "ALTA-4",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "frontend",
         "backend"
@@ -543,10 +544,10 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-12-nits-auth",
           "commit": "4671bcb",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
@@ -562,7 +563,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-12",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "frontend",
         "backend"
@@ -595,10 +596,10 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-13-fotos-auth",
           "commit": "f9812b6",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
@@ -614,7 +615,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "Grupo B",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "frontend",
         "backend"
@@ -648,10 +649,10 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-14-conteo-auth",
           "commit": "87ca19e",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
@@ -667,7 +668,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-15",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "frontend",
         "backend"
@@ -700,10 +701,10 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-15-kardex-auth",
           "commit": "8b5112d",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
@@ -717,7 +718,7 @@
       "severidad": "baja",
       "fase": 2,
       "hallazgo": "Grupo B",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "frontend",
         "backend"
@@ -752,10 +753,10 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-16-catalogos-auth",
           "commit": "f2ebf83",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
@@ -771,7 +772,7 @@
       "severidad": "alta",
       "fase": 2,
       "hallazgo": "ALTA-8",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "frontend",
         "backend"
@@ -810,10 +811,10 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-17-woo-sync-auth",
           "commit": "87f3895",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
@@ -829,7 +830,7 @@
       "severidad": "media",
       "fase": 2,
       "hallazgo": "MEDIA-15 / omitidos del informe de agosto",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "frontend",
         "backend"
@@ -864,10 +865,10 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-18-lecturas-auth",
           "commit": "d660405",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
@@ -881,7 +882,7 @@
       "severidad": "critica",
       "fase": 3,
       "hallazgo": "CRITICO-3b",
-      "estado": "bloqueado",
+      "estado": "pendiente",
       "repos": [
         "backend",
         "frontend"
@@ -1016,7 +1017,7 @@
       "severidad": "alta",
       "fase": 3,
       "hallazgo": "Seccion 4.2 del informe",
-      "estado": "bloqueado",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -1044,12 +1045,13 @@
       "gate": "Recorrer las pantallas principales del front con sesion iniciada: todo funciona. El log de auditoria de SEC-00 debe llevar >=7 dias sin requests sin token a rutas no publicas.",
       "progreso": {
         "backend": {
-          "estado": "bloqueado",
-          "rama": null,
-          "commit": null,
-          "desplegado": false,
-          "en_develop": false,
-          "en_main": false
+          "estado": "desplegado",
+          "rama": "seguridad/SEC-23-auth-por-defecto",
+          "commit": "0dcf9e4",
+          "desplegado": true,
+          "en_develop": true,
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": [
@@ -1104,7 +1106,7 @@
       "severidad": "media",
       "fase": 3,
       "hallazgo": "MEDIA-11",
-      "estado": "en_curso",
+      "estado": "completado",
       "repos": [
         "backend"
       ],
@@ -1122,10 +1124,10 @@
       "gate": "limit parametrizado con sql.Int. Revisar el resto de aiController antes de descomentar la ruta.",
       "progreso": {
         "backend": {
-          "estado": "en_main",
+          "estado": "desplegado",
           "rama": "seguridad/SEC-25-batch-optimize-sqli",
           "commit": "641ac39",
-          "desplegado": false,
+          "desplegado": true,
           "en_develop": true,
           "en_main": true,
           "commit_main": "08bd776"
