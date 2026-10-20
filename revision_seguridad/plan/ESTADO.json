@@ -441,7 +441,8 @@
       },
       "notas": [
         "Si la auditoria detecta trafico en alguno, sacarlo del lote e investigar el consumidor antes de tocarlo.",
-        "[2026-09-10] Usar 'python3 revision_seguridad/plan/analizar-auditoria.py' para el veredicto por endpoint. Cruza el trafico observado con las rutas sin verifyToken y clasifica en SEGURO PROTEGER / CORREGIR FRONT PRIMERO / HUERFANO. Avisa solo si el periodo de observacion es menor a 7 dias."
+        "[2026-09-10] Usar 'python3 revision_seguridad/plan/analizar-auditoria.py' para el veredicto por endpoint. Cruza el trafico observado con las rutas sin verifyToken y clasifica en SEGURO PROTEGER / CORREGIR FRONT PRIMERO / HUERFANO. Avisa solo si el periodo de observacion es menor a 7 dias.",
+        "[2026-10-20] [2026-10-20] Protegidos SIN la ventana de 7 dias del log de SEC-00: el servidor Windows se perdio (sin acceso a sus logs) y la API se muda al VPS. Ningun consumidor externo llama a la API (no recibe webhooks; usuarios solo Eder y Laura). Validado con verificar-auth.mjs contra la copia restaurada."
       ]
     },
     {
@@ -496,7 +497,8 @@
       },
       "notas": [
         "POS2.jsx es inconsistente: linea 731 manda token y 497 no. Revisar las 4 llamadas.",
-        "[2026-09-10] Al proteger /api/order/, completar SEC-05: cambiar fac_usu_cod_cre para que salga de req.user.usu_cod y no del body (orderController.js:101,117). Hoy no se puede porque el endpoint no tiene auth."
+        "[2026-09-10] Al proteger /api/order/, completar SEC-05: cambiar fac_usu_cod_cre para que salga de req.user.usu_cod y no del body (orderController.js:101,117). Hoy no se puede porque el endpoint no tiene auth.",
+        "[2026-10-20] [2026-10-20] fac_usu_cod_cre ya sale de req.user (completa SEC-05). Verificado: POST /api/order con fac_usu_cod_cre=FALSO por body queda como LAURA en factura."
       ]
     },
     {
@@ -595,7 +597,9 @@
           "en_main": false
         }
       },
-      "notas": []
+      "notas": [
+        "[2026-10-20] [2026-10-20] Hecho solo el verifyToken de las 6 rutas. PENDIENTE: bajar el limite de express-fileupload (50MB) y validar magic bytes. Ojo: las fotos de celular pesan 5-10 MB, medir antes de fijar el limite."
+      ]
     },
     {
       "id": "SEC-14",
@@ -1033,7 +1037,8 @@
       },
       "notas": [
         "Cierre del plan. No intentar antes de completar toda la fase 2.",
-        "[2026-09-10] ⚠️ CONFLICTO CON EL DESPLIEGUE: update-app.ps1 verifica el despliegue pidiendo GET http://localhost:PORT/ y hace ROLLBACK AUTOMATICO si no responde 200. Si la lista blanca de rutas publicas no incluye '/', el health check recibira 401 y CADA despliegue se revertira solo, incluido el de esta misma tarea. Al implementar SEC-23: incluir '/' en PUBLIC_PATHS (ya esta previsto en la propuesta del informe) y verificar el health check ANTES de mergear a main."
+        "[2026-09-10] ⚠️ CONFLICTO CON EL DESPLIEGUE: update-app.ps1 verifica el despliegue pidiendo GET http://localhost:PORT/ y hace ROLLBACK AUTOMATICO si no responde 200. Si la lista blanca de rutas publicas no incluye '/', el health check recibira 401 y CADA despliegue se revertira solo, incluido el de esta misma tarea. Al implementar SEC-23: incluir '/' en PUBLIC_PATHS (ya esta previsto en la propuesta del informe) y verificar el health check ANTES de mergear a main.",
+        "[2026-10-20] [2026-10-20] Implementada y validada en la rama seguridad/SEC-23-auth-por-defecto (no mergeada): lista blanca 'GET /' y 'POST /api/auth/login'; verificar-auth.mjs da 199 rutas con 401 y health 200. El CLI la bloquea hasta desplegar la fase 2; con la migracion al VPS todo se despliega junto, decide Eder si entra. El conflicto del health check con update-app.ps1 ya no aplica en el VPS (Docker usa GET /, que queda publico)."
       ]
     },
     {
@@ -1340,7 +1345,8 @@
         }
       },
       "notas": [
-        "[2026-09-10] Descubierta durante la ejecucion del plan, no estaba en el informe original."
+        "[2026-09-10] Descubierta durante la ejecucion del plan, no estaba en el informe original.",
+        "[2026-10-20] [2026-10-20] Visto en el recorrido: Orders.jsx pide GET /api/users para el filtro de usuarios y a LAURA (Supervisor) le da 403 (requiere admin/manage_users desde SEC-21). La pantalla carga, pero el filtro queda vacio. Decidir: endpoint de solo nombres para el filtro o permiso al rol."
       ]
     }
   ],
