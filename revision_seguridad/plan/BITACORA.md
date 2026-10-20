@@ -6,6 +6,66 @@ Formato: fecha, tarea, repo, qué se hizo, cómo se validó, qué quedó abierto
 
 ---
 
+## 2026-10-20 — Fase 2 completa (SEC-10..18) + SEC-25 + SEC-23 lista, dentro de la migración al VPS
+
+**Repo:** ambos. **Contexto:** el servidor Windows quedó sin acceso; la API se muda a Docker en el VPS de AkaSuite
+(`implementaciones_2026/migracion_servidor_linux/PLAN.md`). Eder pidió avanzar con todo lo posible y priorizar volver
+a tener la app disponible.
+
+**Hecho:**
+- **Front** (`develop` `4091362`): interceptor en el axios global (`src/axiosConfig.js`, registrado en `src/main.jsx`)
+  que pone `x-access-token` en toda llamada relativa a `/api/` que no lo traiga. Cubre el lado front de SEC-11..18
+  de una vez (unas 150 llamadas con el axios global, varias sin header) en vez de migrar llamada por llamada.
+- **Backend** (`develop`, un merge por tarea): `verifyToken` ruta por ruta en SEC-11 (`orderRoutes`, y
+  `fac_usu_cod_cre` sale de `req.user`), SEC-12 (`nits`), SEC-17 (sync Woo y `documento-inventario`), SEC-13 (fotos),
+  SEC-14 (conteos), SEC-15 (kardex), SEC-16 (ciudades y categorías), SEC-18 (lecturas masivas), SEC-10 (huérfanos);
+  SEC-25: `TOP (@topN)` con `sql.Int` acotado 1-500 en `aiController.batchOptimize`.
+- **SEC-23** en `seguridad/SEC-23-auth-por-defecto` (sin mergear): middleware en `index.js` que exige token salvo
+  `GET /` y `POST /api/auth/login`.
+- **`verificar-auth.mjs`** (nuevo, en este directorio): levanta la API, recorre todas las rutas registradas en
+  Express y las llama sin token; exige 401 salvo la lista blanca. Se niega a correr si la BD no es local.
+
+**Validado** (todo en local contra la copia restaurada de la base; Woo, Cloudinary, OpenAI y Azure apuntados a
+`127.0.0.1:9`):
+- `verificar-auth.mjs`: `develop` antes de los cambios → 62 rutas abiertas; con SEC-10..18 → solo `/api/woo/test`
+  (texto fijo) y dos 404; con SEC-23 → **199 rutas, todas 401**, health 200 y un token válido pasa.
+- Recorrido headless (puppeteer) de 24 pantallas como LAURA (Supervisor) y como EDER (Administrador): **todas las
+  llamadas a `/api` llevan token y ninguna da 401**. Único 403: LAURA en `/orders` → `GET /api/users` (preexistente,
+  ver Aprendido).
+- Flujo de escritura como LAURA por el proxy del front: crear cliente, cotización (con `fac_usu_cod_cre=FALSO` en el
+  body, quedó `LAURA` en `factura`), editar, anular, kardex → 200/201; los mismos 7 sin token → 401.
+- Repetido contra el contenedor de `deploy/` con el login `pretty_app`: mismo resultado y ningún «permission denied».
+
+**Desvíos del plan (decididos por el contexto, no por atajo):**
+- Los gates «en vivo» y la ventana de 7 días del log de SEC-00 **no se pueden cumplir**: no hay acceso al servidor
+  ni a sus logs. Se reemplazaron por las pruebas locales de arriba. Nota en SEC-10.
+- El front se corrigió con un interceptor global y no migrando cada llamada a `axiosInstance`. Las llamadas con el
+  axios global no hacen logout automático ante un 401, igual que antes.
+
+**Aprendido:**
+1. **El `.env` local de `api_pretty` apunta a la BD de producción con `sa` y a la tienda real.** Un arranque
+   local sin sobreescribir `DB_*` escribe en producción. → memoria `entorno-local-desarrollo` (corregida) y
+   salvaguarda en `verificar-auth.mjs`.
+2. **La regla «`pm2 restart` / `update-app.bat`» del plan ya no aplica:** el despliegue es Docker en el VPS
+   (`deploy/README.md`). → memoria `despliegue-backend-windows` (corregida). La skill `plan-seguridad` y `PLAN.md`
+   todavía describen el flujo con PM2: **corregir en otra sesión con el OK de Eder**. El conflicto de SEC-23 con el
+   health check de `update-app.ps1` deja de existir (Docker usa `GET /`, que queda público). → nota en SEC-23.
+3. **Insertar un import en un .js sin `"type"` puede caer dentro de un `import { … }` de varias líneas y
+   `node --check` no lo detecta** (pasó en `wooSyncRoutes.js` y `diagnosticRoutes.js`; lo atrapó
+   `verificar-auth.mjs`). → memoria del índice (patrones del código, corregida: el repo mezcla CJS y ESM).
+4. **Supervisor no puede listar usuarios** y `Orders.jsx` lo pide para un filtro (403 desde SEC-21). → nota en SEC-31.
+5. **SEC-13 quedó a medias a propósito:** solo el token; falta el límite de subida y los magic bytes. → nota en SEC-13.
+6. La memoria `auditoria-endpoints-sin-auth` decía que `verifyToken` no acepta Bearer (falso desde SEC-08) y que no
+   se protegiera en bloque. → corregida.
+
+**Abierto:**
+- **Visto bueno de Eder** para pasar a `main`: primero el front (`develop` → `main`, Vercel despliega; inofensivo
+  porque la API vieja ignora el token), después el backend. El «desplegado» del backend será el montaje en el VPS.
+- **Decidir SEC-23:** entra al VPS con el resto (recomendado: ya validada y el despliegue es uno solo) o espera.
+- Nada de esto está desplegado: la API vieja sigue sin proteger mientras viva en Windows.
+
+---
+
 ## 2026-09-10 — SEC-21 requirePermission (CRÍTICO-2) + ajustes al despliegue
 
 **Repo:** backend (`main` = `823a98f`, desplegado 18:09)
