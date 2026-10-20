@@ -39,6 +39,15 @@ VPS ─ compose «pretty» (red propia, sin puertos) ─────────
 3. **Env files:** `python3 deploy/scripts/preparar_env.py .env ~/pretty_vps` y pegar el `TUNNEL_TOKEN` en
    `~/pretty_vps/env.compose`.
 
+**Estado (20-10-2026):** túnel `pretty-vps` creado, con la ruta `api-pos.prettymakeupcol.com` →
+`http://pretty-api:3000`. Probado desde la Mac: HTTPS 200, rutas sin token 401, y Vercel llega por el túnel (Bot
+Fight Mode no estorba). Los dos env están en `~/pretty_vps/` con el token. **Pendiente: rotar el token** (botón
+*Rotar token* en la página del túnel) antes de montar, porque quedó escrito fuera de `env.compose`. Para guardar el
+nuevo sin que se vea, copiarlo con el ícono del comando y correr:
+```bash
+T=$(pbpaste | grep -oE 'eyJ[A-Za-z0-9+/=_-]+' | head -1); [ -n "$T" ] && sed -i '' "s|^TUNNEL_TOKEN=.*|TUNNEL_TOKEN=$T|" ~/pretty_vps/env.compose && echo "token guardado (${#T} caracteres)"; unset T; pbcopy </dev/null
+```
+
 ## 1. Montar en el VPS (con el OK de Eder)
 
 ```bash
