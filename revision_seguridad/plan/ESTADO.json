@@ -431,12 +431,13 @@
       "gate": "Cada endpoint del lote lleva >=7 dias con cero requests sin token en el log de auditoria. Tras proteger: 401 sin token, 200 con token.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-10-huerfanos-auth",
           "commit": "f507ee6",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": [
@@ -488,12 +489,13 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-11-order-auth",
           "commit": "2258991",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": [
@@ -541,12 +543,13 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-12-nits-auth",
           "commit": "4671bcb",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": [
@@ -592,12 +595,13 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-13-fotos-auth",
           "commit": "f9812b6",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": [
@@ -644,12 +648,13 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-14-conteo-auth",
           "commit": "87ca19e",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": [
@@ -695,12 +700,13 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-15-kardex-auth",
           "commit": "8b5112d",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": []
@@ -746,12 +752,13 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-16-catalogos-auth",
           "commit": "f2ebf83",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": [
@@ -803,12 +810,13 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-17-woo-sync-auth",
           "commit": "87f3895",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": [
@@ -856,12 +864,13 @@
           "commit_main": "90eaa5e"
         },
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-18-lecturas-auth",
           "commit": "d660405",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": []
@@ -1113,12 +1122,13 @@
       "gate": "limit parametrizado con sql.Int. Revisar el resto de aiController antes de descomentar la ruta.",
       "progreso": {
         "backend": {
-          "estado": "en_develop",
+          "estado": "en_main",
           "rama": "seguridad/SEC-25-batch-optimize-sqli",
           "commit": "641ac39",
           "desplegado": false,
           "en_develop": true,
-          "en_main": false
+          "en_main": true,
+          "commit_main": "08bd776"
         }
       },
       "notas": [
