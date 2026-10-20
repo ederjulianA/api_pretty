@@ -6,6 +6,23 @@ Formato: fecha, tarea, repo, qué se hizo, cómo se validó, qué quedó abierto
 
 ---
 
+## 2026-10-20 (noche) — SEC-23 entra a develop por decisión de Eder
+
+**Repo:** backend (`develop` `0dcf9e4`).
+**Hecho:** merge de `seguridad/SEC-23-auth-por-defecto`: toda petición exige token salvo `GET /` y
+`POST /api/auth/login` (`index.js`).
+**Decisión:** Eder autorizó saltar el orden del plan. Riesgo explicado: si alguna ruta legítima quedara fuera de la
+lista blanca, fallaría esa pantalla; se mitiga porque el despliegue al VPS es uno solo, los únicos consumidores son
+Eder y Laura desde el front (que manda token en todo), y se revierte con un commit.
+**Validado:** `verificar-auth.mjs` sobre `develop` → 199 rutas 401, health 200, token válido 200. Contenedor
+reconstruido desde `develop` con `pretty_app`: recorrido de 24 pantallas × 2 usuarios sin llamadas sin token ni
+rechazadas (solo el 403 conocido de LAURA en `GET /api/users`, SEC-31) y flujo de escritura completo; sin token, 401.
+**Aprendido:** el CLI no permite forzar una tarea bloqueada por dependencias (`desbloquear` solo levanta bloqueos
+manuales). No se editó `ESTADO.json` a mano: SEC-23 se registra en el CLI el día del VPS (nota en SEC-23).
+**Abierto:** registrar SEC-23 en el CLI tras desplegar SEC-10..18; visto bueno de Eder para `develop` → `main`.
+
+---
+
 ## 2026-10-20 — Fase 2 completa (SEC-10..18) + SEC-25 + SEC-23 lista, dentro de la migración al VPS
 
 **Repo:** ambos. **Contexto:** el servidor Windows quedó sin acceso; la API se muda a Docker en el VPS de AkaSuite
