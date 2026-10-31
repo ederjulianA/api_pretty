@@ -62,6 +62,7 @@ import reconciliacionRoutes from './routes/reconciliacionRoutes.js';
 import { iniciarImportadorPedidosWeb, config as configImportador } from './jobs/importarPedidosWeb.js';
 import { iniciarReconciliacionNocturna, config as configReconciliacion } from './jobs/reconciliarInventarioWoo.js';
 import { iniciarVencimientoRemisiones, config as configVencimiento } from './jobs/vencerRemisiones.js';
+import { iniciarActivacionPromociones, config as configActivacionPromos } from './jobs/activarPromociones.js';
 
 // Middleware
 
@@ -215,4 +216,7 @@ app.listen(PORT, HOST, () => {
   const ven = configVencimiento();
   console.log(`Vencimiento de remisiones (SPEC-013): ${ven.enabled ? `ACTIVO · cada ${ven.intervaloMin} min · ${ven.dias} días` : 'apagado (WOO_VENCIMIENTO_ENABLED≠true)'}`);
   iniciarVencimientoRemisiones();
+  const act = configActivacionPromos();
+  console.log(`Activador de promociones programadas (V-4): ${act.enabled ? `ACTIVO · cada ${act.intervaloMin} min` : 'apagado (PROMO_ACTIVACION_ENABLED≠true)'}`);
+  iniciarActivacionPromociones();
 });
