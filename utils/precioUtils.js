@@ -1,6 +1,22 @@
 import { poolPromise, sql } from '../db.js';
 
 /**
+ * Fecha como texto de reloj LOCAL ('YYYY-MM-DDTHH:mm:ss'), para comparar contra columnas DATETIME
+ * que guardan hora de Colombia (promociones). El contenedor de la API y el de SQL corren con
+ * TZ=America/Bogota.
+ *
+ * Por qué no sql.DateTime con un Date: el driver (useUTC) envía los componentes UTC, así que
+ * "ahora" llegaba 5 h adelantado y una promoción del 13-11 quedaba vigente desde el 12-11 a las
+ * 19:00 y vencida el último día a las 19:00 (hallazgo V-4, 30-10-2026).
+ * @param {Date} d
+ * @returns {string}
+ */
+export const fechaLocalSql = (d = new Date()) => {
+    const dos = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}T${dos(d.getHours())}:${dos(d.getMinutes())}:${dos(d.getSeconds())}`;
+};
+
+/**
  * Obtiene los precios detal y mayor de un artículo específico
  * @param {string} art_sec - Código del artículo
  * @returns {Promise<Object>} - Objeto con precios detal y mayor
@@ -220,11 +236,11 @@ export const obtenerPreciosConOferta = async (art_sec, fecha_consulta = null) =>
     const pool = await poolPromise;
     
     try {
-        const fecha = fecha_consulta || new Date();
+        const fecha = fecha_consulta ? new Date(fecha_consulta) : new Date();
         
         const result = await pool.request()
             .input('art_sec', sql.VarChar(30), art_sec)
-            .input('fecha_consulta', sql.DateTime, fecha)
+            .input('fecha_consulta', sql.VarChar(19), fechaLocalSql(fecha))
             .query(`
                 WITH PromocionActiva AS (
                     SELECT TOP 1
@@ -243,7 +259,7 @@ export const obtenerPreciosConOferta = async (art_sec, fecha_consulta = null) =>
                     WHERE pd.art_sec = @art_sec
                         AND pd.pro_det_estado = 'A'
                         AND p.pro_activa = 'S'
-                        AND @fecha_consulta BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+                        AND CAST(@fecha_consulta AS DATETIME) BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
                 )
                 SELECT 
                     a.art_sec,
@@ -332,12 +348,12 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
     }
     
     const pool = await poolPromise;
-    const fecha = fecha_consulta || new Date();
+    const fecha = fecha_consulta ? new Date(fecha_consulta) : new Date();
     
     try {
         // Usar parámetros para evitar SQL injection
         const request = pool.request();
-        request.input('fecha_consulta', sql.DateTime, fecha);
+        request.input('fecha_consulta', sql.VarChar(19), fechaLocalSql(fecha));
         const params = art_sec_list.map((art_sec, index) => {
             request.input(`art_sec_${index}`, sql.VarChar(30), art_sec);
             return `@art_sec_${index}`;
@@ -362,7 +378,7 @@ export const obtenerPreciosConOfertaMultiples = async (art_sec_list, fecha_consu
                     WHERE pd.art_sec IN (${params})
                         AND pd.pro_det_estado = 'A'
                         AND p.pro_activa = 'S'
-                        AND @fecha_consulta BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
+                        AND CAST(@fecha_consulta AS DATETIME) BETWEEN p.pro_fecha_inicio AND p.pro_fecha_fin
                 )
                 SELECT
                     a.art_sec,

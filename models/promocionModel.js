@@ -18,6 +18,18 @@ const wcApi = new WooCommerceRestApi({
 // puede quedar NULL. Nunca debe enviarse a WooCommerce como date_on_sale_to.
 const FECHA_FIN_PERMANENTE = new Date('9999-12-31T00:00:00');
 
+// La fecha de fin que llega del formulario es un día ('2026-11-30' → 2026-11-30T00:00:00Z, que con useUTC se guarda
+// como 2026-11-30 00:00). A Woo siempre se envía ese día hasta las 23:59:59, pero el ERP la guardaba a las 00:00: para
+// el ERP la promoción vencía al empezar el último día, y una resincronización ese día le quitaba la oferta a Woo.
+// Si la fecha de fin no trae hora, se guarda hasta las 23:59:59 del mismo día (hallazgo V-4, 30-10-2026).
+const finDelDia = (fecha) => {
+  const d = new Date(fecha);
+  if (!isNaN(d.getTime()) && d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0) {
+    d.setUTCHours(23, 59, 59, 0);
+  }
+  return d;
+};
+
 // Crear promoción (encabezado y detalle)
 const crearPromocion = async (promocionData) => {
   const pool = await poolPromise;
@@ -30,7 +42,7 @@ const crearPromocion = async (promocionData) => {
     // Validar fechas
     const esPermanente = promocionData.permanente === true;
     const fechaInicio = new Date(promocionData.fecha_inicio);
-    const fechaFin = esPermanente ? FECHA_FIN_PERMANENTE : new Date(promocionData.fecha_fin);
+    const fechaFin = esPermanente ? FECHA_FIN_PERMANENTE : finDelDia(promocionData.fecha_fin);
 
     if (!esPermanente && fechaInicio >= fechaFin) {
       throw new Error('La fecha de inicio debe ser menor a la fecha de fin');
@@ -237,7 +249,7 @@ const actualizarPromocion = async (proSec, promocionData) => {
       fechaInicio = new Date(promocionData.fecha_inicio);
     }
     if (!esPermanente && promocionData.fecha_fin) {
-      fechaFin = new Date(promocionData.fecha_fin);
+      fechaFin = finDelDia(promocionData.fecha_fin);
     }
 
     if (!esPermanente && fechaInicio >= fechaFin) {
