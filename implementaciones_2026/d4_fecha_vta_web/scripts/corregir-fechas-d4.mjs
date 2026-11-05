@@ -2,7 +2,7 @@
   D-4 — Corrige la fecha de los documentos web que quedaron fuera del mes del pedido.
 
     VTA2275 (pedido 11424) y VTA2278 (pedido 11421): 2026-11-03 → 2026-10-30
-    REM77   (pedido 11425):                          2026-11-01 → 2026-10-31
+    REM77   (pedido 11425), salvo con --sin-rem77:   2026-11-01 → 2026-10-31
     REM76   (pedido 11424), solo con --con-rem76:    2026-10-31 → 2026-10-30
 
   Una transacción, con foto de existencias y de ventas antes y después. Aborta sin cambiar nada si un documento no
@@ -24,9 +24,10 @@ const DESTINO = process.argv[2];
 const APLICAR = process.argv.includes('--aplicar');
 const REVERTIR = process.argv.includes('--revertir');
 const CON_REM76 = process.argv.includes('--con-rem76');
+const SIN_REM77 = process.argv.includes('--sin-rem77');
 
 if (!DESTINO || DESTINO.startsWith('--')) {
-  console.error('Uso: corregir-fechas-d4.mjs <NOMBRE_BD> [--aplicar] [--revertir] [--con-rem76]');
+  console.error('Uso: corregir-fechas-d4.mjs <NOMBRE_BD> [--aplicar] [--revertir] [--con-rem76] [--sin-rem77]');
   process.exit(1);
 }
 if (DESTINO === 'PSDATAFEB2024' && process.env.CONFIRMO_PRODUCCION !== 'si') {
@@ -39,7 +40,8 @@ const DOCUMENTOS = [
   { fac_nro: 'VTA2275', tipo: 'VTA', woo: '11424', corrida: '2026-11-03', correcta: '2026-10-30', estados: ['A'] },
   { fac_nro: 'VTA2278', tipo: 'VTA', woo: '11421', corrida: '2026-11-03', correcta: '2026-10-30', estados: ['A'] },
   // REM77 sigue en espera, pero vence sola el 06-11 si nadie paga ni extiende: anulada también se corrige.
-  { fac_nro: 'REM77', tipo: 'REM', woo: '11425', corrida: '2026-11-01', correcta: '2026-10-31', estados: ['A', 'I'] },
+  // Activa en octubre bloquea el cierre de octubre hasta resolver el pedido: --sin-rem77 la deja como está.
+  ...(SIN_REM77 ? [] : [{ fac_nro: 'REM77', tipo: 'REM', woo: '11425', corrida: '2026-11-01', correcta: '2026-10-31', estados: ['A', 'I'] }]),
   ...(CON_REM76 ? [{ fac_nro: 'REM76', tipo: 'REM', woo: '11424', corrida: '2026-10-31', correcta: '2026-10-30', estados: ['A'] }] : [])
 ];
 
