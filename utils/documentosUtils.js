@@ -27,6 +27,30 @@ export const diasVencimientoRem = () => Math.max(1, parseInt(process.env.REM_DIA
 export const calcularVencimientoRem = (desde = new Date()) => new Date(desde.getTime() + diasVencimientoRem() * 24 * 60 * 60 * 1000);
 
 /**
+ * Día calendario de Colombia ('YYYY-MM-DD') de un instante. Colombia es UTC-5 todo el año.
+ *
+ * Es texto a propósito: un Date en un parámetro sql.Date se guarda con su día UTC (el driver usa
+ * useUTC), así que desde las 19:00 de Colombia el documento queda con la fecha del día siguiente.
+ * Un 'YYYY-MM-DD' llega igual a la base, con cualquier zona del proceso (D-4, 05-11-2026).
+ * @param {Date|string|number} [instante]
+ * @returns {string}
+ */
+export const diaColombia = (instante = new Date()) => new Date(new Date(instante).getTime() - 5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+/**
+ * Día del pedido de Woo en hora de Colombia. date_created_gmt es la fuente porque no depende de la
+ * zona del proceso; date_created viene sin zona, en el reloj de la tienda, que es Colombia.
+ * @param {{date_created_gmt?:string, date_created?:string}} order
+ * @returns {string} 'YYYY-MM-DD'
+ */
+export const fechaPedidoWoo = (order) => {
+  const gmt = order?.date_created_gmt ? new Date(String(order.date_created_gmt).endsWith('Z') ? order.date_created_gmt : `${order.date_created_gmt}Z`) : null;
+  if (gmt && !isNaN(gmt.getTime())) return diaColombia(gmt);
+  const local = String(order?.date_created || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(local) ? local : diaColombia();
+};
+
+/**
  * Documento activo de tipo posterior cruzado con `fac_sec` (por fac_nro_origen de la cabecera).
  * COT → REM o VTA activa; REM → VTA activa; VTA → nunca. Devuelve { fac_nro, fac_tip_cod } o null.
  * @param {sql.Request|{request:Function}} ctx  pool o transacción (se crea un Request nuevo sobre él)

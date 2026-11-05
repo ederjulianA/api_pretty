@@ -22,6 +22,7 @@
  */
 import { poolPromise, sql } from '../db.js';
 import { generateConsecutivo, valorMayorista } from '../utils/facturaUtils.js';
+import { fechaPedidoWoo } from '../utils/documentosUtils.js';
 
 // ---------------------------------------------------------------------------
 // Estados de WooCommerce → clasificación del ERP (specs/013 §4.3)
@@ -267,7 +268,7 @@ const construirObservaciones = (order, descuentoGeneral, prefijo) => {
  * Mapea el pedido completo. No escribe nada.
  * @returns {Promise<{
  *   woo_order_id:number, fac_nro_woo:string, estado_woo:string, estado_woo_normalizado:string,
- *   clasificacion:string, fac_fec:Date, woo_modified_gmt:string, total_woo:number, payment_method:string,
+ *   clasificacion:string, fac_fec:string, woo_modified_gmt:string, total_woo:number, payment_method:string,
  *   fac_descuento_general:number, fac_obs:string, lis_pre_cod:number,
  *   cliente:{email,nombre,telefono,direccion,ciudad,nit_ide,nit_sec,nuevo},
  *   detalles:Array, errores:string[] }>}
@@ -291,16 +292,13 @@ export const mapearPedidoWoo = async (order, { prefijoObs = null } = {}) => {
   const totalLineas = detalles.reduce((s, d) => s + d.kar_total, 0);
   const montoMayorista = await valorMayorista();
 
-  // fecha del pedido en hora del sitio (date_created viene sin zona, en la zona de WordPress = Colombia)
-  const fac_fec = order.date_created ? new Date(order.date_created) : new Date();
-
   return {
     woo_order_id: Number(order.id),
     fac_nro_woo: numero,
     estado_woo: estado,
     estado_woo_normalizado: normalizarEstadoWoo(estado),
     clasificacion,
-    fac_fec: isNaN(fac_fec.getTime()) ? new Date() : fac_fec,
+    fac_fec: fechaPedidoWoo(order), // 'YYYY-MM-DD' en hora Colombia; nunca un Date (ver diaColombia)
     woo_modified_gmt: order.date_modified_gmt || order.date_modified || null,
     total_woo: parseFloat(order.total) || 0,
     payment_method: order.payment_method || null,
