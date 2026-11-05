@@ -294,7 +294,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
 
       case 'CREAR_REM_Y_FACTURAR': {
         const rem = await crear();
-        const vta = await facturarRemision({ fac_nro_rem: rem.fac_nro, usuario: cfg.usuario, notificarWoo: false });
+        const vta = await facturarRemision({ fac_nro_rem: rem.fac_nro, usuario: cfg.usuario, fac_fec: mapeo.fac_fec, notificarWoo: false });
         fac_nro_vta = vta.fac_nro_vta;
         fila.estado_erp = ESTADO_ERP.FACTURADO;
         fila.vence_el = null;
@@ -303,7 +303,7 @@ export const procesarPedido = async (order, cfg, { previo = null } = {}) => {
       }
 
       case 'FACTURAR': {
-        const vta = await facturarRemision({ fac_nro_rem: docs.rem_activa.fac_nro, usuario: cfg.usuario, notificarWoo: false });
+        const vta = await facturarRemision({ fac_nro_rem: docs.rem_activa.fac_nro, usuario: cfg.usuario, fac_fec: mapeo.fac_fec, notificarWoo: false });
         fac_nro_vta = vta.fac_nro_vta;
         fila.estado_erp = ESTADO_ERP.FACTURADO;
         fila.vence_el = null;

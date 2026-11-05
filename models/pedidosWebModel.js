@@ -18,7 +18,7 @@
 import { sql, poolPromise } from '../db.js';
 import { sincronizarDocumentoWoo, actualizarEstadoPedidoWoo } from '../services/wooStockService.js';
 import { obtenerSiguienteFacSec, obtenerSiguienteFacNro, ejecutarConAutoRecuperacion } from '../utils/secuenciaUtils.js';
-import { NATURALEZA, diasVencimientoRem, calcularVencimientoRem, destinoActivo, errorNegocio } from '../utils/documentosUtils.js';
+import { NATURALEZA, diasVencimientoRem, calcularVencimientoRem, destinoActivo, errorNegocio, diaColombia } from '../utils/documentosUtils.js';
 import { getWcApi } from '../services/wooClient.js';
 import { mapearPedidoWoo, clasificarEstadoWoo, CLASIFICACION } from '../services/wooPedidoMapper.js';
 
@@ -344,6 +344,59 @@ export const crearRemision = async ({ mapeo, nit_sec, usuario = 'SISTEMA', fac_v
 };
 
 // ---------------------------------------------------------------------------
+// Fecha de la VTA de un pedido web (D-4)
+// ---------------------------------------------------------------------------
+/**
+ * Día del pedido web de una REM, en hora Colombia. La fecha de la REM no es la fuente: las creadas
+ * antes de D-4 desde las 19:00 quedaron con el día siguiente (REM76, REM77). woo_created_gmt no tiene
+ * ese error. Sin él, el menor entre la fecha de la REM y su creación descarta el día corrido.
+ */
+const diaPedidoDeRemision = async (transaction, rem) => {
+  const rs = await new sql.Request(transaction)
+    .input('fac_sec', sql.Decimal(18, 0), rem.fac_sec)
+    .query(`
+      SELECT CONVERT(CHAR(10), DATEADD(HOUR, -5, p.woo_created_gmt), 23) AS dia_woo,
+             CONVERT(CHAR(10), CASE WHEN f.fac_fch_cre < f.fac_fec THEN f.fac_fch_cre ELSE f.fac_fec END, 23) AS dia_rem
+      FROM dbo.factura f
+      LEFT JOIN dbo.woo_pedidos p ON p.woo_order_id = TRY_CAST(f.fac_nro_woo AS INT)
+      WHERE f.fac_sec = @fac_sec
+    `);
+  const { dia_woo, dia_rem } = rs.recordset[0];
+  if (!dia_woo) console.warn(`[PEDIDOS_WEB] ${rem.fac_nro}: pedido #${rem.fac_nro_woo} sin fecha en woo_pedidos; se usa ${dia_rem} de la remisión`);
+  return dia_woo || dia_rem;
+};
+
+/**
+ * Regla del mes cerrado. PROPUESTA DEL CEO, PENDIENTE DEL OK DE EDER (encargo D-4): si el mes del
+ * pedido ya tiene un cierre activo, la VTA se fecha hoy para no mover un mes congelado, con aviso en
+ * el log y en fac_obs. Se cambia solo aquí; sin la regla: `return { fecha: dia, aviso: null };`.
+ * @returns {Promise<{fecha:string, aviso:string|null}>}
+ */
+const aplicarReglaMesCerrado = async (transaction, dia) => {
+  const [anio, mes] = dia.split('-').map(Number);
+  const rs = await new sql.Request(transaction)
+    .input('anio', sql.Int, anio)
+    .input('mes', sql.Int, mes)
+    .query(`SELECT TOP 1 cie_sec FROM dbo.cierre_mes WHERE cie_anio = @anio AND cie_mes = @mes AND cie_estado = 'A'`);
+  if (rs.recordset.length === 0) return { fecha: dia, aviso: null };
+  const hoy = diaColombia();
+  return { fecha: hoy, aviso: `Pedido del ${dia} con el mes ya cerrado (cierre ${rs.recordset[0].cie_sec}): factura con fecha ${hoy}` };
+};
+
+/**
+ * Fecha de la VTA. Pedido web: el día del pedido (decisión de Eder, 05-11), salvo mes cerrado.
+ * REM manual del POS: sin cambios hasta que Eder decida (D-4: tiene el mismo corrimiento de las 19:00).
+ * @param {string|Date|null} fac_fec  día del pedido si quien llama ya lo conoce (el importador lo trae de Woo)
+ */
+const resolverFechaVta = async (transaction, { rem, fac_fec }) => {
+  if (!rem.fac_nro_woo) return { fecha: fac_fec || new Date(), aviso: null };
+  const dia = fac_fec
+    ? (fac_fec instanceof Date ? diaColombia(fac_fec) : String(fac_fec).slice(0, 10))
+    : await diaPedidoDeRemision(transaction, rem);
+  return aplicarReglaMesCerrado(transaction, dia);
+};
+
+// ---------------------------------------------------------------------------
 // REM → VTA (relevo) — Tarea 4
 // ---------------------------------------------------------------------------
 const _facturarRemisionInternal = async ({ fac_nro_rem, usuario, fac_fec }) => {
@@ -392,6 +445,8 @@ const _facturarRemisionInternal = async ({ fac_nro_rem, usuario, fac_fec }) => {
       }
     }
 
+    const { fecha: fechaVta, aviso: avisoFecha } = await resolverFechaVta(transaction, { rem, fac_fec });
+
     // 3. Consecutivos (mismas utilidades que el resto de documentos)
     const { fac_sec: NewFacSec } = await obtenerSiguienteFacSec(transaction);
     const { fac_nro: FinalFacNro } = await obtenerSiguienteFacNro(transaction, 'VTA');
@@ -399,12 +454,12 @@ const _facturarRemisionInternal = async ({ fac_nro_rem, usuario, fac_fec }) => {
     // 4. Encabezado de la VTA. fac_est_woo se copia de la REM (observación c); fac_nro_origen = REM.
     await new sql.Request(transaction)
       .input('NewFacSec', sql.Decimal(18, 0), NewFacSec)
-      .input('fac_fec', sql.Date, fac_fec || new Date())
+      .input('fac_fec', sql.Date, fechaVta)
       .input('nit_sec', sql.VarChar(16), rem.nit_sec)
       .input('FinalFacNro', sql.VarChar(20), FinalFacNro)
       .input('usuario', sql.VarChar(100), usuario)
       .input('fac_nro_woo', sql.VarChar(16), rem.fac_nro_woo)
-      .input('fac_obs', sql.VarChar(1024), rem.fac_nro_woo ? `Factura de la remisión web ${rem.fac_nro} (pedido web #${rem.fac_nro_woo})` : `Factura de la remisión ${rem.fac_nro}`)
+      .input('fac_obs', sql.VarChar(1024), `${rem.fac_nro_woo ? `Factura de la remisión web ${rem.fac_nro} (pedido web #${rem.fac_nro_woo})` : `Factura de la remisión ${rem.fac_nro}`}${avisoFecha ? ` | ${avisoFecha}` : ''}`)
       .input('fac_est_woo', sql.VarChar(50), rem.fac_est_woo)
       .input('fac_descuento_general', sql.Decimal(17, 2), rem.fac_descuento_general || 0)
       .input('fac_total_woo', sql.Decimal(17, 2), rem.fac_total_woo)
@@ -442,7 +497,8 @@ const _facturarRemisionInternal = async ({ fac_nro_rem, usuario, fac_fec }) => {
     if (upd.rowsAffected[0] !== 1) throw errorNegocio(`La remisión ${fac_nro_rem} cambió de estado durante la facturación`);
 
     await transaction.commit();
-    resultado = { ya_facturada: false, modelo: respaldo ? 'respaldo' : 'relevo', fac_nro_rem, fac_sec_vta: NewFacSec, fac_nro_vta: FinalFacNro, fac_nro_woo: rem.fac_nro_woo, art_secs: lineas.art_secs };
+    if (avisoFecha) console.warn(`[PEDIDOS_WEB] ${FinalFacNro}: ${avisoFecha}`);
+    resultado = { ya_facturada: false, modelo: respaldo ? 'respaldo' : 'relevo', fac_nro_rem, fac_sec_vta: NewFacSec, fac_nro_vta: FinalFacNro, fac_nro_woo: rem.fac_nro_woo, art_secs: lineas.art_secs, aviso_fecha: avisoFecha };
   } catch (e) {
     try { await transaction.rollback(); } catch (_) { /* ya revertida */ }
     throw e;
@@ -486,7 +542,8 @@ const copiarLineasRemAVta = async (transaction, remSec, vtaSec, karNat = NATURAL
  * @param {object} p
  * @param {string}  p.fac_nro_rem
  * @param {string}  p.usuario           usu_cod (pantalla) o 'SISTEMA' (job)
- * @param {Date}   [p.fac_fec]          fecha de la VTA (default hoy)
+ * @param {string|Date}[p.fac_fec]      día del pedido, si se conoce. Sin él: pedido web → woo_pedidos; REM manual → hoy.
+ *                                     Ver resolverFechaVta: el día final puede cambiar por la regla del mes cerrado.
  * @param {boolean}[p.notificarWoo]     true cuando el pago se confirmó en el ERP (Tarea 4 paso 5)
  */
 export const facturarRemision = async ({ fac_nro_rem, usuario = 'SISTEMA', fac_fec = null, notificarWoo = false }) => {
